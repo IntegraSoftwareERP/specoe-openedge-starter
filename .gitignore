@@ -1,0 +1,57 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output
+dist/
+build/
+out/
+*.tsbuildinfo
+
+# Test output
+coverage/
+.nyc_output/
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment + secrets
+.env
+.env.local
+.env.*.local
+.env.production
+.env.development
+.mcp.json
+
+# OpenEdge build artifacts (client-side)
+*.r
+*.pl
+build.config
+debugger.pref
+protrace.*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.idea/
+.vscode/settings.json
+.vscode/launch.json
+*.swp
+*.swo
+
+# Cache
+.cache/
+.parcel-cache/
+.turbo/
+
+# Temp
+tmp/
+temp/
+*.tmp
