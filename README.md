@@ -44,6 +44,24 @@ No Docker, no Hub infra on the client side.
 
 (Populated on first release. Until then, see the upstream private repo or contact Integra Software for preview access.)
 
+## Contributing — this repo does NOT accept external PRs
+
+**Este repo es un mirror automático** del contenido que vive en el monorepo privado `specoe-platform/packages/starter-template/`. Cada release corre un pipeline de sync que **reemplaza el contenido del repo público** con el del upstream (preservando solo `.git/`).
+
+**Consecuencia**: cualquier PR mergeado directamente acá **se pierde en el próximo sync**. Por eso no aceptamos PRs externos en este repo.
+
+### ¿Querés contribuir?
+
+- **Bug report o feature request** → abrí un issue en este repo. Lo trasladamos al upstream y se trackea bajo la SPEC correspondiente en Integra Hub.
+- **Corrección de un typo / docs fix** → issue acá con la sugerencia. No te abocamos un PR directo porque se sobreescribe.
+- **Cambios grandes o código** → contactá a `soporte@integrasoftware.biz`. Las contribuciones significativas requieren NDA por el modelo IP de SpecOE (ver license abajo).
+
+### ¿Por qué este modelo?
+
+- El canonical source es privado (`specoe-platform`). El starter público es solo la parte que se comparte libremente (MIT).
+- Mantener la lógica del sync unidireccional simplifica el pipeline y evita divergencia entre público y upstream.
+- Otras partes del producto (Skill Server, Hub, Agent Gateway) son proprietary y no viven acá.
+
 ## Contact
 
 - Integra Software: `soporte@integrasoftware.biz`
