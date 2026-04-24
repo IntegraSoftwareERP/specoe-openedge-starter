@@ -1,0 +1,28 @@
+// gradle/build.gradle — placeholder para build del webapp PASOE.
+// El cliente customiza esto con los paths de su instalacion OpenEdge.
+
+plugins {
+    id 'base'
+}
+
+ext {
+    projectName = '{{project.name}}'
+    projectVendor = '{{project.vendor}}'
+    pasoeInstance = '{{pasoe.instance-name}}'
+    pasoeWebapp = '{{pasoe.webapp}}'
+}
+
+task info {
+    doLast {
+        println "SpecOE starter build — $projectName ($projectVendor)"
+        println "PASOE instance: $pasoeInstance / webapp: $pasoeWebapp"
+        println ""
+        println "Este build.gradle es un placeholder. Customizar con:"
+        println "  - classpath de \$DLC/java/ade-*.jar"
+        println "  - paths del codigo ABL del cliente"
+        println "  - paso de compile (ABL -> .r)"
+        println "  - paso de empaquetado (.war/.pasoear)"
+    }
+}
+
+defaultTasks 'info'

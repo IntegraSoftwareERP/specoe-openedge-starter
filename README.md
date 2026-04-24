@@ -1,81 +1,109 @@
 # specoe-openedge-starter
 
-Starter template for Progress OpenEdge projects powered by **SpecOE** — AI-assisted Spec-Driven Development workflow for ABL/PASOE development.
+**SpecOE AI Dev Accelerator** — starter template para equipos OpenEdge/Progress que quieren arrancar con Claude Code + skills + commands + agents conectados al **Hub SaaS de Integra Software**.
 
-## Status
+## Modelo de deploy
 
-🚧 **Placeholder**. This repo is the public mirror of the canonical starter that lives in the private `specoe-platform/packages/starter-template/` monorepo. Content is published here automatically on each release via a sync pipeline.
+### SaaS (default)
 
-The first real release will populate:
+Hub y Skill Server estan centralizados en **integra-kvm** (`hub.integrasoftware.biz`) y son provistos por Integra Software. El cliente solo necesita:
 
-- `setup.sh` / `setup.ps1` — cross-platform installer
-- `project.config.yaml` — project template (schema validated)
-- `.claude/` — Claude Code configuration with skills, commands, agents, standards
-- `docker/` — PASOE CI/CD artifacts (client-side build, no Hub here)
-- `docs/` — QUICKSTART, CONFIGURATION, TROUBLESHOOTING
-- `examples/sample-entity/` — working example
-- `scripts/` — release, changelog, smoke-test
-
-## What is SpecOE
-
-SpecOE is an AI Dev Accelerator for Progress/OpenEdge teams. It combines:
-
-- **Claude Code** as the IDE layer
-- **MCP Skill Server** that serves curated ABL patterns, templates, and workflow
-- **Integra Hub** for project tracking (specs, phases, tickets, KB, CRM)
-- **Spec-Driven Development (SDD)** as the methodology
-
-Result: a dev writes a PDF spec → `/nueva-entidad` → generated `.cls` + `.i` + tests + business rules compliant.
-
-## Deployment model
-
-**SaaS (default)**: Hub and Skill Server are centrally hosted by Integra Software at `hub.integrasoftware.biz`. Clients only need:
-
-- Node.js 20+
 - Git
+- Node.js 20+
 - Claude Code CLI
-- SpecOE license (or trial)
+- Licencia SpecOE (o trial)
 
-No Docker, no Hub infra on the client side.
+**Sin Docker en el cliente. Sin infra a levantar localmente.**
 
-**Suite on-premise (premium)**: for customers requiring self-hosting. Separate deliverable, not in this repo. Contact: `soporte@integrasoftware.biz` with subject "Suite on-premise".
+### Suite on-premise (premium)
 
-## Get started
+Para clientes que requieren correr Hub + Skill Server en su propia infraestructura (compliance, red aislada, personalizacion profunda). Incluye `docker-compose` + documentacion de deploy como entregable separado del tier.
 
-(Populated on first release. Until then, see the upstream private repo or contact Integra Software for preview access.)
+Contactar a Integra Software: `soporte@integrasoftware.biz`
 
-## Contributing — this repo does NOT accept external PRs
+## Quickstart (SaaS)
 
-**Este repo es un mirror automático** del contenido que vive en el monorepo privado `specoe-platform/packages/starter-template/`. Cada release corre un pipeline de sync que **reemplaza el contenido del repo público** con el del upstream (preservando solo `.git/`).
+```bash
+# 1. Clonar el starter como base del proyecto del cliente
+git clone <repo-url> mi-proyecto
+cd mi-proyecto
 
-**Consecuencia**: cualquier PR mergeado directamente acá **se pierde en el próximo sync**. Por eso no aceptamos PRs externos en este repo.
+# 2. Editar project.config.yaml con los valores del cliente
+$EDITOR project.config.yaml
 
-### ¿Querés contribuir?
+# 3. Setup (opcionalmente override del Hub con --hub)
+./setup.sh                                         # Linux/Mac/GitBash
+.\setup.ps1                                        # Windows PowerShell
+# o para apuntar a otro Hub:
+./setup.sh --hub https://hub.mi-org.com
 
-- **Bug report o feature request** → abrí un issue en este repo. Lo trasladamos al upstream y se trackea bajo la SPEC correspondiente en Integra Hub.
-- **Corrección de un typo / docs fix** → issue acá con la sugerencia. No te abocamos un PR directo porque se sobreescribe.
-- **Cambios grandes o código** → contactá a `soporte@integrasoftware.biz`. Las contribuciones significativas requieren NDA por el modelo IP de SpecOE (ver license abajo).
+# 4. Iniciar Claude Code desde la raiz del proyecto
+claude
+```
 
-### ¿Por qué este modelo?
+El SessionStart hook activa la licencia automaticamente contra el Hub configurado.
 
-- El canonical source es privado (`specoe-platform`). El starter público es solo la parte que se comparte libremente (MIT).
-- Mantener la lógica del sync unidireccional simplifica el pipeline y evita divergencia entre público y upstream.
-- Otras partes del producto (Skill Server, Hub, Agent Gateway) son proprietary y no viven acá.
+Detalle completo paso-a-paso: [docs/QUICKSTART.md](docs/QUICKSTART.md).
 
-## Contact
+## Estructura
+
+```
+specoe-openedge-starter/
+├── project.config.yaml       Configuracion principal — editar valores del cliente
+├── setup.sh / setup.ps1      Installer multiplataforma (acepta --hub / -Hub)
+├── .claude/
+│   ├── settings.json         Hooks pre-configurados (SessionStart license check + Stop telemetry)
+│   ├── CLAUDE.md             Instrucciones parametrizadas por project.config.yaml
+│   ├── skills/
+│   │   ├── openedge-abl/     Skill LIBRE — referencia ABL general
+│   │   └── integra-pasoe/    Skill PROTEGIDO (stub) — consulta MCP Skill Server
+│   ├── commands/             Commands SDD (stubs protegidos)
+│   ├── agents/               Agentes especializados (stubs protegidos)
+│   └── standards/            Estandares de arquitectura (stubs protegidos)
+├── docker/
+│   ├── Dockerfile.pasoe      Pipeline CI/CD PASOE (build de la app del cliente)
+│   └── gradle/build.gradle   Gradle para el build PASOE
+├── docs/
+│   ├── QUICKSTART.md
+│   ├── CONFIGURATION.md      Referencia completa de project.config.yaml
+│   └── TROUBLESHOOTING.md
+├── examples/
+│   └── sample-entity/        Ejemplo funcional de entity
+└── scripts/
+    ├── release.sh            Semantic versioning + tag
+    ├── changelog.sh          Regenera CHANGELOG.md desde commits
+    ├── test-starter.sh       Validacion de estructura del template
+    └── smoke-test.sh / .ps1  Verificacion end-to-end del ambiente
+```
+
+> **Nota**: el directorio `docker/` contiene **solamente** artefactos de build de PASOE del cliente. **No** incluye `docker-compose.yml` del Hub — el Hub es centralizado (SaaS) por default.
+
+## Licencia
+
+Ver [docs/CONFIGURATION.md](docs/CONFIGURATION.md) seccion "Licenciamiento" para el flujo de activacion y gestion de seats.
+
+Skills/commands/agents IP-criticos se sirven via **MCP Skill Server centralizado** (Integra Software). El skill `openedge-abl` esta incluido completo en el starter (gancho publico).
+
+## Contributing — este repo NO acepta PRs externos
+
+Este repo (`specoe-openedge-starter`) es un **mirror automatico** del contenido que vive en el monorepo privado `specoe-platform/packages/starter-template/` de Integra Software. Cada release corre un pipeline de sync que **reemplaza el contenido del repo publico** con el del upstream (preservando solo `.git/`).
+
+**Consecuencia**: cualquier PR mergeado directamente aca **se pierde en el proximo sync**. Por eso no aceptamos PRs externos.
+
+### ¿Queres contribuir?
+
+- **Bug report o feature request** → abri un issue en este repo. Lo trasladamos al upstream y se trackea en Integra Hub.
+- **Correccion de typo / docs fix** → issue con la sugerencia; lo aplicamos en upstream.
+- **Cambios grandes o codigo** → contactar a `soporte@integrasoftware.biz`. Contribuciones significativas requieren NDA por el modelo IP de SpecOE.
+
+### ¿Por que este modelo?
+
+- Canonical source es privado (`specoe-platform`). El starter publico es la parte compartida libremente (MIT).
+- Sync unidireccional simplifica el pipeline y evita divergencia entre publico y upstream.
+- Otras partes del producto (Skill Server, Hub, Agent Gateway) son proprietary y no viven aca.
+
+## Soporte
 
 - Integra Software: `soporte@integrasoftware.biz`
-- Trial requests: `soporte@integrasoftware.biz` with subject "SpecOE trial"
-- Documentation (public): https://specoe.integrasoftware.biz (TBD)
-
-## License
-
-[MIT](./LICENSE) — see LICENSE file.
-
-SpecOE the platform (Skill Server IP-protected content, Hub, Agent Gateway) is proprietary — this repo only contains the public starter template, licensed permissively to encourage adoption.
-
-## Reference
-
-- Origin: SPEC-0020 FASE 2 (Limpieza), specifically S08 / SPEC-0024 F1
-- Upstream canonical source: `specoe-platform/packages/starter-template/` (private)
-- Sync pipeline: triggered on each release tag of the upstream monorepo
+- Tier Suite on-premise: `soporte@integrasoftware.biz` con asunto "Suite on-premise"
+- Documentacion: https://specoe.integra.local (TODO)

@@ -1,0 +1,140 @@
+# SpecOE project config — template inicial.
+#
+# Este archivo debe pasar la validacion de @specoe/config-tools:
+#     npx specoe-validate project.config.yaml
+#
+# Referencia completa de campos, tiers y validaciones: docs/CONFIGURATION.md
+# Schema oficial: integra-hub/.../validator/src/schema.ts (fuente de verdad)
+
+schema-version: '0.1.0'
+
+# ============================================================================
+# TIER 1 — OBLIGATORIO
+# ============================================================================
+
+project:
+  name: 'MiCliente ERP' # Nombre comercial del proyecto
+  vendor: 'MiCliente SA' # Empresa cliente (razon social)
+  email: 'contacto@micliente.com' # Email de contacto del proyecto (formato valido)
+  locale: 'es-AR' # ICU locale (ej. es-AR, en-US, pt-BR)
+  currency: 'ARS' # ISO 4217 de 3 letras (ej. ARS, USD, EUR)
+
+paths:
+  workspace-root: 'C:/MiCliente/VSCode' # Path absoluto al workspace del cliente
+  repos: # Nombres de carpetas de cada repo
+    webservices: 'Webservices' # Clases ABL + PASOE content (obligatorio)
+    data: 'Integra.Data' # Temp-tables + datasets (obligatorio)
+    tests: 'Integra.Test' # ABLUnit tests (obligatorio)
+    framework: 'Integra.FrameWork' # Framework base (opcional)
+    business: 'Integra.Business' # Logica de negocio extendida (opcional)
+    common: 'Integra.Common' # Utilidades compartidas (opcional)
+    helpers: 'Integra.Helpers' # Helpers del cliente (opcional)
+  source-root: 'AppServer/' # Raiz del codigo ABL dentro de Webservices
+  data-root: 'Data/' # Raiz de tt/ds defs dentro de Integra.Data
+  test-root: 'tests/' # Raiz de tests dentro de Integra.Test
+
+database:
+  logical-name: 'clientedb' # Nombre logico de la DB Progress
+  broker-port: 49000 # Puerto del broker (1024-65535, unico)
+  multi-tenant-field: 'Empresa' # Campo de tenant en todas las tablas (framework Integra)
+  collation:
+    cpinternal: 'ISO8859-15' # Codepage interno de la DB
+    cpstream: 'ISO8859-15' # Codepage de stream I/O
+    cpcase: 'basic' # Case table
+    cpcoll: 'basic' # Collation table
+    numsep: 46 # ASCII de separador de miles ('.')
+    numdec: 44 # ASCII de separador decimal (',')
+  env-user: 'DB_USER' # Nombre de ENV var que tiene el usuario DB
+  env-password: 'DB_PASSWORD' # Nombre de ENV var que tiene el password DB
+
+pasoe:
+  oe-version: '12.8' # Version OpenEdge major.minor
+  instance-name: 'oepas1' # Instancia PASOE
+  working-dir: 'C:/OpenEdge/WRK/oepas1' # Working directory de PASOE
+  webapp: 'ClienteWeb' # WebApp registrada en PASOE
+  rest-transport: '/WebServices/rest/IntegraERP' # Path del REST transport (debe empezar con /)
+  ports:
+    dev-http: 8810 # HTTP local dev (distinto de dev-https)
+    dev-https: 8811 # HTTPS local dev
+    test-https: 8820 # HTTPS entorno test
+    prod-https: 8830 # HTTPS produccion
+  openedge-home: 'C:/Progress/OpenEdge' # Path de OpenEdge install (opcional, usa $DLC si vacio)
+  pasoe-home: 'C:/Progress/OpenEdge/servers' # Path de PASOE servers (opcional)
+
+git:
+  main-branch: 'main' # Branch principal del repo
+  feature-branch-template: 'feat/{ticket-number}-{slug}' # Debe contener {ticket-number}
+  commit-style: 'conventional' # conventional | custom
+  repo-url-template: 'https://github.com/MiCliente/{repo}' # (opcional) para links automaticos
+
+# ============================================================================
+# TIER 2 — RECOMENDADO (con defaults)
+# ============================================================================
+
+conventions:
+  entity-prefix: '' # Prefijo de clases entity (ej. "E" -> EClient.cls). Default: ""
+  temp-table-prefix: 'tt' # Default: "tt"
+  dataset-prefix: 'ds' # Default: "ds"
+  include-path-template: 'Data/Clases/Entitys/{area}/{class}.i' # Default: este mismo template
+  code-charset: 'ascii' # ascii | utf-8. Default: ascii
+  field-names: 'full' # full | abbreviated. Default: full
+  table-name-prefix-in-code: false # true/false. Default: false
+
+areas: # Array de objetos (no objeto!)
+  - name: 'clienteapp'
+    description: 'Area de storage para tablas de aplicacion'
+  - name: 'clienteidx'
+    description: 'Area para indices'
+  - name: 'cliente_blob'
+    description: 'Area para BLOBs y adjuntos del Hub'
+
+hub:
+  api-url: 'https://hub.integra.local/api/v1'
+  auth:
+    method: 'env' # env | oauth | static. 'static' NO recomendado (warning).
+    env-user: 'INTEGRA_HUB_EMAIL' # Requerido si method=env
+    env-password: 'INTEGRA_HUB_PASSWORD' # Requerido si method=env
+
+frontend:
+  enabled: false # true si el cliente tiene frontend React
+  # stack:                                # OBLIGATORIO si enabled=true
+  #   framework: "React"
+  #   version: "18.3.1"
+  #   build-tool: "Vite"
+  #   build-tool-version: "6.0.0"
+  #   language: "typescript"
+  #   http-client: "axios"
+  #   router: "react-router-dom"
+  #   router-version: "7.1.0"
+  #   charts: "recharts"
+
+# engram-central: opcional. Descomentar SOLO si el equipo tiene Gitea + sync montado.
+# engram-central:
+#   gitea-url: "https://gitea.team.local"           # URL completa
+#   gitea-ssh: "git@gitea.team.local"               # Formato git@host
+#   gitea-org: "micliente"                          # Organizacion en Gitea
+#   sync-interval-minutes: 10                       # 1-1440. Default: 10
+#   local-path: "~/engram-central"                  # Default: ~/engram-central
+#   include-sessions: true                          # Default: true
+#   include-prompts: false                          # Default: false
+#   secret-scan: true                               # Default: true
+
+# ============================================================================
+# TIER 3 — INTENCIONALMENTE OMITIDO DE ESTE TEMPLATE
+# ============================================================================
+#
+# La seccion `framework:` (Tier 3) contiene los literales "locked" del patron
+# SpecOE: naming de base classes, datasets, metodos de sesion, prefijos de
+# codigos de estado, servicios de auth. Esos valores son IP del producto.
+#
+# El Skill Server de SpecOE hace el merge de Tier 3 server-side cuando tu
+# `project.config.yaml` (Tier 1 + 2 del cliente) se envia al Hub como parte
+# del flujo de generacion de skills / commands / agents. No necesitas
+# declararlo ni saber su contenido — SpecOE lo aplica automaticamente.
+#
+# Si intentas declarar `framework:` local aca, el validator client-side
+# (@specoe/config-tools, Tier 1 only) ignora la seccion con una notice
+# informativa. La validacion completa Tier 1+2+3 corre server-side.
+#
+# Referencia: SPEC-0024 F4 decision IP (2026-04-23) — "Tier 2/3 se validan
+# server-side, el cliente no necesita conocer su estructura".

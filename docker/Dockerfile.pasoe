@@ -1,0 +1,25 @@
+# Dockerfile.pasoe — placeholder del pipeline CI/CD para PASOE del cliente.
+# Este dockerfile se usa en CI para buildear el webapp del cliente.
+#
+# Dependencias (Progress no esta publico en Docker Hub):
+# - base image con OpenEdge 12.x instalado (el cliente la provee desde su instalador oficial)
+# - Gradle + JDK 17
+# - rcode compiler configurado
+#
+# NOTA: este es scaffold. Cada shop debe customizar con su base image de Progress.
+
+# ARG PROGRESS_BASE=your-progress-base-image:12.8
+# FROM ${PROGRESS_BASE}
+
+FROM alpine:3.19
+LABEL org.opencontainers.image.title="specoe-pasoe-build"
+LABEL org.opencontainers.image.description="Placeholder — replace con base de Progress del cliente"
+
+RUN apk add --no-cache bash curl openjdk17-jre gradle
+
+WORKDIR /build
+COPY gradle ./gradle
+RUN gradle --version
+
+# TODO cliente: agregar pasos de copia del codigo + build + empaquetado .war/.pasoear
+CMD ["bash", "-c", "echo 'specoe-pasoe placeholder — customizar con base Progress del cliente'"]
