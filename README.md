@@ -29,7 +29,7 @@ git clone https://github.com/IntegraSoftwareERP/specoe-openedge-starter.git mi-p
 cd mi-proyecto
 
 # 2. Editar project.config.yaml con los valores del cliente
-$EDITOR project.config.yaml
+nano project.config.yaml    # o vim, code, gedit, micro — el editor que tengas
 
 # 3. Setup (opcionalmente override del Hub con --hub)
 ./setup.sh                                         # Linux/Mac/GitBash

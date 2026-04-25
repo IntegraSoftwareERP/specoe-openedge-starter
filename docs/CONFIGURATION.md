@@ -250,7 +250,7 @@ Las siguientes 4 reglas se ejecutan **solo cuando el yaml se sube al Hub**. El C
 cp project.config.yaml project.config.yaml.tu-edicion
 
 # 2. Editar tu version
-$EDITOR project.config.yaml.tu-edicion
+nano project.config.yaml.tu-edicion    # o vim, code, gedit, micro
 
 # 3. Validar
 npx specoe-validate project.config.yaml.tu-edicion

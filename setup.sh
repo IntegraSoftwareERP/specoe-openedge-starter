@@ -7,8 +7,8 @@
 #   ./setup.sh --hub https://hub.mi-org.com   # override: apunta a otra instancia
 #
 # Modelo de deploy:
-#   - SaaS (default): Hub y Skill Server provistos por Integra Software
-#     (hub.integrasoftware.biz). Sin Docker en el cliente.
+#   - Piloto interno (default): Hub en hub.integra.local (VPN de Integra).
+#     Sin Docker en el cliente.
 #   - Suite on-premise: cliente ejecuta Hub + Skill Server en su infra.
 #     Contactar a Integra Software para detalles del tier.
 
@@ -121,7 +121,10 @@ for field in "project.name" "project.vendor" "database.logical-name" "pasoe.inst
   fi
 done
 
-log "Config basica OK. (Para validacion completa, usar specoe-validate — ver docs/CONFIGURATION.md)"
+log "Config basica: campos obligatorios presentes."
+warn "  ATENCION: este check solo verifica que los campos NO esten vacios."
+warn "  Si project.config.yaml tiene los valores de template ('MiCliente ERP', 'oepas1', etc.) sin editar,"
+warn "  este check pasa pero el resto del flow puede fallar. Editar el yaml en Paso 3 y validar real con smoke-test (Paso 5)."
 
 # ----- 4. License -----
 
@@ -153,4 +156,4 @@ log "  3. Iniciar Claude Code: claude"
 log "  4. Ver docs/QUICKSTART.md para el primer entity de ejemplo"
 log ""
 log "Hub: \${$(grep -E '^\s*api-url:' project.config.yaml | head -1 | sed 's/.*api-url: *//;s/"//g') :-<no configurado>}"
-log "(default SaaS: hub.integrasoftware.biz. Suite on-premise: contactar a Integra Software)"
+log "(default piloto interno: hub.integra.local. Suite on-premise: contactar a Integra Software)"

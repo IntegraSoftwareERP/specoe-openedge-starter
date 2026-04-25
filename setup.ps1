@@ -6,8 +6,8 @@
 #   .\setup.ps1 -Hub https://hub.mi-org.com       # override: apunta a otra instancia
 #
 # Modelo de deploy:
-#   - SaaS (default): Hub y Skill Server provistos por Integra Software
-#     (hub.integrasoftware.biz). Sin Docker en el cliente.
+#   - Piloto interno (default): Hub en hub.integra.local (VPN de Integra).
+#     Sin Docker en el cliente.
 #   - Suite on-premise: cliente ejecuta Hub + Skill Server en su infra.
 #     Contactar a Integra Software para detalles del tier.
 
@@ -120,7 +120,10 @@ foreach ($field in @("name:", "vendor:", "logical-name:", "instance-name:")) {
     }
 }
 
-Log "Config basica OK. (Para validacion completa, usar specoe-validate — ver docs/CONFIGURATION.md)"
+Log "Config basica: campos obligatorios presentes."
+Warn "  ATENCION: este check solo verifica que los campos NO esten vacios."
+Warn "  Si project.config.yaml tiene los valores de template ('MiCliente ERP', 'oepas1', etc.) sin editar,"
+Warn "  este check pasa pero el resto del flow puede fallar. Editar el yaml en Paso 3 y validar real con smoke-test (Paso 5)."
 
 # ----- 4. License -----
 
@@ -157,4 +160,4 @@ $yamlReload = Get-Content project.config.yaml -Raw
 $hubMatch = [regex]::Match($yamlReload, '(?m)^\s*api-url:\s*"?([^"\r\n#]+)"?')
 $currentHub = if ($hubMatch.Success) { $hubMatch.Groups[1].Value.Trim() } else { "<no configurado>" }
 Log "Hub: $currentHub"
-Log "(default SaaS: hub.integrasoftware.biz. Suite on-premise: contactar a Integra Software)"
+Log "(default piloto interno: hub.integra.local. Suite on-premise: contactar a Integra Software)"

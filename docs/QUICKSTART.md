@@ -1,105 +1,126 @@
 # Quickstart
 
-Objetivo: de repo vacio a **primera entidad generada en < 20 minutos**.
+Objetivo: de repo vacio a **primera entidad generada en menos de 30 minutos**.
 
-Este quickstart documenta el flujo **SaaS** (default) — Hub y Skill Server centralizados en Integra Software. Si tu organizacion contrato la Suite on-premise, ver [Suite on-premise](#suite-on-premise) al final.
+Este quickstart documenta el flujo del **piloto interno** (Hub corriendo en `hub.integra.local`, accesible via VPN de Integra). Si tu organizacion contrato la Suite on-premise, ver [Suite on-premise](#suite-on-premise) al final.
 
-## Criterio de éxito del piloto
+## Criterio de exito
 
-> Este onboarding es exitoso si vas de `git clone` a tu primera entidad ABL generada en menos de 30 minutos sin necesidad de abrir TROUBLESHOOTING.md ni contactar soporte. Si abrís TROUBLESHOOTING durante el setup, registralo en el feedback al final.
-
-## Prerrequisitos (verificacion rapida)
-
-- **Node.js 20+** — `node --version`
-- **Git** — `git --version`
-- **Claude Code** — `claude --version` (instalar desde https://claude.ai/code)
-- **OpenEdge 12.x** — para correr PASOE local en el cliente (build de tu app)
-- **Licencia SpecOE** (o trial — se gestiona con Integra Software)
-
-> **No se requiere Docker en el cliente** para el tier SaaS. El Hub es remoto.
+> Este onboarding es exitoso si vas de `git clone` a tu primera entidad ABL generada en menos de 30 minutos sin necesidad de abrir TROUBLESHOOTING.md ni contactar soporte. Si abris TROUBLESHOOTING durante el setup, registralo en el feedback al final.
 
 ---
 
-## Paso 0 — Setup inicial (~3 min)
+## Pre-requisitos
 
-`setup.sh` (o `setup.ps1` en Windows) instala automaticamente las herramientas necesarias en `~/.claude/` (hooks de auth/license + script de migracion). El instalador es **idempotente** — no pisa archivos existentes, reporta cada uno como `[INSTALL]` o `[SKIP]`.
+Antes de empezar necesitas:
 
-> **Pre-condicion**: tenes que haber clonado el starter primero (Paso 1). Si todavia no lo hiciste, salta a Paso 1 y volve aca.
+- **Node 20+** instalado (verificar con `node --version`)
+  - Si no tenes, usa `nvm`:
+    ```bash
+    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.0/install.sh | bash
+    nvm install 20 && nvm use 20
+    ```
+  - **NO usar `apt install nodejs`** — instala una version muy vieja en muchas distros.
 
-```bash
-./setup.sh                 # Linux/Mac/GitBash
-.\setup.ps1                # Windows PowerShell
-```
+- **Claude Code** instalado y arrancado al menos una vez.
+  - Descargar desde https://claude.ai/code
+  - Despues de instalar, arrancalo una vez (`claude --help`) para que cree `~/.claude/`. Si nunca lo arrancaste, este directorio no existe y los pasos siguientes no funcionan.
 
-Eso:
+- **Git**, **openssl**, **npm** — vienen pre-instalados en la mayoria de los SO. Si te faltan, instalar con tu package manager.
 
-1. Copia hooks (`credentials.mjs`, `integra-hub-auth.mjs`, `specoe-license-check.mjs`) a `~/.claude/hooks/`
-2. Copia el script `migrate-hub-credentials.mjs` a `~/.claude/scripts/`
-3. Instala dependencias del keyring (`@napi-rs/keyring`, `node-machine-id`) si no estan ya instaladas
+- **OpenEdge 12.x** — para correr PASOE local con el build de tu app. Solo necesario para el step de generacion de entidad real (no para el setup).
 
-### Si tenes credenciales `.env` legacy
+- **Acceso a la red de Integra**:
+  - VPN si trabajas remoto.
+  - Credenciales del Hub (email + password inicial + license key) — provistas por Integra Software.
 
-Si venis de una version anterior con `~/.claude/integra-hub.env` en texto plano, migralas al keyring del SO:
-
-```bash
-node ~/.claude/scripts/migrate-hub-credentials.mjs
-```
-
-El script renombra el `.env` a `.env.migrated-<timestamp>` si OK. Si no tenes `.env` legacy (primer onboarding), saltea este sub-paso — `setup.sh` ya dejo el flow listo.
-
-> **Nota**: este Paso 0 lo haces **una sola vez por maquina**. Si ya corriste `setup.sh` antes en otro proyecto del starter, todos los archivos se reportan como `[SKIP]` y este paso es practicamente instantaneo. Si algo falla, ver [TROUBLESHOOTING.md](TROUBLESHOOTING.md#credenciales-del-hub-keyring).
+> **No se requiere Docker en el cliente** para el piloto. El Hub vive en infraestructura de Integra.
 
 ---
 
-## Paso 1 — Clonar y configurar (~5 min)
+## Paso 1 — Cloná el repo
 
 ```bash
 git clone https://github.com/IntegraSoftwareERP/specoe-openedge-starter.git mi-proyecto
 cd mi-proyecto
-
-# Editar project.config.yaml — minimo 4 campos obligatorios:
-#   project.name, project.vendor, database.logical-name, pasoe.instance-name
-$EDITOR project.config.yaml
 ```
-
-Referencia completa de todos los campos: [CONFIGURATION.md](CONFIGURATION.md).
 
 ---
 
-## Paso 2 — Setup (~2 min)
+## Paso 2 — Setup automático
 
 ```bash
-# Default: usa el hub.api-url del yaml (default: hub.integrasoftware.biz)
-./setup.sh                 # Linux/Mac/GitBash
-.\setup.ps1                # Windows PowerShell
+chmod +x setup.sh           # Linux/Mac/GitBash — el bit ejecutable se pierde en algunos clones
+./setup.sh                  # Linux/Mac/GitBash
 
-# Opcional: apuntar a otro Hub (staging, otra instancia SaaS)
-./setup.sh --hub https://hub.mi-org.com
-.\setup.ps1 -Hub https://hub.mi-org.com
+# Windows PowerShell:
+.\setup.ps1
 ```
 
 El script:
 
-1. Verifica prerequisitos (Node 20+, claude CLI)
-2. Actualiza `hub.api-url` en el yaml si pasaste `--hub`
-3. Valida los 4 campos obligatorios de `project.config.yaml`
-4. Detecta license key (del yaml o de `SPECOE_LICENSE_KEY` env var)
-5. Prepara el directorio `.claude/` local
+1. Verifica prerrequisitos (Node 20+, claude CLI).
+2. Instala el bundle `.claude/` en tu `~/.claude/` (hooks de auth/license + script de migracion + dependencias del keyring). **Idempotente** — no pisa archivos existentes, reporta cada uno como `[INSTALL]` o `[SKIP]`.
+3. Valida campos basicos de `project.config.yaml` (los reales se validan en Paso 5 con smoke-test).
 
-Si falla, el mensaje `[specoe-setup]` te indica el campo o prereq faltante.
+> **Nota**: si ya corriste `setup.sh` antes en otro proyecto, los archivos del bundle aparecen como `[SKIP]` y el paso es practicamente instantaneo.
+
+Si `setup.sh` falla, el mensaje `[specoe-setup]` te dice el campo o prereq faltante.
 
 ---
 
-## Paso 3 — Verificar conectividad al Hub (~2 min)
+## Paso 3 — Configurar tu proyecto
 
-Correr el smoke test en modo `--live` para verificar que el Hub responde:
+Editar `project.config.yaml` con tu editor preferido:
 
 ```bash
-./scripts/smoke-test.sh --live                    # Linux/Mac/GitBash
-.\scripts\smoke-test.ps1 -Live                    # Windows PowerShell
+nano project.config.yaml    # o vim, code, gedit, micro — usa el que tengas
 ```
 
-Output esperado: **RESULTADO: PASS** con `Hub responde 2xx en <api-url>/health`.
+Completa los 4 campos obligatorios siguiendo las instrucciones inline:
+
+- `project.name`
+- `project.vendor`
+- `database.logical-name`
+- `pasoe.instance-name`
+
+Referencia completa de todos los campos en [CONFIGURATION.md](CONFIGURATION.md).
+
+---
+
+## Paso 4 — Credenciales del Hub
+
+Integra Software te entrega: **email**, **password inicial**, **license key**. Con eso:
+
+```bash
+cat > ~/.claude/integra-hub.env <<EOF
+INTEGRA_HUB_EMAIL=<tu-email-recibido>
+INTEGRA_HUB_PASSWORD=<tu-password-inicial>
+INTEGRA_HUB_URL=https://hub.integra.local/api/v1
+EOF
+
+node ~/.claude/scripts/migrate-hub-credentials.mjs
+```
+
+El script migra las credenciales del archivo `.env` al **keyring del SO** de forma segura (Windows Credential Manager / macOS Keychain / Linux Secret Service via `@napi-rs/keyring`). Si ves un mensaje OK, ya estan guardadas — el `.env` se renombra a `.env.migrated-<timestamp>` para evitar que quede en plaintext.
+
+> **Politica de password**: si Integra Software te pide cambiar tu password (rotacion inicial o periodica), debe tener al menos **12 caracteres**, mezcla de **mayuscula**, **minuscula**, y al menos un **digito**.
+
+Si la migracion falla, ver [TROUBLESHOOTING.md](TROUBLESHOOTING.md#credenciales-del-hub-keyring).
+
+---
+
+## Paso 5 — Validar el setup (smoke-test)
+
+```bash
+chmod +x scripts/smoke-test.sh                    # si vino sin bit ejecutable
+./scripts/smoke-test.sh --live                    # Linux/Mac/GitBash
+
+# Windows PowerShell:
+.\scripts\smoke-test.ps1 -Live
+```
+
+Output esperado: **RESULTADO: PASS** con `Hub responde 2xx en hub.integra.local/api/v1/health`.
 
 Si tenes un token JWT de prueba, tambien validar licencia contra Hub:
 
@@ -111,21 +132,21 @@ Si el Hub no responde o el JWT no valida, ir a [TROUBLESHOOTING.md](TROUBLESHOOT
 
 ---
 
-## Paso 4 — Iniciar Claude Code y primera entidad (~8 min)
+## Paso 6 — Iniciar Claude Code y generar tu primera entidad
 
 ```bash
 # Desde la raiz del proyecto
 claude
 ```
 
-Al iniciar, el **SessionStart hook** (`specoe-license-check.mjs`) valida tu licencia contra el Hub configurado. Ves:
+Al iniciar, el **SessionStart hook** (`specoe-license-check.mjs`) valida tu licencia contra el Hub configurado:
 
-- `[license] OK — tier: solo/team/enterprise` → todo bien, skills cargados
-- `[license] FAIL — <razon>` → ver [TROUBLESHOOTING.md](TROUBLESHOOTING.md#licencia-specoe)
+- `[license] OK — tier: solo/team/enterprise` -> todo bien, skills cargados.
+- `[license] FAIL — <razon>` -> ver [TROUBLESHOOTING.md](TROUBLESHOOTING.md#licencia-specoe).
 
-## Generación de entidad
+### Generación de entidad
 
-### Flow recomendado: desde SPEC en Hub (post-MVP)
+#### Flow recomendado: desde SPEC en Hub (post-MVP)
 
 El flow completo SDD arranca desde una SPEC en el Hub:
 
@@ -137,33 +158,33 @@ El flow completo SDD arranca desde una SPEC en el Hub:
 
 \*Este flow estará disponible en una versión próxima. Mientras tanto, usá el flow PDF.\*
 
-### Flow actual: desde PDF de spec
+#### Flow actual: desde PDF de spec
 
 ```
 /nueva-entidad <ruta-a-tu-spec.pdf>
 ```
 
-> **Nota**: el starter no incluye un PDF de spec listo para usar (`examples/sample-entity/` solo contiene un `README.md` documentando el formato). Para el piloto, usa una spec real del cliente o un PDF de prueba que tengas a mano. El comando acepta path absoluto o relativo a la raiz del proyecto. Ejemplo: `/nueva-entidad C:\Specs\Provincias.pdf`.
+> **Nota**: el starter no incluye un PDF de spec listo para usar (`examples/sample-entity/` solo contiene un `README.md` documentando el formato). Para el piloto, usa una spec real del cliente o un PDF de prueba que tengas a mano. El comando acepta path absoluto o relativo a la raiz del proyecto. Ejemplo: `/nueva-entidad ~/specs/Provincias.pdf`.
 
 Claude va a:
 
-1. Leer el PDF de especificacion
-2. Cargar el skill `integra-pasoe` desde el MCP Skill Server (bajo demanda)
-3. Generar `Clases/Entitys/<Area>/<Nombre>.cls` + `.i` + test ABLUnit
-4. Correr las validaciones del framework Integra contra el output
+1. Leer el PDF de especificacion.
+2. Cargar el skill `integra-pasoe` desde el MCP Skill Server (bajo demanda).
+3. Generar `Clases/Entitys/<Area>/<Nombre>.cls` + `.i` + test ABLUnit.
+4. Correr las validaciones del framework Integra contra el output.
 
 Output esperado: 3 archivos nuevos + `1-Operacion Exitosa` en los logs del hook Stop.
 
 ---
 
-## Paso 5 — Verificacion end-to-end (~1 min)
+## Verificacion end-to-end
 
 Checklist final (si todos los items pasan, **LISTO**):
 
-- [ ] Keyring del SO tiene tus credenciales (ver `Administrar credenciales` en Windows Control Panel → `integra-hub-claude-code`)
-- [ ] `smoke-test --live` retorna PASS
-- [ ] Claude Code arranca sin errores en el SessionStart hook
-- [ ] `/nueva-entidad` genero los 3 archivos esperados sin errores
+- [ ] Keyring del SO tiene tus credenciales (en Windows: `Administrar credenciales` -> `integra-hub-claude-code`. En macOS: Keychain Access. En Linux: `secret-tool lookup`).
+- [ ] `smoke-test --live` retorna PASS.
+- [ ] Claude Code arranca sin errores en el SessionStart hook.
+- [ ] `/nueva-entidad` genero los 3 archivos esperados sin errores.
 
 Si algun item falla, ir a la seccion especifica de [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 
@@ -171,17 +192,19 @@ Si algun item falla, ir a la seccion especifica de [TROUBLESHOOTING.md](TROUBLES
 
 ## Tiempo total estimado
 
-| Paso                                               | Tiempo      |
-| -------------------------------------------------- | ----------- |
-| 0. Setup inicial (solo primera vez por maquina)    | ~3 min      |
-| 1. Clonar + config                                 | ~5 min      |
-| 2. Setup                                           | ~2 min      |
-| 3. Verificar Hub                                   | ~2 min      |
-| 4. Claude + primera entidad                        | ~8 min      |
-| 5. Verificacion final                              | ~1 min      |
-| **Total**                                          | **~21 min** |
+| Paso                                | Tiempo      |
+| ----------------------------------- | ----------- |
+| Pre-requisitos (verificar)          | ~2 min      |
+| 1. Clonar el repo                   | ~1 min      |
+| 2. Setup automatico                 | ~3 min      |
+| 3. Configurar `project.config.yaml` | ~5 min      |
+| 4. Credenciales del Hub             | ~3 min      |
+| 5. Validar setup (smoke-test)       | ~2 min      |
+| 6. Claude + primera entidad         | ~8 min      |
+| Verificacion final                  | ~1 min      |
+| **Total**                           | **~25 min** |
 
-Si tardaste mas de 25, algo fallo. La causa mas comun en SaaS es conectividad al Hub (DNS, firewall, VPN). [TROUBLESHOOTING.md](TROUBLESHOOTING.md#conectividad-al-hub-saas) cubre los escenarios tipicos.
+Si tardaste mas de 30, algo fallo. La causa mas comun es conectividad al Hub (DNS, firewall, VPN). [TROUBLESHOOTING.md](TROUBLESHOOTING.md#conectividad-al-hub-saas) cubre los escenarios tipicos.
 
 ---
 
@@ -210,4 +233,4 @@ Contactar a Integra Software: `soporte@integrasoftware.biz` con asunto **"Suite 
 
 ---
 
-_Versión: 0.1.0 — 2026-04_
+_Versión: 0.0.3 — 2026-04 (post-test-VM-limpia)_

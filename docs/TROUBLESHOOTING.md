@@ -196,7 +196,7 @@ Pasos:
 
 ## Conectividad al Hub (SaaS)
 
-En tier SaaS, el Hub vive en `hub.integrasoftware.biz` (u otra instancia provista por Integra). Los problemas de conectividad son los mas comunes porque dependen de la red del cliente.
+En tier SaaS, el Hub vive en `hub.integra.local` (u otra instancia provista por Integra). Los problemas de conectividad son los mas comunes porque dependen de la red del cliente.
 
 ### DNS no resuelve el Hub
 
@@ -208,7 +208,7 @@ En tier SaaS, el Hub vive en `hub.integrasoftware.biz` (u otra instancia provist
 
 ```bash
 # 1. Verificar que el dominio resuelve
-nslookup hub.integrasoftware.biz
+nslookup hub.integra.local
 # 2. Verificar DNS del sistema
 cat /etc/resolv.conf   # Linux/Mac
 Get-DnsClientServerAddress   # PowerShell
@@ -230,7 +230,7 @@ Alternativa: usar IP publica directamente (solo para diagnostico, NO persistir).
 
 ```bash
 # 1. Verificar que el puerto 443 sale
-curl -v https://hub.integrasoftware.biz/api/v1/health --max-time 10
+curl -v https://hub.integra.local/api/v1/health --max-time 10
 
 # 2. Si hay proxy corporativo, setear variables de entorno
 export HTTPS_PROXY=http://proxy.mi-empresa.com:8080
@@ -238,8 +238,8 @@ export HTTP_PROXY=http://proxy.mi-empresa.com:8080
 export NO_PROXY=localhost,127.0.0.1
 
 # 3. Para whitelisting coordinar con IT:
-#    - hub.integrasoftware.biz (Hub API + Frontend)
-#    - mcp.specoe.integrasoftware.biz (Skill Server -- si aplica)
+#    - hub.integra.local (Hub API + Frontend)
+#    - mcp.integra.local (Skill Server -- si aplica)
 ```
 
 ### Cert TLS no confiable
@@ -252,7 +252,7 @@ export NO_PROXY=localhost,127.0.0.1
 
 ```bash
 # 1. Verificar el cert del Hub
-openssl s_client -connect hub.integrasoftware.biz:443 -servername hub.integrasoftware.biz </dev/null 2>/dev/null | openssl x509 -noout -dates
+openssl s_client -connect hub.integra.local:443 -servername hub.integra.local </dev/null 2>/dev/null | openssl x509 -noout -dates
 
 # 2. Si hay SSL inspection del proxy corporativo, agregar su root CA al trust store:
 #    - Windows: Manage Computer Certificates → Trusted Root CA → Import
