@@ -13,11 +13,12 @@ Ejemplo de entity generada siguiendo el patron Integra.
 Con el command `/nueva-entidad`:
 
 ```
-/nueva-entidad examples/sample-entity/spec.pdf
+/nueva-entidad <ruta-a-tu-spec.pdf>
 ```
 
-El command leyo el PDF de especificacion (no incluido en este starter — es un ejemplo
-del patron), consulto el skill `integra-pasoe` via MCP, y genero los 3 archivos
+> **Nota**: el starter no incluye un PDF de spec real. El comando acepta path absoluto o relativo a la raiz del proyecto. Para el piloto, usa una spec del cliente o un PDF de prueba.
+
+El command lee el PDF de especificacion, consulta el skill `integra-pasoe` via MCP, y genera los 3 archivos
 aplicando las convenciones de `project.config.yaml`.
 
 ## Valores aplicados

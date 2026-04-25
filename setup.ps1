@@ -39,6 +39,59 @@ if (-not $claude) { Warn "Claude Code no encontrado en PATH. Instalar desde http
 
 if (-not (Test-Path project.config.yaml)) { Fail "project.config.yaml no existe en este directorio." }
 
+# ----- 1.5. Instalar bundle .claude (SPEC-0023 F6) -----
+# Idempotente: copia hooks + scripts del bundle a $HOME\.claude\. NO pisa archivos existentes.
+# Sin esto, los comandos del flow SpecOE (license check, hub auth, migrate credentials) no funcionan.
+
+Log "Instalando .claude bundle..."
+
+$ClaudeHome = Join-Path $HOME ".claude"
+$BundleDir  = Join-Path $PSScriptRoot ".claude-bundle"
+
+if (-not (Test-Path $BundleDir)) {
+    Warn ".claude-bundle no existe en el starter -- saltando install. Si Claude Code no autentica al Hub, contactar a Integra Software."
+} else {
+    foreach ($sub in @("hooks", "scripts")) {
+        $dir = Join-Path $ClaudeHome $sub
+        if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+    }
+
+    function Install-IfAbsent {
+        param([string]$Src, [string]$Dst)
+        if (-not (Test-Path $Src)) {
+            Warn "  [MISSING] $Src -- bundle incompleto"
+            return
+        }
+        if (-not (Test-Path $Dst)) {
+            Copy-Item -Path $Src -Destination $Dst -Force
+            Log "  [INSTALL] $Dst"
+        } else {
+            Log "  [SKIP]    $Dst (ya existe)"
+        }
+    }
+
+    Install-IfAbsent (Join-Path $BundleDir "hooks\credentials.mjs")               (Join-Path $ClaudeHome "hooks\credentials.mjs")
+    Install-IfAbsent (Join-Path $BundleDir "hooks\integra-hub-auth.mjs")          (Join-Path $ClaudeHome "hooks\integra-hub-auth.mjs")
+    Install-IfAbsent (Join-Path $BundleDir "hooks\specoe-license-check.mjs")      (Join-Path $ClaudeHome "hooks\specoe-license-check.mjs")
+    Install-IfAbsent (Join-Path $BundleDir "hooks\package.json")                  (Join-Path $ClaudeHome "hooks\package.json")
+    Install-IfAbsent (Join-Path $BundleDir "hooks\package-lock.json")             (Join-Path $ClaudeHome "hooks\package-lock.json")
+    Install-IfAbsent (Join-Path $BundleDir "scripts\migrate-hub-credentials.mjs") (Join-Path $ClaudeHome "scripts\migrate-hub-credentials.mjs")
+
+    # Instalar dependencias del keyring si nunca se hizo (idempotente: skipea si node_modules existe).
+    $hooksPkg = Join-Path $ClaudeHome "hooks\package.json"
+    $hooksMods = Join-Path $ClaudeHome "hooks\node_modules"
+    if ((Test-Path $hooksPkg) -and -not (Test-Path $hooksMods)) {
+        Log "  Instalando dependencias del keyring (npm install)..."
+        Push-Location (Join-Path $ClaudeHome "hooks")
+        try {
+            npm install --silent | Out-Null
+            if ($LASTEXITCODE -ne 0) { Warn "  npm install fallo -- los hooks pueden no funcionar hasta resolverlo" }
+        } finally {
+            Pop-Location
+        }
+    }
+}
+
 # ----- 2. Override hub.api-url si se paso -Hub -----
 
 if ($Hub) {

@@ -6,7 +6,7 @@
 
 ### SaaS (default)
 
-Hub y Skill Server estan centralizados en **integra-kvm** (`hub.integrasoftware.biz`) y son provistos por Integra Software. El cliente solo necesita:
+Hub y Skill Server estan centralizados en el servidor gestionado por Integra Software. El cliente solo necesita:
 
 - Git
 - Node.js 20+
@@ -25,7 +25,7 @@ Contactar a Integra Software: `soporte@integrasoftware.biz`
 
 ```bash
 # 1. Clonar el starter como base del proyecto del cliente
-git clone <repo-url> mi-proyecto
+git clone https://github.com/IntegraSoftwareERP/specoe-openedge-starter.git mi-proyecto
 cd mi-proyecto
 
 # 2. Editar project.config.yaml con los valores del cliente
@@ -82,7 +82,7 @@ specoe-openedge-starter/
 
 Ver [docs/CONFIGURATION.md](docs/CONFIGURATION.md) seccion "Licenciamiento" para el flujo de activacion y gestion de seats.
 
-Skills/commands/agents IP-criticos se sirven via **MCP Skill Server centralizado** (Integra Software). El skill `openedge-abl` esta incluido completo en el starter (gancho publico).
+Skills/commands/agents IP-criticos se sirven via **MCP Skill Server centralizado** (Integra Software). El skill `openedge-abl` (referencia ABL general) esta incluido completo en el starter como skill publico.
 
 ## Contributing — este repo NO acepta PRs externos
 

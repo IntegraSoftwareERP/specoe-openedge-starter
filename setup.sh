@@ -52,6 +52,49 @@ command -v claude >/dev/null 2>&1 || warn "Claude Code no encontrado en PATH. In
 
 [ -f project.config.yaml ] || err "project.config.yaml no existe en este directorio."
 
+# ----- 1.5. Instalar bundle .claude (SPEC-0023 F6) -----
+# Idempotente: copia hooks + scripts del bundle a ~/.claude/. NO pisa archivos existentes.
+# Sin esto, los comandos del flow SpecOE (license check, hub auth, migrate credentials) no funcionan.
+
+log "Instalando .claude bundle..."
+
+CLAUDE_HOME="$HOME/.claude"
+BUNDLE_DIR="$SCRIPT_DIR/.claude-bundle"
+
+if [ ! -d "$BUNDLE_DIR" ]; then
+  warn ".claude-bundle no existe en el starter — saltando install. Si Claude Code no autentica al Hub, contactar a Integra Software."
+else
+  mkdir -p "$CLAUDE_HOME/hooks" "$CLAUDE_HOME/scripts"
+
+  install_if_absent() {
+    local src="$1"
+    local dst="$2"
+    if [ ! -f "$src" ]; then
+      warn "  [MISSING] $src — bundle incompleto"
+      return
+    fi
+    if [ ! -f "$dst" ]; then
+      cp "$src" "$dst"
+      log "  [INSTALL] $dst"
+    else
+      log "  [SKIP]    $dst (ya existe)"
+    fi
+  }
+
+  install_if_absent "$BUNDLE_DIR/hooks/credentials.mjs"               "$CLAUDE_HOME/hooks/credentials.mjs"
+  install_if_absent "$BUNDLE_DIR/hooks/integra-hub-auth.mjs"          "$CLAUDE_HOME/hooks/integra-hub-auth.mjs"
+  install_if_absent "$BUNDLE_DIR/hooks/specoe-license-check.mjs"      "$CLAUDE_HOME/hooks/specoe-license-check.mjs"
+  install_if_absent "$BUNDLE_DIR/hooks/package.json"                  "$CLAUDE_HOME/hooks/package.json"
+  install_if_absent "$BUNDLE_DIR/hooks/package-lock.json"             "$CLAUDE_HOME/hooks/package-lock.json"
+  install_if_absent "$BUNDLE_DIR/scripts/migrate-hub-credentials.mjs" "$CLAUDE_HOME/scripts/migrate-hub-credentials.mjs"
+
+  # Instalar dependencias del keyring si nunca se hizo (idempotente: skipea si node_modules existe).
+  if [ -f "$CLAUDE_HOME/hooks/package.json" ] && [ ! -d "$CLAUDE_HOME/hooks/node_modules" ]; then
+    log "  Instalando dependencias del keyring (npm install)..."
+    (cd "$CLAUDE_HOME/hooks" && npm install --silent) || warn "  npm install fallo — los hooks pueden no funcionar hasta resolverlo"
+  fi
+fi
+
 # ----- 2. Override hub.api-url si se paso --hub -----
 
 if [ -n "$HUB_URL" ]; then

@@ -1,4 +1,4 @@
-# smoke-test.ps1 — verificacion end-to-end del ambiente del starter (Windows PowerShell).
+# smoke-test.ps1 -- SPEC-0023 F4 -- verificacion end-to-end del ambiente del starter (tier-aware: SaaS vs Suite). Compatible con Windows PowerShell 5.1 y PowerShell 7+.
 #
 # Uso:
 #   .\scripts\smoke-test.ps1                             # dry-run (default)
@@ -35,19 +35,38 @@ function Pass-Check {
 
 function Fail-Check {
     param([string]$Msg, [string]$Reason)
-    Write-Host "  [FAIL] $Msg — $Reason" -ForegroundColor Red
+    Write-Host "  [FAIL] $Msg -- $Reason" -ForegroundColor Red
     $script:Fail++
-    $script:FailMsgs += "$Msg — $Reason"
+    $script:FailMsgs += "$Msg -- $Reason"
 }
 
 function Skip-Check {
     param([string]$Msg, [string]$Reason)
-    Write-Host "  [SKIP] $Msg — $Reason" -ForegroundColor Yellow
+    Write-Host "  [SKIP] $Msg -- $Reason" -ForegroundColor Yellow
     $script:Skip++
 }
 
+# ----- Tier detection (helper comun, mirror exacto de smoke-test.sh detect_tier) -----
+# Lee hub.api-url de project.config.yaml y deriva el tier para que el smoke-test
+# adapte sus checks (ej. docker/Dockerfile.pasoe se SKIPea para SaaS, ya que el
+# cliente SaaS no construye PASOE local).
+#   - "saas"  si la URL apunta a un dominio integrasoftware.biz
+#   - "suite" en cualquier otro caso (URL local, custom, ausente o invalida)
+function Get-Tier {
+    if (-not (Test-Path "project.config.yaml")) { return "suite" }
+    $yaml = Get-Content "project.config.yaml" -Raw -ErrorAction SilentlyContinue
+    if (-not $yaml) { return "suite" }
+    if ($yaml -match '(?m)^\s*(?:api-url|url):\s*[''"]?([^''"\r\n#]+)') {
+        $hubUrl = $Matches[1].Trim()
+        if ($hubUrl -match 'integrasoftware\.biz') { return "saas" }
+    }
+    return "suite"
+}
+
+$tier = Get-Tier
+
 $mode = if ($Live) { "LIVE" } else { "DRY-RUN" }
-Write-Host "== smoke-test del starter — $mode ==" -ForegroundColor Cyan
+Write-Host "== smoke-test del starter -- $mode -- tier=$tier ==" -ForegroundColor Cyan
 Write-Host ""
 
 # ----- 1. Prerrequisitos -----
@@ -72,12 +91,12 @@ try {
 try {
     $dockerVer = (& docker --version) 2>$null
     if ($dockerVer) {
-        Pass-Check "Docker ($dockerVer) (opcional — no requerido en tier SaaS)"
+        Pass-Check "Docker ($dockerVer) (opcional -- no requerido en tier SaaS)"
     } else {
-        Skip-Check "Docker" "no instalado — OK en tier SaaS (solo requerido para Suite on-premise)"
+        Skip-Check "Docker" "no instalado -- OK en tier SaaS (solo requerido para Suite on-premise)"
     }
 } catch {
-    Skip-Check "Docker" "no instalado — OK en tier SaaS (solo requerido para Suite on-premise)"
+    Skip-Check "Docker" "no instalado -- OK en tier SaaS (solo requerido para Suite on-premise)"
 }
 
 try {
@@ -88,24 +107,29 @@ try {
         Pass-Check "Claude Code (instalado)"
     }
 } catch {
-    Fail-Check "Claude Code" "no instalado en PATH — ver https://claude.ai/code"
+    Fail-Check "Claude Code" "no instalado en PATH -- ver https://claude.ai/code"
 }
 
 try {
     $null = (& openssl version) 2>$null
     Pass-Check "openssl disponible (para generar secretos)"
 } catch {
-    Fail-Check "openssl" "no instalado — necesario para generar JWT/VAULT keys"
+    Fail-Check "openssl" "no instalado -- necesario para generar JWT/VAULT keys"
 }
 
 # ----- 2. Archivos del starter -----
 Write-Host ""
 Write-Host "[2/5] Archivos del starter"
 
-if (Test-Path "project.config.yaml")        { Pass-Check "project.config.yaml" }        else { Fail-Check "project.config.yaml" "no existe en la raiz" }
-if (Test-Path "setup.ps1")                   { Pass-Check "setup.ps1" }                   else { Fail-Check "setup.ps1" "falta" }
-if (Test-Path "docker/Dockerfile.pasoe")     { Pass-Check "docker/Dockerfile.pasoe (build CI/CD)" } else { Fail-Check "docker/Dockerfile.pasoe" "falta" }
-if (Test-Path ".claude")                     { Pass-Check ".claude/ existe" }             else { Fail-Check ".claude/" "falta — correr .\setup.ps1" }
+if (Test-Path "project.config.yaml") { Pass-Check "project.config.yaml" } else { Fail-Check "project.config.yaml" "no existe en la raiz" }
+if (Test-Path "setup.ps1")           { Pass-Check "setup.ps1" }           else { Fail-Check "setup.ps1" "falta" }
+if ($tier -eq "saas") {
+    Skip-Check "docker/Dockerfile.pasoe" "tier SaaS -- el cliente no construye PASOE local"
+} else {
+    if (Test-Path "docker/Dockerfile.pasoe") { Pass-Check "docker/Dockerfile.pasoe (build CI/CD)" } else { Fail-Check "docker/Dockerfile.pasoe" "falta" }
+}
+if (Test-Path ".claude")                              { Pass-Check ".claude/ existe" }                      else { Fail-Check ".claude/" "falta -- correr .\setup.ps1" }
+if (Test-Path ".claude/skills/openedge-abl/SKILL.md") { Pass-Check ".claude/skills/openedge-abl/SKILL.md" } else { Fail-Check ".claude/skills/openedge-abl/SKILL.md" "falta -- correr .\setup.ps1" }
 
 # ----- 3. Config validation -----
 Write-Host ""
@@ -129,7 +153,7 @@ if ($validatorAvailable) {
         Fail-Check "specoe-validate" "error ejecutando el validator"
     }
 } else {
-    Skip-Check "specoe-validate" "no disponible — instalar @specoe/config-tools para validacion completa"
+    Skip-Check "specoe-validate" "no disponible -- instalar @specoe/config-tools para validacion completa"
     # Fallback: chequear 4 secciones obligatorias
     $yamlContent = Get-Content "project.config.yaml" -Raw -ErrorAction SilentlyContinue
     foreach ($section in @("project:", "paths:", "database:", "pasoe:")) {
@@ -148,7 +172,7 @@ Write-Host "[4/5] Credenciales y MCP config"
 if (Test-Path ".mcp.json") {
     Pass-Check ".mcp.json presente"
 } elseif (Test-Path ".mcp.json.example") {
-    Skip-Check ".mcp.json" "no existe aun — copiar desde .mcp.json.example"
+    Skip-Check ".mcp.json" "no existe aun -- copiar desde .mcp.json.example"
 } else {
     Skip-Check ".mcp.json" "sin template .example tampoco"
 }
@@ -159,9 +183,9 @@ if (Test-Path (Join-Path $claudeDir "integra-hub-account.json")) {
 } elseif (Test-Path (Join-Path $claudeDir "integra-hub.enc")) {
     Pass-Check "Credenciales del Hub en cipher file (fallback)"
 } elseif (Test-Path (Join-Path $claudeDir "integra-hub.env")) {
-    Skip-Check "Credenciales del Hub" "aun en .env plaintext — correr 'node ~/.claude/scripts/migrate-hub-credentials.mjs'"
+    Skip-Check "Credenciales del Hub" "aun en .env plaintext -- correr 'node ~/.claude/scripts/migrate-hub-credentials.mjs'"
 } else {
-    Fail-Check "Credenciales del Hub" "no hay keyring ni .env — ver QUICKSTART paso 0"
+    Fail-Check "Credenciales del Hub" "no hay keyring ni .env -- ver QUICKSTART paso 0"
 }
 
 # ----- 5. Live checks -----
@@ -216,7 +240,7 @@ if ($Live) {
         Skip-Check "JWT validation" "no se paso -Jwt <token>"
     }
 } else {
-    Write-Host "[5/5] Live checks — SKIPPED (usar -Live para habilitar)"
+    Write-Host "[5/5] Live checks -- SKIPPED (usar -Live para habilitar)"
     Skip-Check "Hub healthz" "dry-run mode"
     Skip-Check "JWT validation" "dry-run mode"
 }
@@ -225,7 +249,7 @@ if ($Live) {
 Write-Host ""
 Write-Host "=================================================="
 $total = $script:Pass + $script:Fail + $script:Skip
-Write-Host "  Total: $total checks — PASS: $($script:Pass) | FAIL: $($script:Fail) | SKIP: $($script:Skip)"
+Write-Host "  Total: $total checks -- PASS: $($script:Pass) | FAIL: $($script:Fail) | SKIP: $($script:Skip)"
 Write-Host "=================================================="
 
 if ($script:Fail -eq 0) {

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# smoke-test.sh — verificacion end-to-end del ambiente del starter.
+# smoke-test.sh -- SPEC-0023 F4 -- verificacion end-to-end del ambiente del starter (tier-aware: SaaS vs Suite).
 #
 # Uso:
 #   ./scripts/smoke-test.sh                 # dry-run (default): checks locales, sin red
@@ -42,17 +42,34 @@ pass() {
 }
 
 fail() {
-  echo "  [FAIL] $1 — $2"
+  echo "  [FAIL] $1 -- $2"
   FAIL=$((FAIL + 1))
-  FAIL_MSGS+=("$1 — $2")
+  FAIL_MSGS+=("$1 -- $2")
 }
 
 skip() {
-  echo "  [SKIP] $1 — $2"
+  echo "  [SKIP] $1 -- $2"
   SKIP=$((SKIP + 1))
 }
 
-echo "== smoke-test del starter — $([ $LIVE -eq 1 ] && echo 'LIVE' || echo 'DRY-RUN') =="
+# ----- Tier detection (helper comun, mirror exacto en smoke-test.ps1 Get-Tier) -----
+# Lee hub.api-url de project.config.yaml y deriva el tier para que el smoke-test
+# adapte sus checks (ej. docker/Dockerfile.pasoe se SKIPea para SaaS, ya que el
+# cliente SaaS no construye PASOE local).
+#   - "saas"  si la URL apunta a un dominio integrasoftware.biz
+#   - "suite" en cualquier otro caso (URL local, custom, ausente o invalida)
+detect_tier() {
+  local hub_url
+  hub_url=$(grep -E '^\s*(api-url|url):' project.config.yaml 2>/dev/null | head -1 | sed 's/.*: *//;s/"//g;s/'"'"'//g;s/#.*//;s/ *$//')
+  case "$hub_url" in
+    *integrasoftware.biz*) echo "saas" ;;
+    *) echo "suite" ;;
+  esac
+}
+
+TIER=$(detect_tier)
+
+echo "== smoke-test del starter -- $([ $LIVE -eq 1 ] && echo 'LIVE' || echo 'DRY-RUN') -- tier=$TIER =="
 echo ""
 
 # ----- 1. Prerrequisitos -----
@@ -70,21 +87,21 @@ else
 fi
 
 if command -v docker >/dev/null 2>&1; then
-  pass "Docker $(docker --version | awk '{print $3}' | tr -d ',') (opcional — no requerido en tier SaaS)"
+  pass "Docker $(docker --version | awk '{print $3}' | tr -d ',') (opcional -- no requerido en tier SaaS)"
 else
-  skip "Docker" "no instalado — OK en tier SaaS (solo requerido para Suite on-premise)"
+  skip "Docker" "no instalado -- OK en tier SaaS (solo requerido para Suite on-premise)"
 fi
 
 if command -v claude >/dev/null 2>&1; then
   pass "Claude Code ($(claude --version 2>/dev/null | head -1 || echo 'ok'))"
 else
-  fail "Claude Code" "no instalado en PATH — ver https://claude.ai/code"
+  fail "Claude Code" "no instalado en PATH -- ver https://claude.ai/code"
 fi
 
 if command -v openssl >/dev/null 2>&1; then
   pass "openssl disponible (para generar secretos)"
 else
-  fail "openssl" "no instalado — necesario para generar JWT/VAULT keys"
+  fail "openssl" "no instalado -- necesario para generar JWT/VAULT keys"
 fi
 
 # ----- 2. Archivos del starter -----
@@ -93,8 +110,13 @@ echo "[2/5] Archivos del starter"
 
 [ -f project.config.yaml ] && pass "project.config.yaml" || fail "project.config.yaml" "no existe en la raiz"
 [ -f setup.sh ]            && pass "setup.sh"            || fail "setup.sh" "falta"
-[ -f docker/Dockerfile.pasoe ] && pass "docker/Dockerfile.pasoe (build CI/CD)" || fail "docker/Dockerfile.pasoe" "falta"
-[ -d .claude ]             && pass ".claude/ existe"     || fail ".claude/" "falta — correr ./setup.sh"
+if [ "$TIER" = "saas" ]; then
+  skip "docker/Dockerfile.pasoe" "tier SaaS -- el cliente no construye PASOE local"
+else
+  [ -f docker/Dockerfile.pasoe ] && pass "docker/Dockerfile.pasoe (build CI/CD)" || fail "docker/Dockerfile.pasoe" "falta"
+fi
+[ -d .claude ]                              && pass ".claude/ existe"                         || fail ".claude/" "falta -- correr ./setup.sh"
+[ -f .claude/skills/openedge-abl/SKILL.md ] && pass ".claude/skills/openedge-abl/SKILL.md"    || fail ".claude/skills/openedge-abl/SKILL.md" "falta -- correr ./setup.sh"
 
 # ----- 3. Config validation -----
 echo ""
@@ -108,7 +130,7 @@ if command -v npx >/dev/null 2>&1 && npx --no-install specoe-validate --help >/d
     fail "specoe-validate" "el yaml no pasa el schema (correr 'npx specoe-validate project.config.yaml' para detalle)"
   fi
 else
-  skip "specoe-validate" "no disponible — instalar @specoe/config-tools para validacion completa"
+  skip "specoe-validate" "no disponible -- instalar @specoe/config-tools para validacion completa"
   # Fallback minimo: chequear 4 campos obligatorios
   for field in "project:" "paths:" "database:" "pasoe:"; do
     if grep -q "^${field}" project.config.yaml; then
@@ -127,7 +149,7 @@ echo "[4/5] Credenciales y MCP config"
 if [ -f .mcp.json ]; then
   pass ".mcp.json presente"
 elif [ -f .mcp.json.example ]; then
-  skip ".mcp.json" "no existe aun — copiar desde .mcp.json.example"
+  skip ".mcp.json" "no existe aun -- copiar desde .mcp.json.example"
 else
   skip ".mcp.json" "sin template .example tampoco"
 fi
@@ -138,9 +160,9 @@ if [ -f "$HOME/.claude/integra-hub-account.json" ]; then
 elif [ -f "$HOME/.claude/integra-hub.enc" ]; then
   pass "Credenciales del Hub en cipher file (fallback Linux headless)"
 elif [ -f "$HOME/.claude/integra-hub.env" ]; then
-  skip "Credenciales del Hub" "aun en .env plaintext — correr 'node ~/.claude/scripts/migrate-hub-credentials.mjs'"
+  skip "Credenciales del Hub" "aun en .env plaintext -- correr 'node ~/.claude/scripts/migrate-hub-credentials.mjs'"
 else
-  fail "Credenciales del Hub" "no hay keyring ni .env — ver QUICKSTART paso 0"
+  fail "Credenciales del Hub" "no hay keyring ni .env -- ver QUICKSTART paso 0"
 fi
 
 # ----- 5. Live checks -----
@@ -181,7 +203,7 @@ if [ "$LIVE" -eq 1 ]; then
     skip "JWT validation" "no se paso --jwt <token>"
   fi
 else
-  echo "[5/5] Live checks — SKIPPED (usar --live para habilitar)"
+  echo "[5/5] Live checks -- SKIPPED (usar --live para habilitar)"
   skip "Hub healthz" "dry-run mode"
   skip "JWT validation" "dry-run mode"
 fi
@@ -190,7 +212,7 @@ fi
 echo ""
 echo "=================================================="
 TOTAL=$((PASS + FAIL + SKIP))
-echo "  Total: $TOTAL checks — PASS: $PASS | FAIL: $FAIL | SKIP: $SKIP"
+echo "  Total: $TOTAL checks -- PASS: $PASS | FAIL: $FAIL | SKIP: $SKIP"
 echo "=================================================="
 
 if [ "$FAIL" -eq 0 ]; then

@@ -4,6 +4,10 @@ Objetivo: de repo vacio a **primera entidad generada en < 20 minutos**.
 
 Este quickstart documenta el flujo **SaaS** (default) — Hub y Skill Server centralizados en Integra Software. Si tu organizacion contrato la Suite on-premise, ver [Suite on-premise](#suite-on-premise) al final.
 
+## Criterio de éxito del piloto
+
+> Este onboarding es exitoso si vas de `git clone` a tu primera entidad ABL generada en menos de 30 minutos sin necesidad de abrir TROUBLESHOOTING.md ni contactar soporte. Si abrís TROUBLESHOOTING durante el setup, registralo en el feedback al final.
+
 ## Prerrequisitos (verificacion rapida)
 
 - **Node.js 20+** — `node --version`
@@ -16,33 +20,41 @@ Este quickstart documenta el flujo **SaaS** (default) — Hub y Skill Server cen
 
 ---
 
-## Paso 0 — Credenciales del Hub (~3 min)
+## Paso 0 — Setup inicial (~3 min)
 
-El starter se conecta al **Hub SaaS de Integra Software** (`hub.integrasoftware.biz`) para validar licencia y servir skills via MCP. Las credenciales se almacenan en el **keyring del SO** (Windows Credential Manager / macOS Keychain / Linux Secret Service) — **nunca en texto plano**.
+`setup.sh` (o `setup.ps1` en Windows) instala automaticamente las herramientas necesarias en `~/.claude/` (hooks de auth/license + script de migracion). El instalador es **idempotente** — no pisa archivos existentes, reporta cada uno como `[INSTALL]` o `[SKIP]`.
+
+> **Pre-condicion**: tenes que haber clonado el starter primero (Paso 1). Si todavia no lo hiciste, salta a Paso 1 y volve aca.
 
 ```bash
-# 1. Crear archivo temporal con tus credenciales (provistas por Integra Software)
-cat > ~/.claude/integra-hub.env <<EOF
-INTEGRA_HUB_EMAIL=<tu-email>
-INTEGRA_HUB_PASSWORD=<tu-password-inicial>
-INTEGRA_HUB_URL=https://hub.integrasoftware.biz/api/v1
-EOF
-
-# 2. Migrar al keyring del SO (seguro)
-node ~/.claude/scripts/migrate-hub-credentials.mjs
-
-# 3. Verificar — el script renombra el .env a .env.migrated-<timestamp> si OK
-ls ~/.claude/integra-hub.env*
+./setup.sh                 # Linux/Mac/GitBash
+.\setup.ps1                # Windows PowerShell
 ```
 
-> **Nota**: este paso lo haces **una sola vez por maquina**. Si ya migraste antes, salta al Paso 1. Si el paso 2 falla, ver [TROUBLESHOOTING.md](TROUBLESHOOTING.md#credenciales-del-hub-keyring).
+Eso:
+
+1. Copia hooks (`credentials.mjs`, `integra-hub-auth.mjs`, `specoe-license-check.mjs`) a `~/.claude/hooks/`
+2. Copia el script `migrate-hub-credentials.mjs` a `~/.claude/scripts/`
+3. Instala dependencias del keyring (`@napi-rs/keyring`, `node-machine-id`) si no estan ya instaladas
+
+### Si tenes credenciales `.env` legacy
+
+Si venis de una version anterior con `~/.claude/integra-hub.env` en texto plano, migralas al keyring del SO:
+
+```bash
+node ~/.claude/scripts/migrate-hub-credentials.mjs
+```
+
+El script renombra el `.env` a `.env.migrated-<timestamp>` si OK. Si no tenes `.env` legacy (primer onboarding), saltea este sub-paso — `setup.sh` ya dejo el flow listo.
+
+> **Nota**: este Paso 0 lo haces **una sola vez por maquina**. Si ya corriste `setup.sh` antes en otro proyecto del starter, todos los archivos se reportan como `[SKIP]` y este paso es practicamente instantaneo. Si algo falla, ver [TROUBLESHOOTING.md](TROUBLESHOOTING.md#credenciales-del-hub-keyring).
 
 ---
 
 ## Paso 1 — Clonar y configurar (~5 min)
 
 ```bash
-git clone <repo-url> mi-proyecto
+git clone https://github.com/IntegraSoftwareERP/specoe-openedge-starter.git mi-proyecto
 cd mi-proyecto
 
 # Editar project.config.yaml — minimo 4 campos obligatorios:
@@ -111,11 +123,27 @@ Al iniciar, el **SessionStart hook** (`specoe-license-check.mjs`) valida tu lice
 - `[license] OK — tier: solo/team/enterprise` → todo bien, skills cargados
 - `[license] FAIL — <razon>` → ver [TROUBLESHOOTING.md](TROUBLESHOOTING.md#licencia-specoe)
 
-### Generar tu primera entidad
+## Generación de entidad
+
+### Flow recomendado: desde SPEC en Hub (post-MVP)
+
+El flow completo SDD arranca desde una SPEC en el Hub:
 
 ```
-/nueva-entidad examples/sample-entity/spec.pdf
+/propose: quiero exponer la entidad Bancos, debe permitir CRUD con validaciones X, Y, Z
+/design: [Claude propone arquitectura]
+/implement: [Claude genera entidad]
 ```
+
+\*Este flow estará disponible en una versión próxima. Mientras tanto, usá el flow PDF.\*
+
+### Flow actual: desde PDF de spec
+
+```
+/nueva-entidad <ruta-a-tu-spec.pdf>
+```
+
+> **Nota**: el starter no incluye un PDF de spec listo para usar (`examples/sample-entity/` solo contiene un `README.md` documentando el formato). Para el piloto, usa una spec real del cliente o un PDF de prueba que tengas a mano. El comando acepta path absoluto o relativo a la raiz del proyecto. Ejemplo: `/nueva-entidad C:\Specs\Provincias.pdf`.
 
 Claude va a:
 
@@ -145,7 +173,7 @@ Si algun item falla, ir a la seccion especifica de [TROUBLESHOOTING.md](TROUBLES
 
 | Paso                                               | Tiempo      |
 | -------------------------------------------------- | ----------- |
-| 0. Credenciales Hub (solo primera vez por maquina) | ~3 min      |
+| 0. Setup inicial (solo primera vez por maquina)    | ~3 min      |
 | 1. Clonar + config                                 | ~5 min      |
 | 2. Setup                                           | ~2 min      |
 | 3. Verificar Hub                                   | ~2 min      |
@@ -168,13 +196,9 @@ Si la red al MCP Skill Server falla:
 
 ## Suite on-premise
 
-Si tu organizacion contrato el **tier Suite on-premise**, el flujo incluye:
+Si tu organizacion requiere correr Hub y Skill Server en su propia infraestructura (compliance, red aislada, personalizacion profunda), tenemos disponible el **tier Suite on-premise** como entregable separado del starter, con licencia premium.
 
-- `docker-compose.yml` + `Caddyfile` + runbooks de deploy del Hub y Skill Server
-- Certificados TLS (Let's Encrypt o internos)
-- Gestion de secretos (`LICENSE_JWT_SECRET`, `INTEGRA_VAULT_KEY`, etc.)
-
-El entregable se provee **separado de este starter** y requiere licencia premium. Contactar a Integra Software: `soporte@integrasoftware.biz` con asunto **"Suite on-premise"** para coordinar.
+Contactar a Integra Software: `soporte@integrasoftware.biz` con asunto **"Suite on-premise"** para coordinar.
 
 ---
 
@@ -186,4 +210,4 @@ El entregable se provee **separado de este starter** y requiere licencia premium
 
 ---
 
-_Ultima actualizacion: SPEC-0020 / fix/arch-hub-centralizado-only (Master Plan Integra HUB 2.0)_
+_Versión: 0.1.0 — 2026-04_

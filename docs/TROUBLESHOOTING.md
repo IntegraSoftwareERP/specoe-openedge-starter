@@ -6,6 +6,8 @@ Este doc asume **tier SaaS** (default). Si tu organizacion contrato Suite on-pre
 
 ## Indice
 
+- [Prerrequisitos faltantes](#prerrequisitos-faltantes)
+- [Estructura del starter rota](#estructura-del-starter-rota)
 - [Credenciales del Hub (keyring)](#credenciales-del-hub-keyring)
 - [Licencia SpecOE](#licencia-specoe)
 - [Conectividad al Hub (SaaS)](#conectividad-al-hub-saas)
@@ -14,6 +16,123 @@ Este doc asume **tier SaaS** (default). Si tu organizacion contrato Suite on-pre
 - [Validacion de `project.config.yaml`](#validacion-de-projectconfigyaml)
 - [Problemas dev-specific (Windows)](#problemas-dev-specific-windows)
 - [Troubleshooting Suite on-premise](#troubleshooting-suite-on-premise)
+
+## Mapa rapido -- mensaje del smoke-test → seccion
+
+Si corriste `./scripts/smoke-test.sh` (o `.ps1`) y viste un FAIL, este mapa te lleva directo a la seccion que cubre cada caso:
+
+| Mensaje del smoke-test (literal o tipo)                          | Seccion                                                                                 |
+| ---------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `[FAIL] Node 20+ -- no instalado en PATH`                        | [Prerrequisitos faltantes](#prerrequisitos-faltantes)                                   |
+| `[FAIL] Node >= 20 -- detectado vXX, se requiere 20+`            | [Prerrequisitos faltantes](#prerrequisitos-faltantes)                                   |
+| `[FAIL] Claude Code -- no instalado en PATH`                     | [Prerrequisitos faltantes](#prerrequisitos-faltantes)                                   |
+| `[FAIL] openssl -- no instalado`                                 | [Prerrequisitos faltantes](#prerrequisitos-faltantes)                                   |
+| `[FAIL] project.config.yaml -- no existe en la raiz`             | [Estructura del starter rota](#estructura-del-starter-rota)                             |
+| `[FAIL] setup.sh -- falta`                                       | [Estructura del starter rota](#estructura-del-starter-rota)                             |
+| `[FAIL] .claude/ -- falta -- correr ./setup.sh`                  | [Estructura del starter rota](#estructura-del-starter-rota)                             |
+| `[FAIL] .claude/skills/openedge-abl/SKILL.md -- falta`           | [Estructura del starter rota](#estructura-del-starter-rota)                             |
+| `[FAIL] docker/Dockerfile.pasoe -- falta` (solo si tier=suite)   | [Estructura del starter rota](#estructura-del-starter-rota)                             |
+| `[FAIL] specoe-validate -- el yaml no pasa el schema`            | [Validacion de project.config.yaml](#validacion-de-projectconfigyaml)                   |
+| `[FAIL] Seccion 'X' -- no encontrada en project.config.yaml`     | [Validacion de project.config.yaml](#validacion-de-projectconfigyaml)                   |
+| `[FAIL] Credenciales del Hub -- no hay keyring ni .env`          | [Credenciales del Hub (keyring)](#credenciales-del-hub-keyring) (ver QUICKSTART paso 0) |
+| `[FAIL] Hub URL -- no se pudo extraer de project.config.yaml`    | [Validacion de project.config.yaml](#validacion-de-projectconfigyaml)                   |
+| `[FAIL] Hub healthz -- $HUB_URL/health no responde 2xx`          | [Conectividad al Hub (SaaS)](#conectividad-al-hub-saas)                                 |
+| `[FAIL] JWT formato -- debe ser 3 segmentos separados por punto` | [JWT en .claude/settings.json](#jwt-en-claudesettingsjson)                              |
+| `[FAIL] JWT validacion -- Hub rechazo el token`                  | [Licencia SpecOE](#licencia-specoe) o [JWT](#jwt-en-claudesettingsjson)                 |
+
+> Si el mensaje del smoke-test no aparece arriba, mira la seccion mas cercana al momento del flujo en el que aparecio (setup, runtime, etc.) o ver [Si el problema no esta aca](#si-el-problema-no-esta-aca) al final.
+
+---
+
+## Prerrequisitos faltantes
+
+Errores en el bloque `[1/5] Prerrequisitos de ambiente` del smoke-test. Aparecen antes que cualquier otro check fallido -- fixearlos primero.
+
+### `Node 20+ -- no instalado en PATH` o `detectado vXX, se requiere 20+`
+
+**Fix**:
+
+- Linux/Mac (con `nvm`): `nvm install 20 && nvm use 20`
+- Windows: descargar instalador LTS desde https://nodejs.org/ (versión 20.x) y reiniciar la terminal.
+- Verificar: `node -v` debe mostrar `v20.x.x` o superior.
+
+### `Claude Code -- no instalado en PATH`
+
+**Fix**: instalar desde https://claude.ai/code siguiendo las instrucciones de la pagina (Mac/Windows/Linux). Verificar con `claude --version`.
+
+### `openssl -- no instalado -- necesario para generar JWT/VAULT keys`
+
+**Fix**:
+
+- Linux: `apt install openssl` / `dnf install openssl` (suele venir preinstalado).
+- Mac: `brew install openssl` (suele venir preinstalado).
+- Windows: viene con Git for Windows (`C:\Program Files\Git\usr\bin\openssl.exe`). Si Git Bash esta en el PATH, openssl tambien.
+
+---
+
+## Estructura del starter rota
+
+Errores en el bloque `[2/5] Archivos del starter` del smoke-test. Indican que el clone esta incompleto o el setup nunca corrio.
+
+### `project.config.yaml -- no existe en la raiz`
+
+**Causa**: clonaste el starter en un subdirectorio en vez de la raiz, o borraste el archivo.
+
+**Fix**: re-clonar el starter o copiar `project.config.yaml.example` (si existe) a `project.config.yaml`. Despues correr `./setup.sh`.
+
+### `setup.sh -- falta`
+
+**Causa**: clone incompleto.
+
+**Fix**: re-clonar el repo. `setup.sh` ship con el starter, no se genera.
+
+### `.claude/ -- falta -- correr ./setup.sh`
+
+**Causa**: corriste el smoke-test antes que `setup.sh`.
+
+**Fix**:
+
+```bash
+./setup.sh                 # Linux/Mac/GitBash
+.\setup.ps1                # Windows PowerShell
+```
+
+`setup.sh` materializa la carpeta `.claude/` con agents, commands, skills y standards desde el package interno.
+
+### `.claude/skills/openedge-abl/SKILL.md -- falta`
+
+**Causa**: `setup.sh` no termino de materializar el skill `openedge-abl` (corrida parcial o falla a mitad). Tambien puede pasar si el dev borro el archivo a mano.
+
+**Fix**: re-correr `./setup.sh` (o `.\setup.ps1` en Windows) -- el script es idempotente para `.claude/`. Si el archivo sigue ausente, ver [`setup.sh` corrió pero falló a mitad](#setupsh-corrió-pero-falló-a-mitad) abajo.
+
+### `setup.sh` corrió pero falló a mitad
+
+**Sintoma**: corriste `./setup.sh`, viste un error en `[specoe-setup]`, y ahora el smoke-test reporta cosas raras (`.claude/` vacio, `settings.json` ausente, archivos parciales).
+
+**Causa**: `setup.sh` corre con `set -euo pipefail` -- aborta al primer error sin hacer rollback ni cleanup. Los archivos parciales quedan en el filesystem.
+
+**Fix (recovery)**:
+
+1. Identificar el punto de falla en el output del setup. Mensajes `[specoe-setup]` indican el paso (validacion config, license, materializar `.claude/`).
+2. Si la falla fue en validacion del yaml (`Campo obligatorio vacio: ...`): editar `project.config.yaml` y re-correr `./setup.sh` -- no hace falta limpiar nada.
+3. Si la falla fue en materializar `.claude/` o despues: borrar el directorio y re-correr.
+
+```bash
+rm -rf .claude
+./setup.sh
+```
+
+`setup.sh` es idempotente para `.claude/` (re-crea desde cero). NO borrar `project.config.yaml` ni nada fuera de `.claude/`.
+
+**Si el error persiste** tras re-correr: el clone puede estar incompleto. Ver [setup.sh -- falta](#setupsh--falta) y [project.config.yaml -- no existe en la raiz](#projectconfigyaml--no-existe-en-la-raiz) arriba.
+
+### `docker/Dockerfile.pasoe -- falta` (solo tier Suite)
+
+> **Aplica solo si `tier=suite`** en la cabecera del smoke-test (cuando `hub.api-url` NO apunta a `integrasoftware.biz`). Para tier SaaS este check se SKIPea -- el cliente SaaS no construye PASOE local.
+
+**Causa**: clone incompleto o el `.gitignore` del cliente excluye `docker/` por error. El `Dockerfile.pasoe` es necesario para el build CI/CD del WAR de PASOE en deployments Suite on-premise.
+
+**Fix**: verificar que `git ls-files docker/` lista el Dockerfile. Si no, re-clonar el starter. NO redacta el Dockerfile a mano -- es parte del scaffold.
 
 ---
 
@@ -45,7 +164,7 @@ Esto restaura el `~/.claude/integra-hub.env` desde el backup mas reciente.
 
 **Sintoma**: `keyring disponible pero sin permiso o sin D-Bus`.
 
-En Linux sin entorno grafico (servers, WSL), D-Bus Secret Service no esta disponible. El script automaticamente cae al **cipher file** (`~/.claude/integra-hub.enc`) — AES-256-GCM con clave derivada de `machine-id + user`. No requiere accion manual.
+En Linux sin entorno grafico (servers, WSL), D-Bus Secret Service no esta disponible. El script automaticamente cae al **cipher file** (`~/.claude/integra-hub.enc`) -- AES-256-GCM con clave derivada de `machine-id + user`. No requiere accion manual.
 
 ---
 
@@ -53,7 +172,7 @@ En Linux sin entorno grafico (servers, WSL), D-Bus Secret Service no esta dispon
 
 ### License check falla al iniciar Claude Code
 
-**Sintoma**: mensaje `[WARN] SpecOE license invalida` o `[license] FAIL — <razon>` al abrir Claude.
+**Sintoma**: mensaje `[WARN] SpecOE license invalida` o `[license] FAIL -- <razon>` al abrir Claude.
 
 Pasos:
 
@@ -63,7 +182,7 @@ Pasos:
 4. Si red OK pero **401**: re-activar con `curl -X POST $hub.api-url/license/activate ...` o contactar `soporte@integrasoftware.biz`.
 5. Si red OK pero **409 "seats exceeded"**: liberar un seat con `/deactivate` en otra maquina.
 
-### Cache stale — skills protegidos no responden
+### Cache stale -- skills protegidos no responden
 
 **Sintoma**: `mcp__specoe__skill_get_content("integra-pasoe")` devuelve error tras horas sin conexion.
 
@@ -120,14 +239,14 @@ export NO_PROXY=localhost,127.0.0.1
 
 # 3. Para whitelisting coordinar con IT:
 #    - hub.integrasoftware.biz (Hub API + Frontend)
-#    - mcp.specoe.integrasoftware.biz (Skill Server — si aplica)
+#    - mcp.specoe.integrasoftware.biz (Skill Server -- si aplica)
 ```
 
 ### Cert TLS no confiable
 
 **Sintoma**: `UNABLE_TO_VERIFY_LEAF_SIGNATURE` o `self signed certificate in certificate chain`.
 
-**Causa**: en el tier SaaS Let's Encrypt esto **no deberia pasar** — si pasa, hay MITM (proxy corporativo SSL inspection) o el cert expiro.
+**Causa**: en el tier SaaS Let's Encrypt esto **no deberia pasar** -- si pasa, hay MITM (proxy corporativo SSL inspection) o el cert expiro.
 
 **Fix**:
 
@@ -139,7 +258,7 @@ openssl s_client -connect hub.integrasoftware.biz:443 -servername hub.integrasof
 #    - Windows: Manage Computer Certificates → Trusted Root CA → Import
 #    - Linux: /etc/ssl/certs/ca-certificates.crt
 
-# 3. NUNCA usar NODE_TLS_REJECT_UNAUTHORIZED=0 — risco de seguridad grave
+# 3. NUNCA usar NODE_TLS_REJECT_UNAUTHORIZED=0 -- risco de seguridad grave
 ```
 
 ### Hub responde 401 / 403
@@ -154,7 +273,7 @@ openssl s_client -connect hub.integrasoftware.biz:443 -servername hub.integrasof
 
 **Sintoma**: `curl $hub.api-url/health` retorna `503 Service Unavailable`.
 
-**Causa**: el Hub remoto tiene un problema — mantenimiento, downtime, deploy en curso.
+**Causa**: el Hub remoto tiene un problema -- mantenimiento, downtime, deploy en curso.
 
 **Fix**:
 
@@ -206,7 +325,7 @@ Pegalo con comillas simples si tu shell escapo caracteres especiales:
 Pasos:
 
 1. Iniciar Claude desde la **raiz** del starter (donde vive `.claude/`).
-2. `ls .claude/skills/ .claude/commands/ .claude/agents/` — deben existir.
+2. `ls .claude/skills/ .claude/commands/ .claude/agents/` -- deben existir.
 3. Si falta alguno, re-clonar el starter o ejecutar `./setup.sh`.
 4. Reiniciar Claude Code (Ctrl+D, volver a correr `claude`).
 
@@ -238,7 +357,7 @@ project:
 
 **Sintoma**: `tiene N problemas de validacion` con lista por path.
 
-Ver [CONFIGURATION.md](CONFIGURATION.md#troubleshooting-de-errores-comunes) — tabla con los 8 errores mas comunes del validator y como resolverlos.
+Ver [CONFIGURATION.md](CONFIGURATION.md#troubleshooting-de-errores-comunes) -- tabla con errores comunes (client-side y server-side) marcados por origen.
 
 ---
 
@@ -270,7 +389,7 @@ npx prisma migrate dev --name <name>
 
 **Causa**: Windows escribe CRLF en checkout; el repo remoto tiene LF. Git los normaliza al commit.
 
-**Fix** — si no necesitas inspeccionar el archivo byte-wise:
+**Fix** -- si no necesitas inspeccionar el archivo byte-wise:
 
 ```bash
 # ignorar whitespace en diff
@@ -293,7 +412,7 @@ El tier Suite incluye `docker-compose.yml` + `Caddyfile` + runbooks de deploy de
 
 Fuente de verdad: `integra-hub/docs/DEPLOYMENT.md` seccion "Post-deploy recovery runbooks".
 
-### Gotcha 1 — `LICENSE_JWT_SECRET` faltante → backend crashloop
+### Gotcha 1 -- `LICENSE_JWT_SECRET` faltante → backend crashloop
 
 **Sintoma**: `docker compose logs backend` muestra:
 
@@ -303,7 +422,7 @@ Configuration key "LICENSE_JWT_SECRET" does not exist
 
 El container `backend` queda en `Restarting (1)` indefinidamente.
 
-**Causa**: SPEC-0016 F3 agrego validacion explicita al boot. El backend valida 5 secretos obligatorios — si falta **cualquiera**, crash. `LICENSE_JWT_SECRET` debe ser distinto de `JWT_SECRET` (separacion de scope).
+**Causa**: SPEC-0016 F3 agrego validacion explicita al boot. El backend valida 5 secretos obligatorios -- si falta **cualquiera**, crash. `LICENSE_JWT_SECRET` debe ser distinto de `JWT_SECRET` (separacion de scope).
 
 **Fix**:
 
@@ -312,9 +431,9 @@ echo "LICENSE_JWT_SECRET=$(openssl rand -base64 48)" >> .env
 docker compose -f docker-compose.prod.yml --env-file .env up -d
 ```
 
-Verificar en `docker-compose.prod.yml` que `backend.environment` incluya `LICENSE_JWT_SECRET` — `--env-file` NO forwardea vars al container a menos que esten listadas ahi.
+Verificar en `docker-compose.prod.yml` que `backend.environment` incluya `LICENSE_JWT_SECRET` -- `--env-file` NO forwardea vars al container a menos que esten listadas ahi.
 
-### Gotcha 2 — `INTEGRA_VAULT_KEY` con formato invalido
+### Gotcha 2 -- `INTEGRA_VAULT_KEY` con formato invalido
 
 **Sintoma**:
 
@@ -324,7 +443,7 @@ INTEGRA_VAULT_KEY is not set. Generate one with `openssl rand -hex 32`
 
 O variante: `INTEGRA_VAULT_KEY must be exactly 64 hex characters`.
 
-**Causa**: la key se usa para AES-256 del vault interno. Debe ser **exactamente** 64 caracteres hex (32 bytes). Si usas `openssl rand -base64 32`, obtenes 44 chars base64 — invalido.
+**Causa**: la key se usa para AES-256 del vault interno. Debe ser **exactamente** 64 caracteres hex (32 bytes). Si usas `openssl rand -base64 32`, obtenes 44 chars base64 -- invalido.
 
 **Fix**:
 
@@ -333,7 +452,7 @@ echo "INTEGRA_VAULT_KEY=$(openssl rand -hex 32)" >> .env
 docker compose -f docker-compose.prod.yml --env-file .env up -d
 ```
 
-### Gotcha 3 — `DOMAIN` vacio → Caddy restart loop silencioso
+### Gotcha 3 -- `DOMAIN` vacio → Caddy restart loop silencioso
 
 **Sintoma**: `docker compose ps` muestra `caddy` en `Restarting (1)`. Logs:
 
@@ -347,9 +466,9 @@ Usualmente precedido por:
 WARN[0000] The "DOMAIN" variable is not set. Defaulting to a blank string.
 ```
 
-**Causa**: Caddy v2 substituye `{$DOMAIN:hub.integra.local}` con el default **solo cuando `DOMAIN` no esta definido**. Si `DOMAIN` existe pero es string vacio (ej. `DOMAIN=` en el `.env`), Caddy substituye `""` y el Caddyfile arranca con ` {` como linea — eso abre un "global options block" en vez de un site block, y el `header Strict-Transport-Security ...` siguiente es invalido a nivel global. Caddy aborta.
+**Causa**: Caddy v2 substituye `{$DOMAIN:hub.integra.local}` con el default **solo cuando `DOMAIN` no esta definido**. Si `DOMAIN` existe pero es string vacio (ej. `DOMAIN=` en el `.env`), Caddy substituye `""` y el Caddyfile arranca con ` {` como linea -- eso abre un "global options block" en vez de un site block, y el `header Strict-Transport-Security ...` siguiente es invalido a nivel global. Caddy aborta.
 
-**Fix** — setear `DOMAIN` explicitamente, aunque sea el mismo default:
+**Fix** -- setear `DOMAIN` explicitamente, aunque sea el mismo default:
 
 ```bash
 echo "DOMAIN=hub.integra.local" >> .env
@@ -358,7 +477,7 @@ docker compose -f docker-compose.prod.yml --env-file .env up -d caddy
 
 **Prevencion**: el `.env.example` ahora ship con `DOMAIN=hub.integra.local` seteado, un fresh deploy ya no cae aca.
 
-### Gotcha 4 — TLS cert de Caddy no importado → clientes Node fallan
+### Gotcha 4 -- TLS cert de Caddy no importado → clientes Node fallan
 
 **Sintoma**: tu `.mcp.json` apunta a `https://hub.mi-infra.local/...` y el MCP server de Node lanza:
 
@@ -367,15 +486,15 @@ unable to verify the first certificate
 UNABLE_TO_VERIFY_LEAF_SIGNATURE
 ```
 
-**Causa**: en dev local / staging interno, Caddy emite cert self-signed desde su CA interna. Node no confia en esa CA por default — rechaza la conexion TLS.
+**Causa**: en dev local / staging interno, Caddy emite cert self-signed desde su CA interna. Node no confia en esa CA por default -- rechaza la conexion TLS.
 
-**Fix — Opcion A (recomendado)**: importar la CA de Caddy al trust store del SO:
+**Fix -- Opcion A (recomendado)**: importar la CA de Caddy al trust store del SO:
 
 ```bash
 docker run --rm -v caddy_data:/data caddy:2-alpine caddy trust
 ```
 
-**Fix — Opcion B (per-dev, temporal)**: exportar el cert a un archivo y apuntarlo con `NODE_EXTRA_CA_CERTS` en el `.mcp.json`:
+**Fix -- Opcion B (per-dev, temporal)**: exportar el cert a un archivo y apuntarlo con `NODE_EXTRA_CA_CERTS` en el `.mcp.json`:
 
 ```json
 {
@@ -387,7 +506,7 @@ docker run --rm -v caddy_data:/data caddy:2-alpine caddy trust
 
 **Permanente**: usar dominio publico con Let's Encrypt (como el tier SaaS).
 
-### Gotcha extra — Prisma migration P3009 (`tokenHash`)
+### Gotcha extra -- Prisma migration P3009 (`tokenHash`)
 
 **Sintoma**: `Error P3009: migrate found failed migrations`.
 
@@ -411,9 +530,9 @@ UPDATE "_prisma_migrations"
 docker compose -f docker-compose.prod.yml --env-file .env up -d
 ```
 
-Los tokens son ephemeral (7d TTL) — los usuarios re-loguean una vez.
+Los tokens son ephemeral (7d TTL) -- los usuarios re-loguean una vez.
 
-### Gotcha extra — Postgres auth P1000
+### Gotcha extra -- Postgres auth P1000
 
 **Sintoma**: `Error: P1000: Authentication failed against database server`.
 
@@ -447,4 +566,4 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
 
 ---
 
-_Ultima actualizacion: SPEC-0020 / fix/arch-hub-centralizado-only (Master Plan Integra HUB 2.0)_
+_Ultima actualizacion: SPEC-0023 F3 -- auditoria + quick-jump + secciones de prerequisitos/estructura (Piloto Docs Onboarding 2026-04-28)_
