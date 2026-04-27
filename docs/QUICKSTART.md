@@ -34,6 +34,11 @@ Antes de empezar necesitas:
   - VPN si trabajas remoto.
   - Credenciales del Hub (email + password inicial + license key) — provistas por Integra Software.
 
+- **Windows**: necesitas un shell tipo Unix para ejecutar `setup.sh`. Tenes dos opciones:
+  - **Git Bash** (recomendado): viene incluido en Git for Windows. Si ya tenes Git instalado, lo tenes. Busca "Git Bash" en el menu de inicio.
+  - **WSL** (Windows Subsystem for Linux): si trabajas regularmente con herramientas Linux, esta es la mejor opcion. Instalacion: https://learn.microsoft.com/windows/wsl/install
+  - **PowerShell o CMD NO funcionan** para el setup. Usa Git Bash o WSL.
+
 > **No se requiere Docker en el cliente** para el piloto. El Hub vive en infraestructura de Integra.
 
 ---
@@ -50,12 +55,11 @@ cd mi-proyecto
 ## Paso 2 — Setup automático
 
 ```bash
-chmod +x setup.sh           # Linux/Mac/GitBash — el bit ejecutable se pierde en algunos clones
-./setup.sh                  # Linux/Mac/GitBash
-
-# Windows PowerShell:
-.\setup.ps1
+chmod +x setup.sh   # el bit ejecutable se pierde en algunos clones
+./setup.sh
 ```
+
+> **Windows**: abrir Git Bash o WSL antes de correr esto (ver Pre-requisitos).
 
 El script:
 
@@ -113,12 +117,11 @@ Si la migracion falla, ver [TROUBLESHOOTING.md](TROUBLESHOOTING.md#credenciales-
 ## Paso 5 — Validar el setup (smoke-test)
 
 ```bash
-chmod +x scripts/smoke-test.sh                    # si vino sin bit ejecutable
-./scripts/smoke-test.sh --live                    # Linux/Mac/GitBash
-
-# Windows PowerShell:
-.\scripts\smoke-test.ps1 -Live
+chmod +x scripts/smoke-test.sh   # si vino sin bit ejecutable
+./scripts/smoke-test.sh --live
 ```
+
+> **Windows**: ejecutar desde Git Bash o WSL (ver Pre-requisitos).
 
 Output esperado: **RESULTADO: PASS** con `Hub responde 2xx en hub.integra.local/api/v1/health`.
 

@@ -1,6 +1,8 @@
 # .claude-bundle
 
-Archivos que `setup.sh` (o `setup.ps1`) instala en `~/.claude/` del dev al correr el starter por primera vez. Sin esto, los comandos del flow SpecOE no funcionan.
+Archivos que `setup.sh` instala en `~/.claude/` del dev al correr el starter por primera vez. Sin esto, los comandos del flow SpecOE no funcionan.
+
+> **Windows**: ejecutar `setup.sh` desde Git Bash o WSL. PowerShell/CMD no funcionan. Ver `docs/QUICKSTART.md` Pre-requisitos.
 
 ## Que incluye
 
@@ -12,7 +14,7 @@ Archivos que `setup.sh` (o `setup.ps1`) instala en `~/.claude/` del dev al corre
 
 ## Idempotencia
 
-`setup.sh` y `setup.ps1` **NO pisan archivos existentes**. Si ya tenes un `~/.claude/hooks/credentials.mjs`, se mantiene. Cada archivo se reporta como `[INSTALL]` (copiado) o `[SKIP]` (existia).
+`setup.sh` **NO pisa archivos existentes**. Si ya tenes un `~/.claude/hooks/credentials.mjs`, se mantiene. Cada archivo se reporta como `[INSTALL]` (copiado) o `[SKIP]` (existia).
 
 Para forzar reinstalacion: borrar `~/.claude/hooks/` y `~/.claude/scripts/` manualmente antes de correr `setup.sh`.
 

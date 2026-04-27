@@ -52,7 +52,7 @@ skip() {
   SKIP=$((SKIP + 1))
 }
 
-# ----- Tier detection (helper comun, mirror exacto en smoke-test.ps1 Get-Tier) -----
+# ----- Tier detection -----
 # Lee hub.api-url de project.config.yaml y deriva el tier para que el smoke-test
 # adapte sus checks (ej. docker/Dockerfile.pasoe se SKIPea para SaaS, ya que el
 # cliente SaaS no construye PASOE local).

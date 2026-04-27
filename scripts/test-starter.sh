@@ -27,7 +27,6 @@ echo ""
 # Archivos obligatorios
 check "project.config.yaml existe" test -f project.config.yaml
 check "setup.sh existe y es ejecutable" test -x setup.sh
-check "setup.ps1 existe" test -f setup.ps1
 check "README.md existe" test -f README.md
 check ".gitignore existe" test -f .gitignore
 

@@ -32,8 +32,9 @@ cd mi-proyecto
 nano project.config.yaml    # o vim, code, gedit, micro — el editor que tengas
 
 # 3. Setup (opcionalmente override del Hub con --hub)
-./setup.sh                                         # Linux/Mac/GitBash
-.\setup.ps1                                        # Windows PowerShell
+./setup.sh
+# Windows: abrir Git Bash o WSL primero (ver QUICKSTART.md Pre-requisitos)
+
 # o para apuntar a otro Hub:
 ./setup.sh --hub https://hub.mi-org.com
 
@@ -50,7 +51,7 @@ Detalle completo paso-a-paso: [docs/QUICKSTART.md](docs/QUICKSTART.md).
 ```
 specoe-openedge-starter/
 ├── project.config.yaml       Configuracion principal — editar valores del cliente
-├── setup.sh / setup.ps1      Installer multiplataforma (acepta --hub / -Hub)
+├── setup.sh                  Installer (Linux/Mac; Windows via Git Bash o WSL)
 ├── .claude/
 │   ├── settings.json         Hooks pre-configurados (SessionStart license check + Stop telemetry)
 │   ├── CLAUDE.md             Instrucciones parametrizadas por project.config.yaml
@@ -73,7 +74,7 @@ specoe-openedge-starter/
     ├── release.sh            Semantic versioning + tag
     ├── changelog.sh          Regenera CHANGELOG.md desde commits
     ├── test-starter.sh       Validacion de estructura del template
-    └── smoke-test.sh / .ps1  Verificacion end-to-end del ambiente
+    └── smoke-test.sh         Verificacion end-to-end del ambiente
 ```
 
 > **Nota**: el directorio `docker/` contiene **solamente** artefactos de build de PASOE del cliente. **No** incluye `docker-compose.yml` del Hub — el Hub es centralizado (SaaS) por default.

@@ -19,7 +19,7 @@ Este doc asume **tier SaaS** (default). Si tu organizacion contrato Suite on-pre
 
 ## Mapa rapido -- mensaje del smoke-test → seccion
 
-Si corriste `./scripts/smoke-test.sh` (o `.ps1`) y viste un FAIL, este mapa te lleva directo a la seccion que cubre cada caso:
+Si corriste `./scripts/smoke-test.sh` y viste un FAIL, este mapa te lleva directo a la seccion que cubre cada caso:
 
 | Mensaje del smoke-test (literal o tipo)                          | Seccion                                                                                 |
 | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
@@ -93,9 +93,10 @@ Errores en el bloque `[2/5] Archivos del starter` del smoke-test. Indican que el
 **Fix**:
 
 ```bash
-./setup.sh                 # Linux/Mac/GitBash
-.\setup.ps1                # Windows PowerShell
+./setup.sh
 ```
+
+> **Windows**: ejecutar desde Git Bash o WSL (ver QUICKSTART.md Pre-requisitos).
 
 `setup.sh` materializa la carpeta `.claude/` con agents, commands, skills y standards desde el package interno.
 
@@ -103,7 +104,7 @@ Errores en el bloque `[2/5] Archivos del starter` del smoke-test. Indican que el
 
 **Causa**: `setup.sh` no termino de materializar el skill `openedge-abl` (corrida parcial o falla a mitad). Tambien puede pasar si el dev borro el archivo a mano.
 
-**Fix**: re-correr `./setup.sh` (o `.\setup.ps1` en Windows) -- el script es idempotente para `.claude/`. Si el archivo sigue ausente, ver [`setup.sh` corrió pero falló a mitad](#setupsh-corrió-pero-falló-a-mitad) abajo.
+**Fix**: re-correr `./setup.sh` (en Windows desde Git Bash o WSL) -- el script es idempotente para `.claude/`. Si el archivo sigue ausente, ver [`setup.sh` corrió pero falló a mitad](#setupsh-corrió-pero-falló-a-mitad) abajo.
 
 ### `setup.sh` corrió pero falló a mitad
 
@@ -362,6 +363,19 @@ Ver [CONFIGURATION.md](CONFIGURATION.md#troubleshooting-de-errores-comunes) -- t
 ---
 
 ## Problemas dev-specific (Windows)
+
+### Setup falla en PowerShell o CMD
+
+**Sintoma**: errores de parser tipo "El operador `<` esta reservado", "Falta parentesis de cierre", "Token inesperado".
+
+**Causa**: PowerShell y CMD no entienden la sintaxis de bash. El installer del starter es un solo `setup.sh` que requiere shell tipo Unix.
+
+**Fix**: usar **Git Bash** o **WSL** en lugar de PowerShell/CMD:
+
+- **Git Bash**: viene incluido con Git for Windows. Si tenes Git instalado, ya lo tenes. Buscar "Git Bash" en el menu de inicio.
+- **WSL** (Windows Subsystem for Linux): mejor opcion si trabajas regularmente con herramientas Linux. Instalacion: https://learn.microsoft.com/windows/wsl/install
+
+Ver tambien: QUICKSTART.md seccion Pre-requisitos.
 
 ### EPERM al correr `npx prisma generate` o `prisma migrate`
 
