@@ -44,7 +44,11 @@ async function writeKnownEmail(email) {
 }
 
 async function deleteKnownEmail() {
-  try { await fs.unlink(ACCOUNT_FILE); } catch { /* ignore */ }
+  try {
+    await fs.unlink(ACCOUNT_FILE);
+  } catch {
+    /* ignore */
+  }
 }
 
 // ----- keyring (primary) -----
@@ -96,8 +100,16 @@ export async function deleteFromKeyring(email) {
   if (!mod) return false;
   const { Entry } = mod;
   let deleted = false;
-  try { deleted = new Entry(SERVICE, email).deletePassword() || deleted; } catch { /* ignore */ }
-  try { deleted = new Entry(`${SERVICE}${URL_SUFFIX}`, email).deletePassword() || deleted; } catch { /* ignore */ }
+  try {
+    deleted = new Entry(SERVICE, email).deletePassword() || deleted;
+  } catch {
+    /* ignore */
+  }
+  try {
+    deleted = new Entry(`${SERVICE}${URL_SUFFIX}`, email).deletePassword() || deleted;
+  } catch {
+    /* ignore */
+  }
   // Limpiar el hint si lo borramos todo para no quedar con referencias stale.
   await deleteKnownEmail();
   return deleted;
@@ -113,7 +125,9 @@ function deriveKey() {
       const id = require('node:fs').readFileSync(idPath, 'utf8').trim();
       if (id) machineId = id;
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   const user = os.userInfo().username || 'default';
   const material = `${machineId}:${user}:${SERVICE}`;
   return crypto.scryptSync(material, 'spec-0005-salt-v1', 32);
@@ -149,10 +163,7 @@ async function getFromCipherFile() {
 
 export async function setToCipherFile({ email, password, url }) {
   if (!email || !password) throw new Error('setToCipherFile requires email + password');
-  const lines = [
-    `INTEGRA_HUB_EMAIL=${email}`,
-    `INTEGRA_HUB_PASSWORD=${password}`,
-  ];
+  const lines = [`INTEGRA_HUB_EMAIL=${email}`, `INTEGRA_HUB_PASSWORD=${password}`];
   if (url) lines.push(`INTEGRA_HUB_URL=${url}`);
   const encrypted = encryptBlob(lines.join('\n'));
   await fs.mkdir(path.dirname(CIPHER_FILE), { recursive: true });
@@ -199,9 +210,9 @@ async function getFromLegacyDotenv() {
       deprecationWarned = true;
       process.stderr.write(
         `[DEPRECATED] SPEC-0005: ~/.claude/integra-hub.env plaintext esta deprecado.\n` +
-        `             Migra al keyring del SO corriendo:\n` +
-        `               node ~/.claude/scripts/migrate-hub-credentials.mjs\n` +
-        `             El fallback se removera despues del periodo de gracia (1 semana post-rollout).\n`,
+          `             Migra al keyring del SO corriendo:\n` +
+          `               node ~/.claude/scripts/migrate-hub-credentials.mjs\n` +
+          `             El fallback se removera despues del periodo de gracia (1 semana post-rollout).\n`,
       );
     }
     return parsed;
@@ -234,7 +245,8 @@ export async function getCredentials({ force = false } = {}) {
   const knownEmail = await readKnownEmail();
   if (knownEmail && !candidateEmails.includes(knownEmail)) candidateEmails.push(knownEmail);
   const legacyPeek = await getFromLegacyDotenv();
-  if (legacyPeek && !candidateEmails.includes(legacyPeek.email)) candidateEmails.push(legacyPeek.email);
+  if (legacyPeek && !candidateEmails.includes(legacyPeek.email))
+    candidateEmails.push(legacyPeek.email);
 
   for (const email of candidateEmails) {
     const fromKeyring = await getFromKeyring(email);
@@ -259,9 +271,9 @@ export async function getCredentials({ force = false } = {}) {
 
   throw new Error(
     'Credenciales del Hub no configuradas. Opciones:\n' +
-    `  1. Keyring del SO (recomendado): node ${path.join(os.homedir(), '.claude', 'scripts', 'migrate-hub-credentials.mjs')}\n` +
-    `  2. Env vars: setear INTEGRA_HUB_EMAIL + INTEGRA_HUB_PASSWORD\n` +
-    `  3. Archivo plaintext (deprecado): ${LEGACY_ENV_FILE}`,
+      `  1. Keyring del SO (recomendado): node ${path.join(os.homedir(), '.claude', 'scripts', 'migrate-hub-credentials.mjs')}\n` +
+      `  2. Env vars: setear INTEGRA_HUB_EMAIL + INTEGRA_HUB_PASSWORD\n` +
+      `  3. Archivo plaintext (deprecado): ${LEGACY_ENV_FILE}`,
   );
 }
 

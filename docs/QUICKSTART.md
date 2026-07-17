@@ -180,6 +180,54 @@ Output esperado: 3 archivos nuevos + `1-Operacion Exitosa` en los logs del hook 
 
 ---
 
+## Capacidades AI sobre legacy code (post-onboarding)
+
+Una vez completado el setup, tres capacidades AI estan disponibles para devs con licencia tier **TEAM** o superior. Se invocan como commands desde Claude Code y aplican sobre archivos `.p`/`.cls`/`.i` o topics del codebase del cliente.
+
+### `/code-archeology <path> [depth]` — analisis estructural
+
+Lee un archivo legacy ABL Progress y produce documentacion estructurada en 4 secciones (technical / user / implementation / informal). Quality target 80% en archivos no calibrados.
+
+```
+/code-archeology AppServer/Clases/Entitys/Otros/Provincias.cls
+/code-archeology Bussines/Path/file.p 1
+```
+
+Ideal para: entender QUE hace un modulo legacy sin leer el codigo entero. Output ~2500-5000 palabras con cita `archivo:lineas` en cada hallazgo.
+
+### `/tribal-knowledge <path>` — captura del "por que"
+
+Entrevista al dev senior sobre un modulo legacy (5-7 preguntas sobre patrones detectados) y persiste el conocimiento como KB articles estructurados en el Hub (kind, confidence, tags namespaced, sourceRefs JSON).
+
+```
+/tribal-knowledge Bussines/Sacpro/Tesoreria/Funciones/AnuloComprobanteTES.p
+```
+
+Pre-requisito: dev senior disponible para Q&A. Output: 5-7 KB articles con `confidence=INFERRED, status=DRAFT` (la promocion a `CONFIRMED, ACTIVE` es acto humano explicito post-sesion).
+
+Ideal para: capturar conocimiento volatil del dev senior antes que se pierda. Onboarding compliance / audit.
+
+### `/knowledge-accelerator <module-or-topic> [--mode=onboarding|brief] [--dev=<name>]` — 2 modos
+
+Capacidad estrella V1 que orquesta `/code-archeology` + `/tribal-knowledge` + Hub multi-source aggregation, con dos personas:
+
+- **`--mode=onboarding`** (default) — persona dev nuevo. Tutorial pedagogico con 5-10 hitos progresivos + checklist + glosario. Asume cero conocimiento previo.
+- **`--mode=brief`** — persona dev senior. Reporte agregado tecnico denso de TODAS las fuentes Hub disponibles (KB + SPECs + Tickets + FuturePromises). Citations al Hub.
+
+```
+# Onboarding sobre modulo
+/knowledge-accelerator Tesoreria --mode=onboarding --dev=Juan
+
+# Brief sobre topic
+/knowledge-accelerator "anulacion de comprobantes en Tesoreria" --mode=brief
+```
+
+Pre-requisitos cumplidos: las 3 capacidades estan productivas en el skill-server centralizado, integradas via MCP.
+
+> Detalles operativos completos en los stubs locales `.claude/agents/<name>.md` y `.claude/commands/<name>.md`. El contenido completo (~400-500 lineas por agent) se sirve via MCP — no esta en el cliente, requiere licencia tier TEAM.
+
+---
+
 ## Verificacion end-to-end
 
 Checklist final (si todos los items pasan, **LISTO**):
@@ -216,7 +264,7 @@ Si tardaste mas de 30, algo fallo. La causa mas comun es conectividad al Hub (DN
 Si la red al MCP Skill Server falla:
 
 - **Cache local de 24h** — los skills ya consultados siguen funcionando.
-- **Tras 24h sin conexion**: solo el skill libre `openedge-abl` disponible. Los skills IP-criticos (`integra-pasoe`, commands `nueva-entidad`/`sdd-ticket`/`openedge-review`, agents `abl-developer`/`react-developer`) requieren conexion.
+- **Tras 24h sin conexion**: solo el skill libre `openedge-abl` disponible. Los skills IP-criticos (`integra-pasoe`), commands productivos (`nueva-entidad`, `sdd-ticket`, `openedge-review`, `code-archeology`, `tribal-knowledge`, `knowledge-accelerator`) y agents (`abl-developer`, `react-developer`, `code-archeology`, `tribal-knowledge`, `knowledge-accelerator`) requieren conexion al MCP Skill Server.
 
 ---
 
@@ -225,6 +273,20 @@ Si la red al MCP Skill Server falla:
 Si tu organizacion requiere correr Hub y Skill Server en su propia infraestructura (compliance, red aislada, personalizacion profunda), tenemos disponible el **tier Suite on-premise** como entregable separado del starter, con licencia premium.
 
 Contactar a Integra Software: `soporte@integrasoftware.biz` con asunto **"Suite on-premise"** para coordinar.
+
+---
+
+## Onboarding cliente externo (piloto)
+
+Si recibiste licencia trial como dev externo evaluando SpecOE, el flow detallado paso-a-paso vive en [RUNBOOK-ONBOARDING-CLIENTE-EXTERNO.md](RUNBOOK-ONBOARDING-CLIENTE-EXTERNO.md). El runbook expande este Quickstart con:
+
+- **Pre-onboarding (lado Integra)**: provisioning del tenant en Hub backend + emisión de license JWT firmado con `LICENSE_JWT_SECRET` antes de entregar credenciales.
+- **Validación de contenido IP** (`validate-content.sh`) — confirma que los skills/commands/agents del Skill Server productivo (`https://mcp.integra.local/sse`) son accesibles via `skill_get_content("integra-pasoe")` y otros canales esperados (post-Item 3 de F7).
+- **Dev-mode fallback con tenant fake** — si el contenido IP aún no fue cargado al server productivo, levantar el skill server localmente en `--dev-mode` con tenant fake (`integra-piloto-test`) para QA del flow sin license JWT real. **NO sustituye** la validación E2E productiva (smoke 2/2 con JWT real está diferido a F7 Item 6 Sebastian onboarding por decisión B10 closeout).
+- **Troubleshooting específico cliente externo** — VPN, JWT expirado, contenido IP no cargado, dev-mode fallback.
+- **Checklist verificación end-to-end** + tiempo estimado por paso (~15-18 min total) + reporte feedback al operador.
+
+Criterio onboarding éxito: `claude` arranca sin errores + `/nueva-entidad` genera 3 archivos con copyright header SpecOE en menos de 15 minutos sin contactar soporte.
 
 ---
 

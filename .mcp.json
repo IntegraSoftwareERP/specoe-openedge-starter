@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "specoe": {
+      "type": "sse",
+      "url": "${SPECOE_SKILL_SERVER_URL:-https://mcp.integra.local/sse}",
+      "headers": {
+        "Authorization": "Bearer ${SPECOE_SKILL_JWT}"
+      }
+    }
+  }
+}

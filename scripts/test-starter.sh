@@ -30,14 +30,20 @@ check "setup.sh existe y es ejecutable" test -x setup.sh
 check "README.md existe" test -f README.md
 check ".gitignore existe" test -f .gitignore
 
-# .claude
+# .claude — modelo diskless (SPEC-0133 P5): el room NO lleva IP en disco.
+# El contrato del room y sus skills/commands/agents/standards bajan del MCP Skill
+# Server en SessionStart (specoe-room-bootstrap.mjs) — no viven en el working dir.
 check ".claude/settings.json existe" test -f .claude/settings.json
-check ".claude/CLAUDE.md existe" test -f .claude/CLAUDE.md
-check ".claude/skills/openedge-abl/SKILL.md existe" test -f .claude/skills/openedge-abl/SKILL.md
-check ".claude/skills/integra-pasoe/SKILL.md existe" test -f .claude/skills/integra-pasoe/SKILL.md
-check ".claude/commands/sdd-ticket.md existe" test -f .claude/commands/sdd-ticket.md
-check ".claude/commands/nueva-entidad.md existe" test -f .claude/commands/nueva-entidad.md
-check ".claude/agents/abl-developer.md existe" test -f .claude/agents/abl-developer.md
+check ".claude/CLAUDE.md NO existe (diskless)" test ! -f .claude/CLAUDE.md
+check ".claude/skills NO existe en disco (diskless)" test ! -d .claude/skills
+check ".claude/commands NO existe en disco (diskless)" test ! -d .claude/commands
+check ".claude/agents NO existe en disco (diskless)" test ! -d .claude/agents
+check ".claude/standards NO existe en disco (diskless)" test ! -d .claude/standards
+
+# Wiring MCP room->skill-server por SSE (SPEC-0133 P5 / T5.2)
+check ".mcp.json existe" test -f .mcp.json
+check ".mcp.json wire el skill-server specoe" grep -q '"specoe"' .mcp.json
+check ".mcp.json usa transporte sse" grep -q '"type": "sse"' .mcp.json
 
 # Docker (solo Dockerfile.pasoe para build CI/CD — Hub es SaaS por default)
 check "docker/Dockerfile.pasoe existe" test -f docker/Dockerfile.pasoe
@@ -59,12 +65,25 @@ check "project.config.yaml tiene seccion 'project'" grep -q "^project:" project.
 check "project.config.yaml tiene seccion 'pasoe'" grep -q "^pasoe:" project.config.yaml
 check "project.config.yaml tiene seccion 'paths'" grep -q "^paths:" project.config.yaml
 
-# CLAUDE.md tiene placeholders (confirmar que NO esta ya renderizado)
-check "CLAUDE.md tiene placeholder {{project.name}}" grep -q "{{project.name}}" .claude/CLAUDE.md
-
-# settings.json tiene hook SessionStart
+# settings.json tiene los hooks del flujo SpecOE
 check "settings.json tiene hook SessionStart" grep -q "SessionStart" .claude/settings.json
 check "settings.json tiene hook Stop" grep -q "Stop" .claude/settings.json
+check "settings.json registra el hook room-bootstrap (diskless)" grep -q "specoe-room-bootstrap.mjs" .claude/settings.json
+
+# CI parity (SPEC-0133 P5) — el CI (ci.yml) corre lint + format y hace fail-fast; correrlos
+# aca evita pushear con el CI en rojo (nos comio prettier en P2 y eslint en P5). El format usa
+# --end-of-line auto a proposito: en Windows el working copy es CRLF (core.autocrlf, sin
+# .gitattributes) y un check crudo daria falsos positivos; el CI corre en Linux (LF). Aca
+# validamos CONTENIDO, no el EOL local.
+echo ""
+echo "== CI parity: lint + format =="
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+if [ -f "$REPO_ROOT/package.json" ] && [ -d "$REPO_ROOT/node_modules" ]; then
+  check "eslint sin errores (npm run lint)" bash -c "cd '$REPO_ROOT' && npm run lint"
+  check "prettier limpio en el starter (contenido)" bash -c "cd '$REPO_ROOT' && npx prettier --check --end-of-line auto 'packages/starter-template/**/*.{mjs,cjs,js,json,md,yaml,yml,ts}'"
+else
+  echo "  ⚠ saltado: node_modules del root no instalado (correr desde el monorepo)"
+fi
 
 echo ""
 echo "== RESULTADO: $PASS pasaron, $FAIL fallaron =="

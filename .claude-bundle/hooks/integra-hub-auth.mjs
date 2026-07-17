@@ -131,7 +131,11 @@ export async function hubFetch(url, init = {}) {
   if (res.status !== 401) return res;
 
   // 401 -> invalidar cache y retry
-  try { await fs.unlink(SESSION_FILE); } catch { /* ignore */ }
+  try {
+    await fs.unlink(SESSION_FILE);
+  } catch {
+    /* ignore */
+  }
   token = await getAccessToken();
   return fetch(fullUrl, {
     ...init,

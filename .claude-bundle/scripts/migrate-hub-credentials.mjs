@@ -77,7 +77,9 @@ async function readLegacyEnv() {
     const raw = await fs.readFile(LEGACY_ENV_FILE, 'utf8');
     const parsed = parseDotenv(raw);
     if (!parsed.INTEGRA_HUB_EMAIL || !parsed.INTEGRA_HUB_PASSWORD) {
-      throw new Error(`${LEGACY_ENV_FILE} no tiene INTEGRA_HUB_EMAIL + INTEGRA_HUB_PASSWORD requeridos`);
+      throw new Error(
+        `${LEGACY_ENV_FILE} no tiene INTEGRA_HUB_EMAIL + INTEGRA_HUB_PASSWORD requeridos`,
+      );
     }
     return {
       email: parsed.INTEGRA_HUB_EMAIL,
@@ -86,7 +88,9 @@ async function readLegacyEnv() {
     };
   } catch (e) {
     if (e.code === 'ENOENT') {
-      throw new Error(`No existe ${LEGACY_ENV_FILE}. No hay nada que migrar. Para crear credenciales nuevas directamente en el keyring, este script no cubre ese caso — documentado en CLAUDE.md.`);
+      throw new Error(
+        `No existe ${LEGACY_ENV_FILE}. No hay nada que migrar. Para crear credenciales nuevas directamente en el keyring, este script no cubre ese caso — documentado en CLAUDE.md.`,
+      );
     }
     throw e;
   }
@@ -121,7 +125,9 @@ async function cmdRollback() {
   // Verificar que no haya un .env actual que piseariamos
   try {
     await fs.access(LEGACY_ENV_FILE);
-    err(`Ya existe ${LEGACY_ENV_FILE}. Borralo manualmente antes del rollback o movelo a otro lugar.`);
+    err(
+      `Ya existe ${LEGACY_ENV_FILE}. Borralo manualmente antes del rollback o movelo a otro lugar.`,
+    );
     process.exit(1);
   } catch {
     // OK, no existe
@@ -164,7 +170,9 @@ async function cmdMigrate() {
   // Paso 3: decidir backend
   log(`3. Probando backends disponibles...`);
   if (isDryRun) {
-    log(`   [dry-run] — se intentaria keyring nativo; fallback cipher file si Secret Service indisponible.`);
+    log(
+      `   [dry-run] — se intentaria keyring nativo; fallback cipher file si Secret Service indisponible.`,
+    );
     log(`   [dry-run] — ejecucion cancelada (no se modifican credenciales ni .env).`);
     return;
   }
@@ -174,7 +182,11 @@ async function cmdMigrate() {
 
   // Paso 4: validacion — borrar cache session, forzar re-cache credenciales, pedir accessToken
   log(`4. Validando contra Hub...`);
-  try { await fs.unlink(SESSION_FILE); } catch { /* ignore */ }
+  try {
+    await fs.unlink(SESSION_FILE);
+  } catch {
+    /* ignore */
+  }
   credsMod._resetCache();
 
   // Temporalmente ocultar el .env para probar que la nueva fuente funciona sola.
@@ -183,7 +195,9 @@ async function cmdMigrate() {
   try {
     await fs.rename(LEGACY_ENV_FILE, LEGACY_ENV_FILE + HIDE_SUFFIX);
     hiddenLegacy = true;
-  } catch { /* no existe, raro pero ok */ }
+  } catch {
+    /* no existe, raro pero ok */
+  }
 
   let validationOk = false;
   let validationError = null;
@@ -199,9 +213,17 @@ async function cmdMigrate() {
   if (!validationOk) {
     err(`Validacion fallo: ${validationError}`);
     err('Rollback: borrando entry del keyring/cipher y restaurando .env.');
-    try { await credsMod.deleteFromKeyring(legacy.email); } catch { /* ignore */ }
+    try {
+      await credsMod.deleteFromKeyring(legacy.email);
+    } catch {
+      /* ignore */
+    }
     if (hiddenLegacy) {
-      try { await fs.rename(LEGACY_ENV_FILE + HIDE_SUFFIX, LEGACY_ENV_FILE); } catch { /* ignore */ }
+      try {
+        await fs.rename(LEGACY_ENV_FILE + HIDE_SUFFIX, LEGACY_ENV_FILE);
+      } catch {
+        /* ignore */
+      }
     }
     process.exit(1);
   }

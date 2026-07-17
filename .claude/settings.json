@@ -8,6 +8,18 @@
             "command": "node $HOME/.claude/hooks/specoe-license-check.mjs",
             "timeout": 5,
             "shell": "bash"
+          },
+          {
+            "type": "command",
+            "command": "node $HOME/.claude/hooks/specoe-role-check.mjs",
+            "timeout": 5,
+            "shell": "bash"
+          },
+          {
+            "type": "command",
+            "command": "node $HOME/.claude/hooks/specoe-room-bootstrap.mjs",
+            "timeout": 15,
+            "shell": "bash"
           }
         ]
       }
@@ -26,7 +38,8 @@
     ]
   },
   "env": {
-    "CLAUDE_CODE_ENABLE_TELEMETRY": "1"
+    "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+    "NODE_EXTRA_CA_CERTS": "${env:USERPROFILE}/.claude/caddy-local-root.crt"
   },
   "permissions": {
     "allow": [

@@ -95,6 +95,14 @@ hub:
     env-user: 'INTEGRA_HUB_EMAIL' # Requerido si method=env
     env-password: 'INTEGRA_HUB_PASSWORD' # Requerido si method=env
 
+# SPECOE — thin-client servido (TKT-0187). Rol SDD de ESTA carpeta/room.
+# Multi-rol: un dev usa varios roles a la vez, uno por carpeta — cada carpeta
+# declara SU rol acá. El SessionStart hook lo lee para resolver la licencia del
+# rol en el keyring (account = rol) y cachear su JWT por-carpeta. Vacío = modo
+# 1-rol legacy (licencia en el keyring account 'default').
+specoe:
+  role: '' # DISCOVERY | ENGINEERING | ADVERSARIAL | CC_DEV
+
 frontend:
   enabled: false # true si el cliente tiene frontend React
   # stack:                                # OBLIGATORIO si enabled=true

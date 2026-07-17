@@ -330,6 +330,60 @@ Pasos:
 3. Si falta alguno, re-clonar el starter o ejecutar `./setup.sh`.
 4. Reiniciar Claude Code (Ctrl+D, volver a correr `claude`).
 
+### Capacidades AI no responden (`/code-archeology`, `/tribal-knowledge`, `/knowledge-accelerator`)
+
+**Sintoma**: invocar el command devuelve "agent no encontrado", "tool MCP no disponible" o el agent se queda colgado.
+
+Pasos:
+
+1. **Verificar tier de licencia**. Las 3 capacidades requieren tier **TEAM** o superior. Al iniciar Claude, el SessionStart hook imprime:
+
+   ```
+   [license] OK -- tier: solo
+   ```
+
+   Si tu tier es `solo`, los commands no estan habilitados — contactar a Integra Software para upgrade.
+
+2. **Verificar que los stubs existen** en el clone local:
+
+   ```bash
+   ls -la .claude/agents/code-archeology.md \
+          .claude/agents/tribal-knowledge.md \
+          .claude/agents/knowledge-accelerator.md \
+          .claude/commands/code-archeology.md \
+          .claude/commands/tribal-knowledge.md \
+          .claude/commands/knowledge-accelerator.md
+   ```
+
+   Si falta alguno, re-clonar el starter (los stubs vienen pre-instalados desde `setup.sh`).
+
+3. **Forzar refresh del MCP Skill Server cache**: el contenido productivo (full content del agent) se cachea localmente 24h. Si el agent fue actualizado server-side y vos tenes cache stale, reiniciar Claude Code limpia el cache:
+
+   ```bash
+   # Cerrar Claude (Ctrl+D) + relanzar
+   claude
+   ```
+
+4. **Verificar conectividad al Skill Server**: los agents productivos viven server-side en `mcp__specoe__agent_get_content("<name>")`. Si el Skill Server no responde, los agents fallan. Ver [Conectividad al Hub (SaaS)](#conectividad-al-hub-saas) — el Skill Server vive junto al Hub.
+
+5. **Si solo `/knowledge-accelerator --mode=brief` falla** con mensaje sobre Decisions o Meetings: NO es bug — es flag-based detection diseñada. Las capacidades V2 (post-SPEC-0048 / SPEC-0050) auto-skipean con nota explicita "Fuentes NO consultadas" hasta que esas SPECs mergeen + MCP server redeploy. El reporte sigue siendo util con las fuentes V1 disponibles.
+
+### `/tribal-knowledge` no encuentra al SME para Q&A
+
+**Sintoma**: el command falla porque "no hay dev senior disponible para entrevista".
+
+**Causa**: `/tribal-knowledge` requiere un humano disponible para responder ~5-7 preguntas en lenguaje natural. NO funciona en modo no-interactivo.
+
+**Workaround**: si solo necesitas analisis estructural sin tribal del SME, usar `/code-archeology <path>` en su lugar — produce documentacion sobre QUE hace el codigo (sin requerir dev).
+
+### `/knowledge-accelerator` modo onboarding produce tutorial corto / sin reglas de negocio
+
+**Sintoma**: el modulo target no tiene KB articles ni analisis 5.1 previo, y el tutorial sale superficial.
+
+**Causa**: modo onboarding orquesta 5.1 + 5.2 — si el modulo no fue analizado antes, hay menos contexto para construir el tutorial.
+
+**Fix**: correr primero `/code-archeology <module-file>` + `/tribal-knowledge <module-file>` (con dev senior) para enriquecer el Hub. Despues re-correr `/knowledge-accelerator` — el tutorial quedara mas completo.
+
 ---
 
 ## Validacion de `project.config.yaml`
