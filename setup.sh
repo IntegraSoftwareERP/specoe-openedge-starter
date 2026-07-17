@@ -4,8 +4,8 @@
 # Uso:
 #   ./setup.sh                    # todo: bundle de hooks (máquina) + config de la carpeta (room)
 #   ./setup.sh --hub <url>        # override de hub.api-url
-#   ./setup.sh --host-only        # TKT-0187: solo la parte de máquina (pre-req + bundle + npm)
-#   ./setup.sh --room-only        # TKT-0187: solo la parte de carpeta (config + .mcp.json)
+#   ./setup.sh --host-only        # solo la parte de máquina (pre-req + bundle + npm)
+#   ./setup.sh --room-only        # solo la parte de carpeta (config + .mcp.json)
 #
 # --host-only / --room-only separan lo que se hace 1 vez por máquina de lo que se hace 1 vez
 # por room (ver specoe-setup-host.sh + specoe-add-room.sh). Sin flags = todo (retrocompat).
@@ -35,11 +35,11 @@ while [[ $# -gt 0 ]]; do
       HUB_URL="$2"
       shift 2
       ;;
-    --host-only) # TKT-0187 — solo la parte de máquina
+    --host-only) # solo la parte de máquina
       DO_ROOM=0
       shift
       ;;
-    --room-only) # TKT-0187 — solo la parte de carpeta
+    --room-only) # solo la parte de carpeta
       DO_HOST=0
       shift
       ;;
@@ -70,11 +70,11 @@ if [ "$DO_ROOM" = 1 ]; then
   [ -f project.config.yaml ] || err "project.config.yaml no existe en este directorio."
 fi
 
-# ----- 1.5. Instalar bundle .claude (SPEC-0023 F6) — solo host (parte de máquina) -----
+# ----- 1.5. Instalar bundle .claude — solo host (parte de máquina) -----
 if [ "$DO_HOST" = 1 ]; then
 # Copia hooks + scripts del bundle a ~/.claude/. TODO el codigo del producto va con
-# install_force (pisa siempre): un dev con el bundle viejo debe recibir los fixes. TKT-0187
-# destapó que lo que iba con install_if_absent (package.json/lock + hooks de auth) NO llegaba
+# install_force (pisa siempre): un dev con el bundle viejo debe recibir los fixes. Se detectó
+# que lo que iba con install_if_absent (package.json/lock + hooks de auth) NO llegaba
 # a maquinas ya instaladas (patrón recurrente: primero el role-check, despues el license-check,
 # despues el package.json). No hay config del usuario acá — las credenciales/licencia viven en
 # el keyring/cache — asi que forzar es seguro.
@@ -101,7 +101,7 @@ else
     log "  [FORCE]   $dst"
   }
 
-  # TKT-0187 bug#3 — detectar cambio de deps ANTES de pisar el package.json: si el del
+  # detectar cambio de deps ANTES de pisar el package.json: si el del
   # bundle difiere del instalado (o no habia), corremos npm install si o si. Asi una dep
   # nueva (ej. undici del fix del CA) llega tambien a maquinas con el bundle previo — el
   # gate por-dep no alcanzaba porque el npm install corria con el package.json viejo.
@@ -110,13 +110,10 @@ else
     DEPS_CHANGED=1
   fi
 
-  # TODO el codigo del producto va force (antes credentials/auth/package.json/lock iban
-  # install_if_absent y no llegaban a bundles viejos — TKT-0187 bug#3).
-  install_force "$BUNDLE_DIR/hooks/credentials.mjs"               "$CLAUDE_HOME/hooks/credentials.mjs"
-  install_force "$BUNDLE_DIR/hooks/integra-hub-auth.mjs"          "$CLAUDE_HOME/hooks/integra-hub-auth.mjs"
+  # TODO el codigo del producto va force (un dev con un bundle viejo recibe los fixes;
+  # install_if_absent no llegaba a bundles ya poblados).
   install_force "$BUNDLE_DIR/hooks/package.json"                  "$CLAUDE_HOME/hooks/package.json"
   install_force "$BUNDLE_DIR/hooks/package-lock.json"             "$CLAUDE_HOME/hooks/package-lock.json"
-  install_force "$BUNDLE_DIR/scripts/migrate-hub-credentials.mjs" "$CLAUDE_HOME/scripts/migrate-hub-credentials.mjs"
   install_force "$BUNDLE_DIR/hooks/specoe-role-check.mjs"         "$CLAUDE_HOME/hooks/specoe-role-check.mjs"
   install_force "$BUNDLE_DIR/hooks/specoe-license-check.mjs"      "$CLAUDE_HOME/hooks/specoe-license-check.mjs"
   install_force "$BUNDLE_DIR/hooks/specoe-room-bootstrap.mjs"     "$CLAUDE_HOME/hooks/specoe-room-bootstrap.mjs"
@@ -133,7 +130,7 @@ else
 fi
 fi # cierra: if DO_HOST (parte de máquina — bundle + npm)
 
-# ===== Parte de carpeta (room) — TKT-0187 =====
+# ===== Parte de carpeta (room) =====
 if [ "$DO_ROOM" = 1 ]; then
 
 # ----- 2. Override hub.api-url si se paso --hub -----
@@ -186,7 +183,7 @@ if [ ! -f .claude/settings.json ]; then
   warn ".claude/settings.json no existe — se esperaba estar en el starter. Saltando."
 fi
 
-# ----- 5.5. Generar .mcp.json (TKT-0187 fix #4) -----
+# ----- 5.5. Generar .mcp.json -----
 # El starter renderizado al repo publico NO trae .mcp.json (lleva el bearer del skill-server),
 # asi que sin este paso Claude Code no conecta al MCP `specoe`. Generamos el bootstrap con
 # PLACEHOLDERS (sin secreto en disco): el SessionStart hook specoe-license-check.mjs lo puebla
@@ -225,7 +222,7 @@ else
   log "  1. Revisar y completar project.config.yaml"
   log "  2. Activar license (el SessionStart hook lo hace automaticamente al abrir Claude Code)"
   log "  3. Iniciar Claude Code: claude"
-  log "  4. Ver docs/QUICKSTART.md para el primer entity de ejemplo"
+  log "  4. Ver docs/QUICKSTART-VSCODE.md para el arranque en VSCode"
   log ""
   HUB_SHOW=$(grep -E '^\s*api-url:' project.config.yaml | head -1 | sed 's/.*api-url: *//;s/"//g' || true)
   log "Hub: ${HUB_SHOW:-<no configurado>}"

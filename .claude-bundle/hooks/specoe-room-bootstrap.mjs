@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SPEC-0133 P5 (TSK-0552 / T5.1) — SessionStart hook: baja el contrato del room
+// SessionStart hook: baja el contrato del room
 // del rol autenticado desde el MCP Skill Server y lo inyecta por additionalContext.
 //
 // Es la pieza del "thin client diskless": el room del cliente NO lleva su CLAUDE.md
@@ -9,7 +9,7 @@
 // Orden en settings.json: este hook corre DESPUES de specoe-license-check.mjs, que
 // valida la licencia y deja el JWT fresco en ~/.claude/specoe-license-cache.json.
 // Este hook REUSA ese token (no re-valida): el rol sale del claim `sddRole` del JWT
-// (lo mismo que verifica el authMiddleware del skill-server, SPEC-0133 P2/P3).
+// (lo mismo que verifica el authMiddleware del skill-server).
 //
 // Canal (verificado en el skill-server):
 //   1. GET  {SKILL_SERVER_URL}         -> abre SSE, Authorization: Bearer <jwt>
@@ -27,7 +27,7 @@ import path from 'node:path';
 import tls from 'node:tls';
 import { pathToFileURL } from 'node:url';
 
-// TKT-0187 multi-rol — el cache de licencia vive POR-CARPETA (cwd de la sesion), igual que
+// multi-rol — el cache de licencia vive POR-CARPETA (cwd de la sesion), igual que
 // en specoe-license-check.mjs. Antes era global (~/.claude): con varios roles a la vez el
 // ultimo pisaba a los demas y el bootstrap bajaba el contrato del rol equivocado.
 const PROJECT_DIR = process.env.CLAUDE_PROJECT_DIR || process.cwd();
@@ -60,9 +60,9 @@ async function readCachedToken() {
   }
 }
 
-// Decodifica el payload del JWT SIN verificar firma (solo para leer el claim sddRole,
-// igual que integra-hub-auth.mjs decodifica exp). La verificacion real la hace el
-// skill-server con LICENSE_JWT_SECRET; aca solo decidimos si vale la pena la llamada.
+// Decodifica el payload del JWT SIN verificar firma (solo para leer el claim sddRole).
+// La verificacion real la hace el skill-server con LICENSE_JWT_SECRET; aca solo
+// decidimos si vale la pena la llamada.
 export function decodeRole(jwtToken) {
   try {
     const [, payloadB64] = jwtToken.split('.');
@@ -141,7 +141,7 @@ function emit(role, contract) {
   );
 }
 
-// TKT-0187 bug#2 — carga el CA de Caddy en el fetch (mismo patrón que specoe-license-check).
+// carga el CA de Caddy en el fetch (mismo patrón que specoe-license-check).
 // El SDK MCP corre sobre el fetch global; sin el CA, el SSE a mcp.integra.local (cert
 // `tls internal` de Caddy) falla en la extensión VSCode (NODE_EXTRA_CA_CERTS no llega al
 // hook) y el contrato del room no baja. setGlobalDispatcher afecta también al fetch del SDK.
@@ -169,7 +169,7 @@ async function main() {
   // Evitamos la llamada de red y arrancamos sin inyectar.
   if (!role) return 0;
 
-  // TKT-0187 bug#2 — instalar el CA de Caddy en el fetch antes del SSE al skill-server.
+  // instalar el CA de Caddy en el fetch antes del SSE al skill-server.
   await installCaDispatcher();
 
   const controller = new AbortController();

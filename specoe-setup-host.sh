@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# specoe-setup-host.sh — Preparación del HOST, 1 vez por máquina (piloto Integra, TKT-0187).
+# specoe-setup-host.sh — Preparación del HOST, 1 vez por máquina (piloto Integra).
 #
 # Hace lo que NO depende del rol y se comparte entre todos los rooms del dev:
 #   1. Pre-req: Node 20+, Claude Code, Git.

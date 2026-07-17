@@ -3,8 +3,7 @@
 # Este archivo debe pasar la validacion de @specoe/config-tools:
 #     npx specoe-validate project.config.yaml
 #
-# Referencia completa de campos, tiers y validaciones: docs/CONFIGURATION.md
-# Schema oficial: integra-hub/.../validator/src/schema.ts (fuente de verdad)
+# Cada campo está documentado inline más abajo.
 
 schema-version: '0.1.0'
 
@@ -95,7 +94,7 @@ hub:
     env-user: 'INTEGRA_HUB_EMAIL' # Requerido si method=env
     env-password: 'INTEGRA_HUB_PASSWORD' # Requerido si method=env
 
-# SPECOE — thin-client servido (TKT-0187). Rol SDD de ESTA carpeta/room.
+# SPECOE — thin-client servido. Rol SDD de ESTA carpeta/room.
 # Multi-rol: un dev usa varios roles a la vez, uno por carpeta — cada carpeta
 # declara SU rol acá. El SessionStart hook lo lee para resolver la licencia del
 # rol en el keyring (account = rol) y cachear su JWT por-carpeta. Vacío = modo
@@ -144,5 +143,4 @@ frontend:
 # (@specoe/config-tools, Tier 1 only) ignora la seccion con una notice
 # informativa. La validacion completa Tier 1+2+3 corre server-side.
 #
-# Referencia: SPEC-0024 F4 decision IP (2026-04-23) — "Tier 2/3 se validan
-# server-side, el cliente no necesita conocer su estructura".
+# Nota: Tier 2/3 se validan server-side — el cliente no necesita conocer su estructura.

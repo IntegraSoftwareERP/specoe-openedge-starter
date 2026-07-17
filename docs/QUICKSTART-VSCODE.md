@@ -1,9 +1,8 @@
 # Quickstart — SPECOE en VSCode (piloto Integra)
 
-Flujo de **un comando** para dejar un dev trabajando en VSCode servido por SPECOE. El
-[QUICKSTART.md](QUICKSTART.md) clásico es para la terminal (`claude` en Git Bash); esta
-guía es para **VSCode + extensión Claude Code**, y automatiza con `install-specoe.sh` los
-pasos que antes eran manuales (hosts, CA de Caddy, keyring, config).
+Flujo para dejar un dev trabajando en VSCode servido por SPECOE, con **VSCode + extensión
+Claude Code**. Automatiza con `install-specoe.sh` los pasos que antes eran manuales
+(hosts, CA de Caddy, keyring, config).
 
 > **Audiencia**: dev de Integra en el piloto. Trabajás contra el Hub por MCP + la UI de
 > intranet, servido por SPECOE — ya no con los rooms locales hardcodeados.
@@ -30,11 +29,26 @@ Estos tres los instalás vos; el resto lo hace el script.
 
 > Windows: los comandos van en **Git Bash**, no en PowerShell/CMD.
 
+> **Acceso al repo**: el clone del starter (paso 0) es un repo **privado** de Integra. En una
+> máquina limpia `git clone` te va a pedir autenticación de GitHub. Resolvelo una vez con
+> `gh auth login` (GitHub CLI) o un **Personal Access Token** con scope `repo`. Sin acceso, pedíselo a Integra.
+
 ---
 
 ## Instalación
 
-Dos pasos, en **Git Bash**: el **host** una vez por máquina, y **un room por rol**.
+Todo en **Git Bash**: primero **bajás el starter**, después el **host** una vez por máquina, y
+**un room por rol**.
+
+### 0) Bajar el starter
+
+```bash
+git clone https://github.com/IntegraSoftwareERP/specoe-openedge-starter.git
+cd specoe-openedge-starter
+```
+
+Los scripts (`specoe-setup-host.sh`, `specoe-room-*.sh`) viven en esa carpeta — los pasos
+siguientes se corren desde ahí. Si el clone pide auth, ver **Acceso al repo** en Pre-requisitos.
 
 ### 1) Host — una sola vez por máquina
 
@@ -120,4 +134,4 @@ En la sesión de Claude Code:
 | `hub.integra.local` no resuelve                 | hosts sin entrada                 | Re-corré el install, o agregá `<IP> hub.integra.local` al hosts (admin).                                                  |
 | `license expired` / `invalid signature`         | licencia vencida/mal firmada      | Pedí license nueva a Integra.                                                                                             |
 
-Detalle completo: [TROUBLESHOOTING.md](TROUBLESHOOTING.md). Runbook largo: [RUNBOOK-ONBOARDING-CLIENTE-EXTERNO.md](RUNBOOK-ONBOARDING-CLIENTE-EXTERNO.md).
+Si algo no cierra después de revisar la tabla de arriba, contactá a Integra Software: `soporte@integrasoftware.biz`.

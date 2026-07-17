@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// SPEC-0001 F3 T8 — Session start hook para validar licencia SpecOE.
+// Session start hook para validar licencia SpecOE.
 //
 // Se registra en ~/.claude/settings.json como SessionStart hook.
 // Flujo:
-//   1. Lee license key del keyring (SPEC-0005) o de env var SPECOE_LICENSE_KEY.
+//   1. Lee license key del keyring o de env var SPECOE_LICENSE_KEY.
 //   2. Genera machine fingerprint local (hostname, os, cpuModel, pseudo-diskSerial).
 //   3. POST /api/v1/license/validate al Hub.
 //   4. Si OK -> setea SPECOE_TIER / SPECOE_TOKEN / SPECOE_FEATURES en el entorno
@@ -22,7 +22,7 @@ import { promisify } from 'util';
 
 const execFileAsync = promisify(execFile);
 
-// TKT-0187 fix #3 / multi-rol — el .mcp.json, el project.config.yaml y el cache de
+// multi-rol — el .mcp.json, el project.config.yaml y el cache de
 // licencia viven en el project dir (cwd de la sesion Claude Code). Claude Code expone
 // CLAUDE_PROJECT_DIR a los hooks.
 const PROJECT_DIR = process.env.CLAUDE_PROJECT_DIR || process.cwd();
@@ -30,17 +30,17 @@ const MCP_JSON_FILE = path.join(PROJECT_DIR, '.mcp.json');
 const DEFAULT_SKILL_SERVER_URL =
   process.env.SPECOE_SKILL_SERVER_URL || 'https://mcp.integra.local/sse';
 
-// TKT-0187 multi-rol — cache POR-CARPETA (antes global en ~/.claude). Un dev con varios
+// multi-rol — cache POR-CARPETA (antes global en ~/.claude). Un dev con varios
 // roles a la vez (uno por carpeta) tenia un unico cache global y el ultimo rol pisaba a
 // los demas. Ahora cada carpeta cachea su propia licencia + JWT.
 const CACHE_FILE = path.join(PROJECT_DIR, '.claude', 'specoe-license-cache.json');
 const LOG_DIR = path.join(os.homedir(), '.claude', 'logs');
-// TKT-0187 fix #2 — la URL del Hub ya NO es un hardcode fijo: se resuelve en runtime
+// la URL del Hub ya NO es un hardcode fijo: se resuelve en runtime
 // (env > project.config.yaml > este fallback interno). Ver resolveHubUrl().
 const FALLBACK_HUB_URL = 'http://integra-hub:8100/api/v1';
 const DEFAULT_GRACE_HOURS = 24;
 
-// ----- fingerprint generation (cliente-side, SPEC-0001 F7 Item 5) -----
+// ----- fingerprint generation (cliente-side) -----
 // Composicion: machineId (node-machine-id) + cpuModel + cpuCount + diskSerial nativo.
 // Hostname y os son audit-only (no participan del hash).
 
@@ -164,7 +164,7 @@ async function logLine(obj) {
 
 // ----- license key lookup -----
 
-// TKT-0187 multi-rol — rol SDD de la carpeta, leido del project.config.yaml del cwd. Es el
+// multi-rol — rol SDD de la carpeta, leido del project.config.yaml del cwd. Es el
 // account del keyring donde vive la licencia de ESTE rol (Entry specoe-license/<rol>).
 // Vacio/ausente => modo 1-rol legacy (account 'default'). Parser minimo: la unica clave
 // `role:` del yaml vive bajo `specoe:` y el rol es mayusculas.
@@ -183,7 +183,7 @@ async function getLicenseKey() {
   // 1. Env var
   if (process.env.SPECOE_LICENSE_KEY) return process.env.SPECOE_LICENSE_KEY;
 
-  // 2. Keyring (SPEC-0005) — multi-rol: account = rol de la carpeta; fallback 'default'
+  // 2. Keyring — multi-rol: account = rol de la carpeta; fallback 'default'
   //    (retrocompat 1-rol). getPassword tira si el account no existe → probamos uno a uno.
   try {
     const kr = await import('@napi-rs/keyring').catch(() => null);
@@ -210,7 +210,7 @@ async function getLicenseKey() {
   return null;
 }
 
-// ----- TKT-0187 helpers: ca dispatcher + hub url + activate + skill jwt -----
+// ----- helpers: ca dispatcher + hub url + activate + skill jwt -----
 
 // bug#2 — carga el CA de Caddy explícito para el fetch. NODE_EXTRA_CA_CERTS NO llega al
 // hook cuando corre en la extensión VSCode (sí en el CLI `claude`); sin el CA, el fetch
@@ -328,12 +328,12 @@ async function main() {
   }
 
   const fingerprint = await computeLocalFingerprint();
-  const hubUrl = await resolveHubUrl(); // TKT-0187 fix #2
+  const hubUrl = await resolveHubUrl();
 
-  // TKT-0187 bug#2 — instalar el CA de Caddy en el fetch ANTES de cualquier request al Hub.
+  // instalar el CA de Caddy en el fetch ANTES de cualquier request al Hub.
   await installCaDispatcher();
 
-  // TKT-0187 fix #1 — activar el fingerprint (idempotente) antes de validar.
+  // activar el fingerprint (idempotente) antes de validar.
   await activateFingerprint(hubUrl, licenseKey, fingerprint);
 
   try {
@@ -353,7 +353,7 @@ async function main() {
         features: body.features,
       };
       await writeCache(cached);
-      // TKT-0187 fix #3 — poblar el JWT del skill-server para el MCP `specoe`.
+      // poblar el JWT del skill-server para el MCP `specoe`.
       await populateSkillJwt(body.token);
       await logLine({ level: 'info', msg: 'license validated', tier: body.tier });
       // Output JSON para el harness (puede usar hookSpecificOutput para env vars).

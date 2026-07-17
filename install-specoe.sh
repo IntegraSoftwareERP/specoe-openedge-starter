@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install-specoe.sh — Atajo ALL-IN-ONE del thin-client SPECOE para VSCode (piloto Integra, TKT-0187).
+# install-specoe.sh — Atajo ALL-IN-ONE del thin-client SPECOE para VSCode (piloto Integra).
 #
 # Hace host + UN room en un solo comando. Es un COMPOSER de los scripts separados (no duplica):
 #   specoe-setup-host.sh   → 1 vez por máquina (pre-req + hosts + CA + bundle + verificación)

@@ -8,9 +8,9 @@
 
 Hub y Skill Server estan centralizados en el servidor gestionado por Integra Software. El cliente solo necesita:
 
-- Git
+- Git (Git for Windows incluye **Git Bash**)
 - Node.js 20+
-- Claude Code CLI
+- **VSCode + extensión Claude Code** (Anthropic)
 - Licencia SpecOE (o trial)
 
 **Sin Docker en el cliente. Sin infra a levantar localmente.**
@@ -23,37 +23,46 @@ Contactar a Integra Software: `soporte@integrasoftware.biz`
 
 ## Quickstart (SaaS)
 
+Flujo **VSCode / thin-client**: instalás el host una vez por máquina, un room por rol y
+abrís cada room en VSCode. Todos los comandos van en **Git Bash** (en Windows, no PowerShell/CMD).
+
 ```bash
-# 1. Clonar el starter como base del proyecto del cliente
-git clone https://github.com/IntegraSoftwareERP/specoe-openedge-starter.git mi-proyecto
-cd mi-proyecto
+# 1. Bajar el starter
+git clone https://github.com/IntegraSoftwareERP/specoe-openedge-starter.git
+cd specoe-openedge-starter
 
-# 2. Editar project.config.yaml con los valores del cliente
-nano project.config.yaml    # o vim, code, gedit, micro — el editor que tengas
+# 2. Host — una sola vez por máquina (salta una elevación UAC, aceptala)
+./specoe-setup-host.sh
 
-# 3. Setup (opcionalmente override del Hub con --hub)
-./setup.sh
-# Windows: abrir Git Bash o WSL primero (ver QUICKSTART.md Pre-requisitos)
+# 3. Room — uno por rol, con tu license key del rol
+./specoe-room-ccdev.sh <TU-KEY>
+# también: specoe-room-discovery.sh · specoe-room-engineering.sh · specoe-room-adversarial.sh
 
-# o para apuntar a otro Hub:
-./setup.sh --hub https://hub.mi-org.com
-
-# 4. Iniciar Claude Code desde la raiz del proyecto
-claude
+# 4. Abrir el room en VSCode
+code cc-dev-room
 ```
 
-El SessionStart hook activa la licencia automaticamente contra el Hub configurado.
+Con la carpeta abierta, la extensión **Claude Code** arranca la sesión: el SessionStart hook
+valida tu licencia, activa el seat y puebla el JWT del skill-server. Verificá que quedó servido:
+`/mcp` → `specoe` **connected** + `.mcp.json` con un **JWT** real (no `${SPECOE_SKILL_JWT}`).
 
-Detalle completo paso-a-paso: [docs/QUICKSTART.md](docs/QUICKSTART.md).
+Detalle completo paso-a-paso: [docs/QUICKSTART-VSCODE.md](docs/QUICKSTART-VSCODE.md).
 
 ## Estructura
 
 ```
 specoe-openedge-starter/
-├── project.config.yaml       Configuracion principal — editar valores del cliente
-├── setup.sh                  Installer (Linux/Mac; Windows via Git Bash o WSL)
+├── project.config.yaml         Configuracion principal — editar valores del cliente
+├── specoe-setup-host.sh        Thin-client: setup del host (1 vez/máquina — hosts, CA, bundle)
+├── specoe-room-ccdev.sh        Thin-client: crea el room CC-Dev (uno por rol)
+├── specoe-room-discovery.sh    Thin-client: crea el room Discovery
+├── specoe-room-engineering.sh  Thin-client: crea el room Engineering
+├── specoe-room-adversarial.sh  Thin-client: crea el room Adversarial
+├── specoe-add-room.sh          Thin-client: núcleo común de room (los specoe-room-*.sh lo envuelven)
+├── install-specoe.sh           Thin-client: atajo all-in-one host + 1 room (1 rol/máquina)
+├── setup.sh                    Installer clásico (uso interno de terminal)
 ├── .claude/
-│   ├── settings.json         Hooks pre-configurados (SessionStart license check + Stop telemetry)
+│   ├── settings.json         Hooks pre-configurados (SessionStart: license check + rol + room bootstrap)
 │   ├── CLAUDE.md             Instrucciones parametrizadas por project.config.yaml
 │   ├── skills/
 │   │   ├── openedge-abl/     Skill LIBRE — referencia ABL general
@@ -65,23 +74,16 @@ specoe-openedge-starter/
 │   ├── Dockerfile.pasoe      Pipeline CI/CD PASOE (build de la app del cliente)
 │   └── gradle/build.gradle   Gradle para el build PASOE
 ├── docs/
-│   ├── QUICKSTART.md
-│   ├── CONFIGURATION.md      Referencia completa de project.config.yaml
-│   └── TROUBLESHOOTING.md
-├── examples/
-│   └── sample-entity/        Ejemplo funcional de entity
-└── scripts/
-    ├── release.sh            Semantic versioning + tag
-    ├── changelog.sh          Regenera CHANGELOG.md desde commits
-    ├── test-starter.sh       Validacion de estructura del template
-    └── smoke-test.sh         Verificacion end-to-end del ambiente
+│   └── QUICKSTART-VSCODE.md   Guía de arranque VSCode / thin-client
+└── examples/
+    └── sample-entity/        Ejemplo funcional de entity
 ```
 
 > **Nota**: el directorio `docker/` contiene **solamente** artefactos de build de PASOE del cliente. **No** incluye `docker-compose.yml` del Hub — el Hub es centralizado (SaaS) por default.
 
 ## Licencia
 
-Ver [docs/CONFIGURATION.md](docs/CONFIGURATION.md) seccion "Licenciamiento" para el flujo de activacion y gestion de seats.
+El flujo de activacion y gestion de seats lo maneja Integra Software; tu license key llega con el onboarding. Ante dudas, escribí a `soporte@integrasoftware.biz`.
 
 Skills/commands/agents IP-criticos se sirven via **MCP Skill Server centralizado** (Integra Software). El skill `openedge-abl` (referencia ABL general) esta incluido completo en el starter como skill publico.
 

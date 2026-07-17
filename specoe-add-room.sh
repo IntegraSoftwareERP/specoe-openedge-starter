@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# specoe-add-room.sh — Instancia UN room de un rol, 1 vez por room (piloto Integra, TKT-0187).
+# specoe-add-room.sh — Instancia UN room de un rol, 1 vez por room (piloto Integra).
 #
 # Núcleo de la parte por-rol. NO toca hosts / CA / pre-req / bundle — eso lo hace
 # specoe-setup-host.sh (1 vez por máquina). Acá solo lo específico del room:

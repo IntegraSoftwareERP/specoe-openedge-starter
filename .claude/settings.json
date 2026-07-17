@@ -23,18 +23,6 @@
           }
         ]
       }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node $HOME/.claude/hooks/telemetry-session.mjs",
-            "timeout": 20,
-            "shell": "bash"
-          }
-        ]
-      }
     ]
   },
   "env": {
