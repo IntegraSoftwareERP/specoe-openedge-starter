@@ -8,19 +8,24 @@
 #   4. Copia el CA a ~/.claude (NODE_EXTRA_CA_CERTS para los hooks Node).
 #   5. Verificación del host: ping al server + fetch de prueba al Hub con el CA → confirma
 #      que la máquina quedó lista antes de instanciar rooms.
+#   6. Login SDD (SPEC-0157): pide tu email + clave del Hub, enrola el equipo y guarda
+#      el token de usuario en el keyring. El único paso humano posterior legítimo es que
+#      un admin del tenant apruebe el equipo si quedó PENDING.
 #
 # Después de esto, instanciá cada room con specoe-room-<rol>.sh (o specoe-add-room.sh).
 #
 # Uso:
-#   ./specoe-setup-host.sh [--ip <ip>] [--repo <url>] [--skip-elevation]
+#   ./specoe-setup-host.sh [--ip <ip>] [--hub <url>] [--repo <url>] [--skip-elevation] [--skip-login]
 #
-# Windows es el target del piloto. En Linux/Mac hace 1-2 y 5; hosts + CA (3) se avisan manuales.
+# Windows es el target del piloto. En Linux/Mac hace 1-2, 5 y 6; hosts + CA (3) se avisan manuales.
 
 set -euo pipefail
 
 PILOT_IP="10.0.10.198"
 STARTER_REPO="https://github.com/IntegraSoftwareERP/specoe-openedge-starter.git"
 SKIP_ELEVATION=0
+SKIP_LOGIN=0
+HUB_URL=""
 
 log()  { echo -e "\033[1;34m[specoe-host]\033[0m $*"; }
 warn() { echo -e "\033[1;33m[specoe-host]\033[0m $*" >&2; }
@@ -29,9 +34,11 @@ err()  { echo -e "\033[1;31m[specoe-host]\033[0m $*" >&2; exit 1; }
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --ip)   PILOT_IP="$2"; shift 2 ;;
+    --hub)  HUB_URL="$2"; shift 2 ;;
     --repo) STARTER_REPO="$2"; shift 2 ;;
     --skip-elevation) SKIP_ELEVATION=1; shift ;;
-    -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
+    --skip-login) SKIP_LOGIN=1; shift ;;
+    -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
     *) err "Opción desconocida: $1 (ver --help)" ;;
   esac
 done
@@ -126,11 +133,24 @@ else
   warn "  fetch al Hub FALLÓ — revisá que hosts + CA se aplicaron (el room daría TLS/401 en VSCode)."
 fi
 
+# ----- 6. Login SDD (SPEC-0157 — identidad por usuario) -----
+if [ "$SKIP_LOGIN" -eq 1 ]; then
+  warn "--skip-login: NO hago el login SDD. Sin él, el MCP integra-hub no opera — corré ./setup.sh --login cuando puedas."
+else
+  log "Login SDD (identidad por usuario contra el Hub)..."
+  LOGIN_ARGS=(--login)
+  [ -n "$HUB_URL" ] && LOGIN_ARGS+=(--hub "$HUB_URL")
+  ( cd "$STARTER_DIR" && bash setup.sh "${LOGIN_ARGS[@]}" ) \
+    || err "El login SDD falló. Corregí lo indicado arriba y reintentá con: (cd $STARTER_DIR && ./setup.sh --login)"
+fi
+
 log ""
 log "==================================================================="
-log " Host listo. Instanciá cada room (1 vez por rol):"
+log " Host listo (bundle + CA + login SDD). Instanciá cada room (1 vez por rol):"
 log "   ./specoe-room-discovery.sh   <license-key-discovery>"
 log "   ./specoe-room-engineering.sh <license-key-engineering>"
 log "   ./specoe-room-adversarial.sh <license-key-adversarial>"
 log "   ./specoe-room-ccdev.sh       <license-key-ccdev>"
+log " Si el equipo quedó PENDING, un admin del tenant lo aprueba en el Hub"
+log " (Administración → SDD → Equipos autorizados) — único paso humano restante."
 log "==================================================================="

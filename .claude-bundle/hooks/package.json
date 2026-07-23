@@ -7,6 +7,9 @@
   "engines": {
     "node": ">=20"
   },
+  "scripts": {
+    "test": "node --test"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
     "@napi-rs/keyring": "^1.1.7",

@@ -2,8 +2,13 @@
 # install-specoe.sh — Atajo ALL-IN-ONE del thin-client SPECOE para VSCode (piloto Integra).
 #
 # Hace host + UN room en un solo comando. Es un COMPOSER de los scripts separados (no duplica):
-#   specoe-setup-host.sh   → 1 vez por máquina (pre-req + hosts + CA + bundle + verificación)
-#   specoe-add-room.sh     → 1 vez por room  (carpeta + specoe.role + licencia del rol)
+#   specoe-setup-host.sh   → 1 vez por máquina (pre-req + hosts + CA + bundle + verificación
+#                            + login SDD: pide TU email + clave del Hub y enrola el equipo — SPEC-0157)
+#   specoe-add-room.sh     → 1 vez por room  (carpeta + specoe.role + .mcp.json con el rol + licencia del rol)
+#
+# Identidad por usuario: el login guarda el token en el keyring; NINGÚN secreto
+# de rol ni cuid de tenant queda en archivos. Si el equipo queda PENDING, el
+# único paso humano restante es que un admin del tenant lo apruebe en el Hub.
 #
 # Para MULTI-ROL o multi-máquina, usá los scripts separados directamente:
 #   ./specoe-setup-host.sh                          # 1 vez
@@ -31,7 +36,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --role) ROLE="$2"; shift 2 ;;
     --dir)  DEST_ARGS+=(--dir "$2"); shift 2 ;;
-    --hub)  DEST_ARGS+=(--hub "$2"); shift 2 ;;
+    --hub)  DEST_ARGS+=(--hub "$2"); HOST_ARGS+=(--hub "$2"); shift 2 ;; # room config + login SDD
     --ip)   HOST_ARGS+=(--ip "$2");  shift 2 ;;
     --repo) REPO_URL="$2"; shift 2 ;;
     --skip-elevation) HOST_ARGS+=(--skip-elevation); shift ;;

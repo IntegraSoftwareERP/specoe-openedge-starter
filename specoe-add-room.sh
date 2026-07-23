@@ -64,24 +64,61 @@ else
 fi
 [ -f "$DEST_DIR/setup.sh" ] || err "El starter no tiene setup.sh en '$DEST_DIR'. ¿Repo correcto?"
 
-# ----- 2. Config de la carpeta (sin bundle) -----
-log "Configurando la carpeta (setup.sh --room-only) con --hub $HUB_URL ..."
-( cd "$DEST_DIR" && bash setup.sh --room-only --hub "$HUB_URL" )
-
-# ----- 3. Fijar el rol en el yaml de la carpeta -----
+# ----- 2. Fijar el rol en el yaml de la carpeta -----
+# ANTES del --room-only: el .mcp.json que genera setup.sh lee specoe.role para
+# cablear INTEGRA_SDD_ROLE (el rol es config del room — claim x-sdd-role sin
+# firma que el Hub autoriza server-side, SPEC-0157).
 log "Fijando specoe.role='$ROLE' en project.config.yaml..."
 sed -i.bak "s|role: '[^']*'|role: '$ROLE'|" "$DEST_DIR/project.config.yaml" && rm -f "$DEST_DIR/project.config.yaml.bak"
 
+# ----- 3. Config de la carpeta (sin bundle) -----
+log "Configurando la carpeta (setup.sh --room-only) con --hub $HUB_URL ..."
+( cd "$DEST_DIR" && bash setup.sh --room-only --hub "$HUB_URL" )
+
 # ----- 4. Licencia en el keyring, account = rol (aislada → multi-rol) -----
 log "Guardando la license key en el keyring (account=$ROLE)..."
-if ( cd "$HOME/.claude/hooks" 2>/dev/null && node -e "
+# En Git Bash + winpty, `node` está envuelto por el wrapper de winpty y rompe la carga
+# del módulo NATIVO @napi-rs/keyring → la escritura falla. `node.exe` bypassa winpty.
+# En Mac/Linux no existe `node.exe` → caemos a `node`. (TKT-0200)
+NODE_BIN="node"
+command -v node.exe >/dev/null 2>&1 && NODE_BIN="node.exe"
+# Capturamos stdout+stderr del proceso: NO silenciamos el error (el fallo mudo era el bug).
+# Verificamos post-escritura con getPassword() para no reportar éxito falso.
+if keyring_out="$( ( cd "$HOME/.claude/hooks" && "$NODE_BIN" -e "
 const { Entry } = require('@napi-rs/keyring');
-new Entry('specoe-license', process.argv[2]).setPassword(process.argv[1]);
-console.log('ok');
-" "$LICENSE_KEY" "$ROLE" >/dev/null 2>&1 ); then
-  log "  License key guardada (account=$ROLE)."
+const [key, role] = [process.argv[1], process.argv[2]];
+const entry = new Entry('specoe-license', role);
+entry.setPassword(key);
+if (entry.getPassword() !== key) throw new Error('verificacion post-escritura fallo: la key no quedo persistida');
+" "$LICENSE_KEY" "$ROLE" ) 2>&1 )"; then
+  log "  License key guardada y verificada en el keyring (account=$ROLE)."
 else
-  warn "  No pude escribir al keyring (¿bundle sin instalar? corré specoe-setup-host.sh). Fallback: exportá SPECOE_LICENSE_KEY."
+  warn "  ⚠ NO se pudo persistir la license key en el keyring (account=$ROLE) usando '$NODE_BIN'."
+  warn "    Detalle real del error: ${keyring_out:-<el proceso no devolvió salida>}"
+  warn "    → Sin la key en el keyring, el hook specoe-license-check NO valida y el MCP 'specoe' dará 401."
+  warn "    Recuperá con UNA de estas opciones:"
+  warn "      a) Git Bash + winpty:  cd ~/.claude/hooks && node.exe -e \"const {Entry}=require('@napi-rs/keyring'); new Entry('specoe-license','$ROLE').setPassword('$LICENSE_KEY')\"  → luego Reload Window en VSCode."
+  warn "      b) Fallback env var:   exportá SPECOE_LICENSE_KEY antes de abrir el room."
+fi
+
+# ----- 5. Estado de la identidad SDD del equipo (SPEC-0157) -----
+# El room declara el rol; la identidad (token de usuario + machineId) es de la
+# MÁQUINA y la deja el login de specoe-setup-host.sh. Chequeo accionable acá:
+# sin ese material, la sesión del room no va a poder operar contra el Hub.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$HOME/.claude/scripts/sdd-login.mjs" ]; then
+  if ( cd "$HOME/.claude/scripts" && "$NODE_BIN" sdd-login.mjs status >/dev/null 2>&1 ); then
+    log "Identidad SDD: token de usuario + machineId presentes en el keyring."
+  else
+    warn "Identidad SDD INCOMPLETA: falta el token de usuario o el machineId en el keyring."
+    warn "  → Corré el login: ./setup.sh --login (o ./specoe-setup-host.sh). Sin eso, el MCP integra-hub del room no autentica."
+  fi
+else
+  warn "No está ~/.claude/scripts/sdd-login.mjs — corré specoe-setup-host.sh primero (bundle + login)."
+fi
+if [ -f "$SCRIPT_DIR/specoe-gate-messages.sh" ]; then
+  log "Si el Hub responde 403 en la sesión, traducí el código a instrucción con:"
+  log "  bash \"$SCRIPT_DIR/specoe-gate-messages.sh\" <CODIGO> $ROLE   (ej: MACHINE_PENDING_APPROVAL, SDD_ROLE_NOT_GRANTED)"
 fi
 
 log ""

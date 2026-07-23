@@ -2,13 +2,24 @@
 # SpecOE OpenEdge Starter — setup para Linux / macOS / Git Bash Windows.
 #
 # Uso:
-#   ./setup.sh                    # todo: bundle de hooks (máquina) + config de la carpeta (room)
-#   ./setup.sh --hub <url>        # override de hub.api-url
-#   ./setup.sh --host-only        # solo la parte de máquina (pre-req + bundle + npm)
+#   ./setup.sh                    # todo: bundle (máquina) + login SDD (usuario) + config de la carpeta (room)
+#   ./setup.sh --hub <url>        # override de la URL del Hub (login + hub.api-url)
+#   ./setup.sh --host-only        # solo la parte de máquina (pre-req + bundle + npm; SIN login — red no requerida)
+#   ./setup.sh --login            # solo el login SDD (pide email + clave, enrola el equipo, guarda tokens en keyring)
 #   ./setup.sh --room-only        # solo la parte de carpeta (config + .mcp.json)
+#   ./setup.sh --skip-login       # corrida completa sin el paso de login
 #
 # --host-only / --room-only separan lo que se hace 1 vez por máquina de lo que se hace 1 vez
 # por room (ver specoe-setup-host.sh + specoe-add-room.sh). Sin flags = todo (retrocompat).
+#
+# Identidad (SPEC-0157): el starter pide Hub URL + email + clave, llama
+# POST /auth/sdd/login y guarda el UserSddToken + machineId en el keyring del SO
+# (canal secrets.mjs). NINGÚN secreto queda en archivos: ni act-as, ni cuid de
+# tenant — el tenant lo resuelve el server a partir del token. El rol es config
+# de la carpeta (INTEGRA_SDD_ROLE en .mcp.json) y viaja como claim sin firma;
+# el Hub lo autoriza server-side contra los roles concedidos a tu usuario.
+# Credenciales no interactivas (CI/automación): INTEGRA_HUB_EMAIL +
+# INTEGRA_HUB_PASSWORD + INTEGRA_HUB_API_URL en el entorno.
 #
 # Modelo de deploy:
 #   - Piloto interno (default): Hub en hub.integra.local (VPN de Integra). Sin Docker.
@@ -27,20 +38,32 @@ err() { echo -e "\033[1;31m[specoe-setup]\033[0m $*" >&2; exit 1; }
 # ----- 0. Parse argumentos -----
 
 HUB_URL=""
-DO_HOST=1 # parte de máquina: pre-req + bundle de hooks + npm install
-DO_ROOM=1 # parte de carpeta: config + .mcp.json
+DO_HOST=1  # parte de máquina: pre-req + bundle de hooks + npm install
+DO_LOGIN=1 # parte de usuario: login SDD (enrola equipo + tokens al keyring)
+DO_ROOM=1  # parte de carpeta: config + .mcp.json
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --hub)
       HUB_URL="$2"
       shift 2
       ;;
-    --host-only) # solo la parte de máquina
+    --host-only) # solo la parte de máquina (sin red: el login va después, ver specoe-setup-host.sh)
+      DO_ROOM=0
+      DO_LOGIN=0
+      shift
+      ;;
+    --login) # solo el login SDD
+      DO_HOST=0
       DO_ROOM=0
       shift
       ;;
     --room-only) # solo la parte de carpeta
       DO_HOST=0
+      DO_LOGIN=0
+      shift
+      ;;
+    --skip-login) # corrida completa sin login
+      DO_LOGIN=0
       shift
       ;;
     --help | -h)
@@ -53,7 +76,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[ "$DO_HOST" = 1 ] || [ "$DO_ROOM" = 1 ] || err "--host-only y --room-only son excluyentes."
+[ "$DO_HOST" = 1 ] || [ "$DO_ROOM" = 1 ] || [ "$DO_LOGIN" = 1 ] || err "--host-only, --login y --room-only son excluyentes."
 
 # ----- 1. Prereqs -----
 
@@ -117,6 +140,10 @@ else
   install_force "$BUNDLE_DIR/hooks/specoe-role-check.mjs"         "$CLAUDE_HOME/hooks/specoe-role-check.mjs"
   install_force "$BUNDLE_DIR/hooks/specoe-license-check.mjs"      "$CLAUDE_HOME/hooks/specoe-license-check.mjs"
   install_force "$BUNDLE_DIR/hooks/specoe-room-bootstrap.mjs"     "$CLAUDE_HOME/hooks/specoe-room-bootstrap.mjs"
+  install_force "$BUNDLE_DIR/hooks/secrets.mjs"                   "$CLAUDE_HOME/hooks/secrets.mjs"
+  install_force "$BUNDLE_DIR/hooks/credentials.mjs"               "$CLAUDE_HOME/hooks/credentials.mjs"
+  install_force "$BUNDLE_DIR/scripts/provision-secrets.mjs"       "$CLAUDE_HOME/scripts/provision-secrets.mjs"
+  install_force "$BUNDLE_DIR/scripts/sdd-login.mjs"               "$CLAUDE_HOME/scripts/sdd-login.mjs"
 
   # Dependencias de los hooks. Corremos npm install si cambiaron las deps (DEPS_CHANGED) o si
   # falta node_modules / alguna dep clave (@modelcontextprotocol/sdk del bootstrap, undici del
@@ -129,6 +156,110 @@ else
   fi
 fi
 fi # cierra: if DO_HOST (parte de máquina — bundle + npm)
+
+# ===== Parte de usuario (login SDD — SPEC-0157) =====
+if [ "$DO_LOGIN" = 1 ]; then
+
+log "Login SDD (identidad por usuario)..."
+
+# SPECOE_SDD_LOGIN_JS: override para test aislado (apunta al bundle del repo).
+SDD_LOGIN_JS="${SPECOE_SDD_LOGIN_JS:-$HOME/.claude/scripts/sdd-login.mjs}"
+[ -f "$SDD_LOGIN_JS" ] || err "Falta $SDD_LOGIN_JS — corré primero la parte de máquina (./setup.sh --host-only o specoe-setup-host.sh)."
+
+# URL del Hub: --hub > INTEGRA_HUB_API_URL > prompt con default (Enter = default).
+LOGIN_HUB_URL="${HUB_URL:-${INTEGRA_HUB_API_URL:-}}"
+if [ -z "$LOGIN_HUB_URL" ]; then
+  if [ -t 0 ]; then
+    read -rp "URL del Hub [https://hub.integra.local/api/v1]: " LOGIN_HUB_URL
+  fi
+  LOGIN_HUB_URL="${LOGIN_HUB_URL:-https://hub.integra.local/api/v1}"
+fi
+
+# Credenciales: env (no interactivo) o prompt. La clave nunca pasa por argv.
+LOGIN_EMAIL="${INTEGRA_HUB_EMAIL:-}"
+LOGIN_PASSWORD="${INTEGRA_HUB_PASSWORD:-}"
+if [ -z "$LOGIN_EMAIL" ] || [ -z "$LOGIN_PASSWORD" ]; then
+  [ -t 0 ] || err "Sin TTY y sin INTEGRA_HUB_EMAIL/INTEGRA_HUB_PASSWORD en el entorno — no puedo pedir credenciales. Setealas o corré con terminal interactiva."
+  [ -n "$LOGIN_EMAIL" ] || read -rp "Email de tu usuario del Hub: " LOGIN_EMAIL
+  if [ -z "$LOGIN_PASSWORD" ]; then
+    read -rsp "Clave: " LOGIN_PASSWORD
+    echo
+  fi
+fi
+
+# node.exe bypassa el wrapper winpty de Git Bash que rompe @napi-rs/keyring (TKT-0200).
+NODE_BIN="node"
+command -v node.exe >/dev/null 2>&1 && NODE_BIN="node.exe"
+# CA local del piloto para el TLS del Hub (si está — specoe-setup-host.sh lo copia).
+LOGIN_CA=""
+[ -f "$HOME/.claude/caddy-local-root.crt" ] && LOGIN_CA="$HOME/.claude/caddy-local-root.crt"
+
+set +e
+LOGIN_JSON="$(SDD_LOGIN_EMAIL="$LOGIN_EMAIL" SDD_LOGIN_PASSWORD="$LOGIN_PASSWORD" \
+  SDD_LOGIN_HUB_URL="$LOGIN_HUB_URL" NODE_EXTRA_CA_CERTS="$LOGIN_CA" \
+  "$NODE_BIN" "$SDD_LOGIN_JS" login)"
+LOGIN_RC=$?
+set -e
+unset LOGIN_PASSWORD
+[ -n "$LOGIN_JSON" ] || LOGIN_JSON='{}'
+
+json_field() { "$NODE_BIN" -e "const o=JSON.parse(process.argv[1]);const v=process.argv[2].split('.').reduce((a,k)=>a?.[k],o);console.log(v??'')" "$1" "$2"; }
+
+if [ "$LOGIN_RC" -ne 0 ]; then
+  ERR_CODE="$(json_field "$LOGIN_JSON" code 2>/dev/null || true)"
+  ERR_MSG="$(json_field "$LOGIN_JSON" message 2>/dev/null || true)"
+  warn "Login FALLÓ${ERR_CODE:+ (código $ERR_CODE)}: ${ERR_MSG:-sin detalle}"
+  if [ -n "$ERR_CODE" ] && [ -f "$SCRIPT_DIR/specoe-gate-messages.sh" ]; then
+    # shellcheck source=specoe-gate-messages.sh
+    source "$SCRIPT_DIR/specoe-gate-messages.sh"
+    warn "  → $(specoe_gate_message "$ERR_CODE" || true)"
+  fi
+  err "Sin login no hay identidad SDD: el MCP integra-hub no va a poder operar. Corregí y reintentá con ./setup.sh --login"
+fi
+
+MACHINE_STATUS="$(json_field "$LOGIN_JSON" machineStatus)"
+TENANT_SLUG="$(json_field "$LOGIN_JSON" tenantSlug)"
+USER_ROLES="$("$NODE_BIN" -e "console.log((JSON.parse(process.argv[1]).roles??[]).join(', '))" "$LOGIN_JSON")"
+ROBOT_CONFIGURED="$(json_field "$LOGIN_JSON" robot.configured)"
+ROBOT_PROVISIONED="$(json_field "$LOGIN_JSON" robot.provisioned)"
+ROBOT_STORED="$(json_field "$LOGIN_JSON" robot.tokenStored)"
+ROBOT_POOL="$(json_field "$LOGIN_JSON" robot.seatPoolExhausted)"
+
+log "  Login OK — tenant '$TENANT_SLUG'. UserSddToken + machineId guardados en el keyring."
+log "  Roles SDD de tu usuario: ${USER_ROLES:-<ninguno>}"
+[ -n "$USER_ROLES" ] || warn "  Tu usuario no tiene roles SDD concedidos — un ADMIN del tenant te los concede en el Hub (Administración → SDD → Roles por usuario)."
+
+case "$MACHINE_STATUS" in
+  ACTIVE)
+    log "  Equipo autorizado (ACTIVE) — listo para operar."
+    ;;
+  PENDING)
+    # shellcheck source=specoe-gate-messages.sh
+    source "$SCRIPT_DIR/specoe-gate-messages.sh"
+    warn "  Equipo enrolado en estado PENDING."
+    warn "  → $(specoe_gate_message MACHINE_PENDING_APPROVAL)"
+    ;;
+  REVOKED)
+    source "$SCRIPT_DIR/specoe-gate-messages.sh"
+    warn "  → $(specoe_gate_message MACHINE_REVOKED)"
+    ;;
+  *)
+    warn "  Estado del equipo: ${MACHINE_STATUS:-<desconocido>}"
+    ;;
+esac
+
+if [ "$ROBOT_CONFIGURED" != "true" ]; then
+  warn "  Robot del tenant: NO configurado — el alta automática de datos del robot no está disponible en este tenant. Si la esperabas, avisale al admin del Hub."
+elif [ "$ROBOT_PROVISIONED" = "true" ] && [ "$ROBOT_STORED" = "true" ]; then
+  log "  Robot del tenant: token nuevo emitido y guardado en el keyring."
+elif [ "$ROBOT_PROVISIONED" = "true" ]; then
+  warn "  Robot del tenant: token emitido pero NO se pudo persistir en el keyring — reintentá el login."
+else
+  log "  Robot del tenant: configurado (token vigente, no se re-emite)."
+fi
+[ "$ROBOT_POOL" = "true" ] && warn "  Pool de seats agotado en el tenant — un ADMIN tiene que liberar un seat o ampliar la licencia."
+
+fi # cierra: if DO_LOGIN (parte de usuario — login SDD)
 
 # ===== Parte de carpeta (room) =====
 if [ "$DO_ROOM" = 1 ]; then
@@ -185,36 +316,74 @@ fi
 
 # ----- 5.5. Generar .mcp.json -----
 # El starter renderizado al repo publico NO trae .mcp.json (lleva el bearer del skill-server),
-# asi que sin este paso Claude Code no conecta al MCP `specoe`. Generamos el bootstrap con
-# PLACEHOLDERS (sin secreto en disco): el SessionStart hook specoe-license-check.mjs lo puebla
-# con el JWT fresco en cada arranque (fix #3). Idempotente: no pisa un .mcp.json ya presente.
+# asi que sin este paso Claude Code no conecta a los MCP. Genera/actualiza DOS servers:
+#   - specoe (skill-server): placeholders, el SessionStart hook lo puebla con el JWT fresco.
+#   - integra-hub (SPEC-0157): modo USER — la identidad sale del keyring (login SDD), el rol
+#     es config de ESTA carpeta (INTEGRA_SDD_ROLE, claim sin firma que el Hub autoriza
+#     server-side). SIN secretos act-as, SIN credenciales, SIN cuid de tenant: el tenant lo
+#     resuelve el server a partir del token del usuario.
+# Idempotente y preservador: no pisa `specoe` si ya existe ni borra otros servers; el entry
+# `integra-hub` sí se regenera (es config derivada del yaml, no estado del dev).
 
-if [ ! -f .mcp.json ]; then
-  log "Generando .mcp.json (bootstrap del MCP skill-server)..."
-  cat > .mcp.json <<'EOF'
-{
-  "mcpServers": {
-    "specoe": {
-      "type": "sse",
-      "url": "${SPECOE_SKILL_SERVER_URL:-https://mcp.integra.local/sse}",
-      "headers": {
-        "Authorization": "Bearer ${SPECOE_SKILL_JWT}"
-      }
-    }
-  }
+log "Generando/actualizando .mcp.json (specoe + integra-hub modo USER)..."
+
+ROOM_ROLE="$(grep -E "^\s*role:" project.config.yaml | head -1 | sed "s/.*role: *'\{0,1\}//;s/'.*//;s/ *#.*//" || true)"
+MCP_HUB_URL="${HUB_URL:-$(grep -E '^\s*api-url:' project.config.yaml | head -1 | sed 's/.*api-url: *//;s/"//g' || true)}"
+MCP_HUB_URL="${MCP_HUB_URL:-https://hub.integra.local/api/v1}"
+[ -n "$ROOM_ROLE" ] || warn "  specoe.role está vacío en project.config.yaml — .mcp.json queda SIN INTEGRA_SDD_ROLE (el Hub va a responder SDD_SESSION_ROLE_CLAIM_MISSING). Fijalo con specoe-add-room.sh <ROL>."
+
+NODE_BIN="node"
+command -v node.exe >/dev/null 2>&1 && NODE_BIN="node.exe"
+MCP_CA=""
+[ -f "$HOME/.claude/caddy-local-root.crt" ] && MCP_CA="$HOME/.claude/caddy-local-root.crt"
+
+"$NODE_BIN" - "$ROOM_ROLE" "$MCP_HUB_URL" "$MCP_CA" <<'EOF'
+const fs = require('fs');
+const [role, hubUrl, caPath] = process.argv.slice(2);
+let doc = { mcpServers: {} };
+try {
+  doc = JSON.parse(fs.readFileSync('.mcp.json', 'utf8'));
+  if (!doc || typeof doc !== 'object') doc = { mcpServers: {} };
+  if (!doc.mcpServers) doc.mcpServers = {};
+} catch { /* no existe o invalido: se genera de cero */ }
+
+// specoe: solo si falta (el hook de licencia lo re-escribe con el JWT fresco).
+if (!doc.mcpServers.specoe) {
+  doc.mcpServers.specoe = {
+    type: 'sse',
+    url: '${SPECOE_SKILL_SERVER_URL:-https://mcp.integra.local/sse}',
+    headers: { Authorization: 'Bearer ${SPECOE_SKILL_JWT}' },
+  };
+  console.log('  [CREATE]  mcpServers.specoe');
+} else {
+  console.log('  [SKIP]    mcpServers.specoe (ya existe)');
 }
+
+// integra-hub: SIEMPRE al shape USER-mode (config derivada — sin secretos).
+const env = {
+  INTEGRA_HUB_API_URL: hubUrl,
+  INTEGRA_SDD_IDENTITY_MODE: 'USER',
+};
+if (role) env.INTEGRA_SDD_ROLE = role;
+if (caPath) env.NODE_EXTRA_CA_CERTS = caPath;
+doc.mcpServers['integra-hub'] = {
+  command: 'node',
+  args: ['node_modules/integra-hub-mcp/dist/index.js'],
+  env,
+};
+console.log(`  [WRITE]   mcpServers.integra-hub (modo USER${role ? ', rol ' + role : ', SIN rol'})`);
+
+fs.writeFileSync('.mcp.json', JSON.stringify(doc, null, 2) + '\n');
 EOF
-  log "  [CREATE]  .mcp.json (el JWT lo puebla el hook al abrir Claude Code)"
-else
-  log "  [SKIP]    .mcp.json (ya existe)"
-fi
 
 fi # cierra: if DO_ROOM (parte de carpeta — config + .mcp.json)
 
 # ----- 6. Next steps -----
 
 log "Setup base completado."
-if [ "$DO_ROOM" = 0 ]; then
+if [ "$DO_ROOM" = 0 ] && [ "$DO_LOGIN" = 1 ] && [ "$DO_HOST" = 0 ]; then
+  log "  (login: identidad SDD guardada en el keyring de la máquina)"
+elif [ "$DO_ROOM" = 0 ]; then
   log "  (host-only: bundle de hooks + dependencias instalados en ~/.claude)"
 else
   log ""
