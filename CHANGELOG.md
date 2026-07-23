@@ -2,6 +2,13 @@
 
 All notable changes to this project. Automatic — regenerado por `./scripts/changelog.sh`.
 
+## 0.2.1 — 2026-07-23 (SPEC-0157 P6 — fix sync del bundle al espejo)
+
+- `.syncignore`: ancla `scripts/` a la raíz (`/scripts/`). El patrón sin anclar excluía
+  también `.claude-bundle/scripts/` del espejo público: el bundle llegaba sin
+  `provision-secrets.mjs` ni `sdd-login.mjs` y el login SDD del starter público
+  no podía instalarse (verde-falso detectado por la verificación del espejo de T6.3).
+
 ## 0.2.0 — 2026-07-23 (SPEC-0157 P6 — identidad por usuario)
 
 - Login SDD por usuario: `setup.sh --login` / `specoe-setup-host.sh` piden Hub URL + email + clave,
