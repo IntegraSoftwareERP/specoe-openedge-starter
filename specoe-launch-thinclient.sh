@@ -23,6 +23,18 @@ log()  { echo -e "\033[1;34m[specoe-thinclient]\033[0m $*"; }
 warn() { echo -e "\033[1;33m[specoe-thinclient]\033[0m $*" >&2; }
 err()  { echo -e "\033[1;31m[specoe-thinclient]\033[0m $*" >&2; exit 1; }
 
+# node.exe en Git Bash bypassa winpty (TKT-0200); en WSL el node.exe de Windows entra por el
+# interop y lee las rutas Unix como Windows → MODULE_NOT_FOUND, así que ahí va node. (TKT-0217)
+specoe_node_bin() {
+  if [ -n "${WSL_DISTRO_NAME:-}" ] || grep -qi microsoft /proc/version 2>/dev/null; then
+    echo node
+  elif command -v node.exe >/dev/null 2>&1; then
+    echo node.exe
+  else
+    echo node
+  fi
+}
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 ROLE="${1:-}"
@@ -37,8 +49,7 @@ export INTEGRA_SDD_IDENTITY_MODE="USER"
 
 # Chequeo accionable del material de identidad (no bloquea: el borde real es el
 # 401/403 del Hub — esto es UX para no descubrirlo recién adentro de la sesión).
-NODE_BIN="node"
-command -v node.exe >/dev/null 2>&1 && NODE_BIN="node.exe"
+NODE_BIN="$(specoe_node_bin)"
 if [ -f "$HOME/.claude/scripts/sdd-login.mjs" ]; then
   if ! ( cd "$HOME/.claude/scripts" && "$NODE_BIN" sdd-login.mjs status >/dev/null 2>&1 ); then
     warn "Identidad SDD incompleta: no está el token de usuario y/o el machineId en el keyring."

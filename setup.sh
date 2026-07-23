@@ -35,6 +35,39 @@ log() { echo -e "\033[1;34m[specoe-setup]\033[0m $*"; }
 warn() { echo -e "\033[1;33m[specoe-setup]\033[0m $*" >&2; }
 err() { echo -e "\033[1;31m[specoe-setup]\033[0m $*" >&2; exit 1; }
 
+# Binario de Node a usar para lo que toca el keyring / el bundle.
+# En Git Bash, `node` está envuelto por winpty y eso rompe la carga del módulo NATIVO
+# @napi-rs/keyring → `node.exe` bypassa el wrapper (TKT-0200).
+# PERO en WSL el `node.exe` de Windows también aparece en el PATH (interop) y recibe rutas
+# Unix que interpreta como Windows (/home/x → C:\home\x) → MODULE_NOT_FOUND en sdd-login.mjs.
+# En WSL no hay winpty, así que ahí va el `node` de Linux. (TKT-0217)
+specoe_node_bin() {
+  if [ -n "${WSL_DISTRO_NAME:-}" ] || grep -qi microsoft /proc/version 2>/dev/null; then
+    echo node
+  elif command -v node.exe >/dev/null 2>&1; then
+    echo node.exe
+  else
+    echo node
+  fi
+}
+
+# CA local del piloto para el TLS del Hub. specoe-setup-host.sh lo deja en ~/.claude, pero
+# si se corrió solo `setup.sh --login` no está y el login moría con
+# UNABLE_TO_GET_ISSUER_CERT_LOCALLY sin decir de dónde sacarlo. El starter trae el CA en
+# certs/, así que lo instalamos nosotros. Devuelve la ruta (vacío si no hay CA). (TKT-0217)
+specoe_local_ca() {
+  local dst="$HOME/.claude/caddy-local-root.crt"
+  local src="$SCRIPT_DIR/certs/caddy-root-ca.crt"
+  if [ ! -f "$dst" ] && [ -f "$src" ]; then
+    mkdir -p "$HOME/.claude"
+    cp "$src" "$dst"
+    warn "  CA local ausente — instalado desde $src en $dst."
+  fi
+  # return 0 explícito: con set -e, un [ -f ] falso haría abortar al asignar $(specoe_local_ca).
+  if [ -f "$dst" ]; then echo "$dst"; fi
+  return 0
+}
+
 # ----- 0. Parse argumentos -----
 
 HUB_URL=""
@@ -78,11 +111,26 @@ done
 
 [ "$DO_HOST" = 1 ] || [ "$DO_ROOM" = 1 ] || [ "$DO_LOGIN" = 1 ] || err "--host-only, --login y --room-only son excluyentes."
 
+# `--login` necesita el bundle (sdd-login.mjs vive en ~/.claude/scripts). Antes eso era una
+# precondición NO anunciada: el usuario corría --login y se comía un error pidiéndole que
+# corriera --host-only primero. Si el bundle no está, lo instalamos acá y seguimos. (TKT-0217)
+if [ "$DO_LOGIN" = 1 ] && [ "$DO_HOST" = 0 ] && [ ! -f "${SPECOE_SDD_LOGIN_JS:-$HOME/.claude/scripts/sdd-login.mjs}" ]; then
+  warn "El bundle de hooks no está instalado (parte de máquina) — lo instalo antes del login."
+  DO_HOST=1
+fi
+
 # ----- 1. Prereqs -----
 
 log "Verificando prerrequisitos..."
 
-command -v node >/dev/null 2>&1 || err "node no encontrado. Instalar Node.js 20+."
+if ! command -v node >/dev/null 2>&1; then
+  # En WSL el `node.exe` de Windows se ve por el interop, pero no sirve: recibe rutas Unix y
+  # las lee como Windows (MODULE_NOT_FOUND). Hace falta Node instalado DENTRO del WSL. (TKT-0217)
+  if [ -n "${WSL_DISTRO_NAME:-}" ] || grep -qi microsoft /proc/version 2>/dev/null; then
+    err "node no encontrado dentro del WSL. El node.exe de Windows NO sirve acá (lee las rutas Unix como Windows). Instalá Node.js 20+ en la distro: https://github.com/nodesource/distributions"
+  fi
+  err "node no encontrado. Instalar Node.js 20+."
+fi
 NODE_MAJOR=$(node -v | sed 's/v\([0-9]*\)\..*/\1/')
 [ "$NODE_MAJOR" -ge 20 ] || err "Node $NODE_MAJOR detectado. Se requiere 20+."
 
@@ -187,12 +235,10 @@ if [ -z "$LOGIN_EMAIL" ] || [ -z "$LOGIN_PASSWORD" ]; then
   fi
 fi
 
-# node.exe bypassa el wrapper winpty de Git Bash que rompe @napi-rs/keyring (TKT-0200).
-NODE_BIN="node"
-command -v node.exe >/dev/null 2>&1 && NODE_BIN="node.exe"
-# CA local del piloto para el TLS del Hub (si está — specoe-setup-host.sh lo copia).
-LOGIN_CA=""
-[ -f "$HOME/.claude/caddy-local-root.crt" ] && LOGIN_CA="$HOME/.claude/caddy-local-root.crt"
+NODE_BIN="$(specoe_node_bin)"
+# CA local del piloto para el TLS del Hub. Si falta, specoe_local_ca lo instala desde certs/.
+LOGIN_CA="$(specoe_local_ca)"
+[ -n "$LOGIN_CA" ] || warn "  Sin CA local (~/.claude/caddy-local-root.crt) ni certs/caddy-root-ca.crt en el starter: si el Hub usa TLS del piloto, el login va a fallar con UNABLE_TO_GET_ISSUER_CERT_LOCALLY."
 
 set +e
 LOGIN_JSON="$(SDD_LOGIN_EMAIL="$LOGIN_EMAIL" SDD_LOGIN_PASSWORD="$LOGIN_PASSWORD" \
@@ -214,6 +260,15 @@ if [ "$LOGIN_RC" -ne 0 ]; then
     source "$SCRIPT_DIR/specoe-gate-messages.sh"
     warn "  → $(specoe_gate_message "$ERR_CODE" || true)"
   fi
+  # El fallo de TLS no trae `code` (lo tira fetch, no el Hub): sin esto el usuario ve el
+  # error de OpenSSL pelado y no sabe qué hacer. (TKT-0217)
+  case "$ERR_MSG" in
+    *UNABLE_TO_GET_ISSUER_CERT_LOCALLY* | *SELF_SIGNED_CERT_IN_CHAIN* | *CERT_* | *DEPTH_ZERO_SELF_SIGNED_CERT*)
+      warn "  → El Hub del piloto usa un TLS firmado por el CA de Integra y esta máquina no lo tiene."
+      warn "    Instalalo con: ./specoe-setup-host.sh   (copia certs/caddy-root-ca.crt al trust del SO y a ~/.claude/caddy-local-root.crt)"
+      warn "    A mano: cp \"$SCRIPT_DIR/certs/caddy-root-ca.crt\" ~/.claude/caddy-local-root.crt"
+      ;;
+  esac
   err "Sin login no hay identidad SDD: el MCP integra-hub no va a poder operar. Corregí y reintentá con ./setup.sh --login"
 fi
 
@@ -332,10 +387,8 @@ MCP_HUB_URL="${HUB_URL:-$(grep -E '^\s*api-url:' project.config.yaml | head -1 |
 MCP_HUB_URL="${MCP_HUB_URL:-https://hub.integra.local/api/v1}"
 [ -n "$ROOM_ROLE" ] || warn "  specoe.role está vacío en project.config.yaml — .mcp.json queda SIN INTEGRA_SDD_ROLE (el Hub va a responder SDD_SESSION_ROLE_CLAIM_MISSING). Fijalo con specoe-add-room.sh <ROL>."
 
-NODE_BIN="node"
-command -v node.exe >/dev/null 2>&1 && NODE_BIN="node.exe"
-MCP_CA=""
-[ -f "$HOME/.claude/caddy-local-root.crt" ] && MCP_CA="$HOME/.claude/caddy-local-root.crt"
+NODE_BIN="$(specoe_node_bin)"
+MCP_CA="$(specoe_local_ca)"
 
 "$NODE_BIN" - "$ROOM_ROLE" "$MCP_HUB_URL" "$MCP_CA" <<'EOF'
 const fs = require('fs');
@@ -381,7 +434,9 @@ fi # cierra: if DO_ROOM (parte de carpeta — config + .mcp.json)
 # ----- 6. Next steps -----
 
 log "Setup base completado."
-if [ "$DO_ROOM" = 0 ] && [ "$DO_LOGIN" = 1 ] && [ "$DO_HOST" = 0 ]; then
+# Sin chequear DO_HOST: con --login el bundle puede haberse instalado en la misma corrida
+# (auto-run de la parte de máquina, TKT-0217) y el mensaje que importa sigue siendo el del login.
+if [ "$DO_ROOM" = 0 ] && [ "$DO_LOGIN" = 1 ]; then
   log "  (login: identidad SDD guardada en el keyring de la máquina)"
 elif [ "$DO_ROOM" = 0 ]; then
   log "  (host-only: bundle de hooks + dependencias instalados en ~/.claude)"

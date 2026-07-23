@@ -1,0 +1,22 @@
+# .gitattributes del starter — se sincroniza a la raiz del repo publico
+# IntegraSoftwareERP/specoe-openedge-starter, que es lo que clona el cliente.
+#
+# Por que: en Windows con core.autocrlf=true (default de Git for Windows) el checkout
+# convierte a CRLF. Un .sh con CRLF tiene el shebang como `#!/usr/bin/env bash\r` y el
+# interprete no existe:
+#     /usr/bin/env: 'bash\r': No such file or directory
+# El contenido versionado ya esta en LF; lo que rompia era el checkout. eol=lf fuerza LF
+# en el arbol de trabajo sin importar la config del cliente, asi el clon en maquina limpia
+# corre sin normalizar nada a mano. (TKT-0217)
+
+# Scripts que ejecuta bash (setup, host, rooms, thin-client): SIEMPRE LF.
+*.sh text eol=lf
+
+# Scripts Node del bundle de hooks: LF (los lee node, pero mantenemos un solo criterio).
+*.mjs text eol=lf
+
+# PowerShell es nativo de Windows: CRLF.
+*.ps1 text eol=crlf
+
+# Certificados: binarios a los ojos de git, no tocar el contenido.
+*.crt -text

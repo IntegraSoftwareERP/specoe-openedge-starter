@@ -25,6 +25,19 @@ log()  { echo -e "\033[1;34m[specoe-room]\033[0m $*"; }
 warn() { echo -e "\033[1;33m[specoe-room]\033[0m $*" >&2; }
 err()  { echo -e "\033[1;31m[specoe-room]\033[0m $*" >&2; exit 1; }
 
+# En Git Bash `node` va envuelto por winpty y rompe @napi-rs/keyring → `node.exe` (TKT-0200).
+# En WSL el node.exe de Windows también está en el PATH por el interop, pero recibe rutas Unix
+# que lee como Windows → MODULE_NOT_FOUND. Ahí no hay winpty: va el node de Linux. (TKT-0217)
+specoe_node_bin() {
+  if [ -n "${WSL_DISTRO_NAME:-}" ] || grep -qi microsoft /proc/version 2>/dev/null; then
+    echo node
+  elif command -v node.exe >/dev/null 2>&1; then
+    echo node.exe
+  else
+    echo node
+  fi
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dir)  DEST_DIR="$2"; shift 2 ;;
@@ -77,11 +90,7 @@ log "Configurando la carpeta (setup.sh --room-only) con --hub $HUB_URL ..."
 
 # ----- 4. Licencia en el keyring, account = rol (aislada → multi-rol) -----
 log "Guardando la license key en el keyring (account=$ROLE)..."
-# En Git Bash + winpty, `node` está envuelto por el wrapper de winpty y rompe la carga
-# del módulo NATIVO @napi-rs/keyring → la escritura falla. `node.exe` bypassa winpty.
-# En Mac/Linux no existe `node.exe` → caemos a `node`. (TKT-0200)
-NODE_BIN="node"
-command -v node.exe >/dev/null 2>&1 && NODE_BIN="node.exe"
+NODE_BIN="$(specoe_node_bin)"
 # Capturamos stdout+stderr del proceso: NO silenciamos el error (el fallo mudo era el bug).
 # Verificamos post-escritura con getPassword() para no reportar éxito falso.
 if keyring_out="$( ( cd "$HOME/.claude/hooks" && "$NODE_BIN" -e "
@@ -97,7 +106,7 @@ else
   warn "    Detalle real del error: ${keyring_out:-<el proceso no devolvió salida>}"
   warn "    → Sin la key en el keyring, el hook specoe-license-check NO valida y el MCP 'specoe' dará 401."
   warn "    Recuperá con UNA de estas opciones:"
-  warn "      a) Git Bash + winpty:  cd ~/.claude/hooks && node.exe -e \"const {Entry}=require('@napi-rs/keyring'); new Entry('specoe-license','$ROLE').setPassword('$LICENSE_KEY')\"  → luego Reload Window en VSCode."
+  warn "      a) A mano con el mismo binario:  cd ~/.claude/hooks && $NODE_BIN -e \"const {Entry}=require('@napi-rs/keyring'); new Entry('specoe-license','$ROLE').setPassword('$LICENSE_KEY')\"  → luego Reload Window en VSCode."
   warn "      b) Fallback env var:   exportá SPECOE_LICENSE_KEY antes de abrir el room."
 fi
 
