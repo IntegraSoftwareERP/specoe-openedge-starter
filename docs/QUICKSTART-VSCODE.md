@@ -21,7 +21,9 @@ Claude Code**. Automatiza con `install-specoe.sh` los pasos que antes eran manua
 
 Estos tres los instalás vos; el resto lo hace el script.
 
-1. **Node 20+** — https://nodejs.org (LTS). Verificá: `node --version` → `v20.x` o mayor.
+1. **Node del rango certificado: 22.19.0 a 26.x** (Node 23 queda afuera) — https://nodejs.org (LTS).
+   Verificá: `node --version` → `v22.19.0` o mayor, sin pasar de `v26`. El instalador aborta fuera
+   del rango: abajo de 22.19 el canal TLS de los hooks directamente no existe (ver tabla del final).
 2. **Git para Windows** (incluye **Git Bash**) — https://git-scm.com/download/win.
 3. **VSCode** — https://code.visualstudio.com — con la **extensión Claude Code**:
    - VSCode → Extensions (Ctrl+Shift+X) → buscar **"Claude Code"** (Anthropic) → Install.
@@ -58,13 +60,17 @@ siguientes se corren desde ahí. Si el clone pide auth, ver **Acceso al repo** e
 
 Hace lo que se comparte entre todos tus rooms:
 
-1. Chequea Node / Claude Code / Git.
+1. Chequea Node (rango certificado 22.19.0–26.x, Node 23 afuera) / Claude Code / Git. Fuera del
+   rango **aborta**: en esas versiones el canal TLS de los hooks no existe.
 2. Instala el bundle de hooks + dependencias (`npm install`).
 3. **Salta una ventana de elevación (UAC) — aceptala.** Con esos permisos:
    - agrega `hub.integra.local` y `mcp.integra.local` al `hosts` (→ IP del piloto);
    - instala el **CA de Caddy** en el trust del sistema (para que el navegador confíe en la UI del Hub).
 4. Copia el CA a `~/.claude/` (para los hooks Node).
-5. **Verifica el host:** `ping` al server + un `fetch` de prueba al Hub con el CA → te dice si la máquina quedó lista.
+5. **Verifica el host** por el **mismo canal que usa el room** (importa `ca-channel.mjs`, el
+   mecanismo único de CA): `ping` al server + un `fetch` de prueba al Hub. Si el canal no da,
+   **aborta** — no imprime "Host listo". El mensaje te dice qué quedó aplicado (bundle, hosts, CA)
+   y con qué comando retomar sin volver a pedir elevación: `./specoe-setup-host.sh --skip-elevation`.
 
 ### 2) Room — una vez por rol
 
@@ -115,7 +121,28 @@ code cc-dev-room   # o discovery-room, engineering-room, adversarial-room
 
 ## Verificar que quedó servido
 
-En la sesión de Claude Code:
+Corré el verificador desde la carpeta del starter (el clon de este repo), pasándole la carpeta del room:
+
+```bash
+./specoe-verify-room.sh ../cc-dev-room     # o la carpeta del room que quieras verificar
+./specoe-verify-room.sh                    # sin argumentos: verifica la carpeta actual
+```
+
+Dictamina solo, sin pasos manuales, con **cinco chequeos** que comprueban el EFECTO (no que un archivo exista):
+
+| #   | Chequeo             | Qué comprueba                                                                                                                                            |
+| --- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `canal-tls-hub`     | el handshake TLS contra el Hub **abre** (un `.crt` de otro emisor da rojo acá)                                                                           |
+| 2   | `jwt-licencia`      | el JWT de licencia está en el cache de la carpeta y **no venció**                                                                                        |
+| 3   | `mcp-json-jwt`      | el `.mcp.json` declara `specoe` con un **JWT real**, no `${SPECOE_SKILL_JWT}`                                                                            |
+| 4   | `contrato-room`     | el **contrato del room baja** del skill-server en esta corrida                                                                                           |
+| 5   | `specoe-conectable` | el skill-server **acepta la sesión** con la url y el header que el `.mcp.json` tiene escritos — es lo que hace que `/mcp` muestre `specoe` **connected** |
+
+`exit 0` solo si los cinco dan verde (`SPECOE-VERIFY veredicto: SERVIDO`). Si alguno falla, la salida nombra el chequeo y qué hacer.
+
+El verificador **no** exige que el MCP `integra-hub` conecte: ese server no forma parte del arranque servido del room.
+
+Verificación manual equivalente, si querés mirarlo vos mismo en la sesión de Claude Code:
 
 - Comando `/mcp` → el server **`specoe`** debe figurar **connected**.
 - `cat .mcp.json` → el header `Authorization` tiene un **JWT** (no `${SPECOE_SKILL_JWT}`).
@@ -126,12 +153,13 @@ En la sesión de Claude Code:
 
 ## Si algo falla
 
-| Síntoma                                         | Causa probable                    | Fix                                                                                                                       |
-| ----------------------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| MCP `specoe` no conecta                         | JWT no poblado                    | Reabrí VSCode (el hook lo puebla al arrancar). Revisá el log de licencia.                                                 |
-| Warning de TLS en el navegador                  | CA no instalado                   | Re-corré el install (acepta el UAC) o importá `certs/caddy-root-ca.crt` a "Entidades de certificación raíz de confianza". |
-| `unable to verify the first certificate` (Node) | `NODE_EXTRA_CA_CERTS` sin apuntar | Confirmá `~/.claude/caddy-local-root.crt` existe; reabrí VSCode.                                                          |
-| `hub.integra.local` no resuelve                 | hosts sin entrada                 | Re-corré el install, o agregá `<IP> hub.integra.local` al hosts (admin).                                                  |
-| `license expired` / `invalid signature`         | licencia vencida/mal firmada      | Pedí license nueva a Integra.                                                                                             |
+| Síntoma                                                                | Causa probable                                                                                                                            | Fix                                                                                                                                                                                                                                                   |
+| ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| MCP `specoe` no conecta                                                | JWT no poblado                                                                                                                            | Reabrí VSCode (el hook lo puebla al arrancar). Revisá el log de licencia.                                                                                                                                                                             |
+| Warning de TLS en el navegador                                         | CA no instalado                                                                                                                           | Re-corré el install (acepta el UAC) o importá `certs/caddy-root-ca.crt` a "Entidades de certificación raíz de confianza".                                                                                                                             |
+| `unable to verify the first certificate` (Node)                        | El CA del piloto no está en `~/.claude/caddy-local-root.crt`, o el que hay es de otro emisor                                              | Re-corré `./specoe-setup-host.sh --skip-elevation`: reemplaza el `.crt` local por el del starter y verifica el canal. **No** exportes `NODE_EXTRA_CA_CERTS`: bajo la extensión de VSCode esa variable no le llega al hook — el CA se lee del archivo. |
+| El hook no habla con el Hub y el instalador aborta por versión de Node | Node fuera del rango certificado (20.x, 22.18 o anterior, 23.x): no expone `tls.setDefaultCACertificates` y el canal TLS no puede armarse | Instalá una versión del rango: **22.19.0 a 26.x, Node 23 afuera**. Verificá con `node -v` y volvé a correr `./specoe-setup-host.sh --skip-elevation`.                                                                                                 |
+| `hub.integra.local` no resuelve                                        | hosts sin entrada                                                                                                                         | Re-corré el install, o agregá `<IP> hub.integra.local` al hosts (admin).                                                                                                                                                                              |
+| `license expired` / `invalid signature`                                | licencia vencida/mal firmada                                                                                                              | Pedí license nueva a Integra.                                                                                                                                                                                                                         |
 
 Si algo no cierra después de revisar la tabla de arriba, contactá a Integra Software: `soporte@integrasoftware.biz`.

@@ -11,16 +11,39 @@
 //   5. Si falla la red: si cache < offlineGraceHours (tier), usar cache (grace period).
 //   6. Si cache stale: degrada — solo skills libres accesibles (sin SPECOE_TOKEN).
 //
-// NUNCA bloquea el cierre de Claude Code — exit 0 siempre.
+// CONTRATO DE SALIDA (SPEC-0164 P2 / ADR-002 — decision del Operador sobre Q8):
+// el hook YA NO sale 0 siempre. Bloquea el arranque UNICAMENTE cuando no hay cache de
+// grace: cache dentro de las 24 h => arranca con mensaje visible; cache ausente o stale =>
+// corta con exit 2. Distingue el corte de red pasajero de la instalacion que nunca
+// funciono. El bloqueo lleva SIEMPRE los cuatro datos (errno real, URL resuelta con su
+// fuente, fuente de CA que gano, accion concreta) mas la via de escape ejecutable:
+// bloquear sin decir por que no es el fix, y un bloqueo mudo aborta el bloqueo
+// (blockSession() vuelve a exit 0 antes que cortar sin diagnostico).
+// Un error no manejado sigue saliendo 0: nunca bloqueamos por un bug nuestro.
 
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
-import tls from 'node:tls';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
+import { pathToFileURL } from 'node:url';
+import { applyCaChannel, describeNetworkError, DEFAULT_CA_PATH } from './ca-channel.mjs';
 
 const execFileAsync = promisify(execFile);
+
+// Presupuesto del hook: settings.json le da 5s (SessionStart). Los dos fetch al Hub
+// llevan deadline propio calculado sobre lo que queda de ese presupuesto — sin esto
+// quedaban a merced del connectTimeout de undici (10s), el doble del presupuesto, y el
+// harness mataba el proceso antes de que llegara a loguear por que fallo.
+const HOOK_BUDGET_MS = Number.parseInt(process.env.SPECOE_LICENSE_TIMEOUT_MS || '4500', 10);
+const STARTED_AT = Date.now();
+const MIN_FETCH_MS = 500;
+const MAX_FETCH_MS = 2000;
+
+function fetchDeadlineMs() {
+  const left = HOOK_BUDGET_MS - (Date.now() - STARTED_AT);
+  return Math.max(MIN_FETCH_MS, Math.min(MAX_FETCH_MS, left));
+}
 
 // multi-rol — el .mcp.json, el project.config.yaml y el cache de
 // licencia viven en el project dir (cwd de la sesion Claude Code). Claude Code expone
@@ -39,6 +62,18 @@ const LOG_DIR = path.join(os.homedir(), '.claude', 'logs');
 // (env > project.config.yaml > este fallback interno). Ver resolveHubUrl().
 const FALLBACK_HUB_URL = 'http://integra-hub:8100/api/v1';
 const DEFAULT_GRACE_HOURS = 24;
+
+// Via de escape del bloqueo (ADR-002). Dos formas porque el dev que la necesita puede
+// estar en PowerShell, en cmd o en bash, y el mensaje tiene que funcionar en la misma
+// corrida siguiendo SOLO lo que dice — sin doc y sin abrir el log.
+export const ESCAPE_HATCH_ENV = 'SPECOE_ALLOW_DEGRADED_START';
+const ESCAPE_HATCH_FILE = path.join(PROJECT_DIR, '.claude', 'specoe-allow-degraded-start');
+
+// Mismo umbral que usa specoe-room-bootstrap.mjs para descartar el token del cache: el JWT
+// de licencia vive 1 h (ACCESS_TOKEN_TTL_SECONDS) y a los 55 min ya no sirve para el
+// skill-server. Un .mcp.json declarando `specoe` con un token de esa edad es la misma
+// mentira que el placeholder sin expandir.
+const SKILL_JWT_MAX_AGE_MS = 55 * 60 * 1000;
 
 // ----- fingerprint generation (cliente-side) -----
 // Composicion: machineId (node-machine-id) + cpuModel + cpuCount + diskSerial nativo.
@@ -210,41 +245,77 @@ async function getLicenseKey() {
   return null;
 }
 
-// ----- helpers: ca dispatcher + hub url + activate + skill jwt -----
+// ----- helpers: canal de CA + hub url + activate + skill jwt -----
 
-// bug#2 — carga el CA de Caddy explícito para el fetch. NODE_EXTRA_CA_CERTS NO llega al
-// hook cuando corre en la extensión VSCode (sí en el CLI `claude`); sin el CA, el fetch
-// al Hub (cert `tls internal` de Caddy) falla ("fetch failed") y el hook degrada sin
-// poblar el JWT. Leemos el CA de ~/.claude/caddy-local-root.crt y lo instalamos como
-// dispatcher global de undici → TODO fetch confía en el cert, sin depender de la env.
-// Fail-open: sin CA en disco o sin undici, seguimos con el trust default.
-async function installCaDispatcher() {
-  try {
-    const caPath = path.join(os.homedir(), '.claude', 'caddy-local-root.crt');
-    const ca = await fs.readFile(caPath, 'utf8');
-    const { Agent, setGlobalDispatcher } = await import('undici');
-    // Combinamos con los root certs del sistema (no reemplazarlos): así el CA de Caddy
-    // suma al trust default, sin romper conexiones a CAs públicos.
-    setGlobalDispatcher(new Agent({ connect: { ca: [...tls.rootCertificates, ca] } }));
-    await logLine({ level: 'info', msg: 'CA dispatcher instalado (undici)' });
-  } catch (err) {
-    await logLine({ level: 'warn', msg: 'no se pudo instalar CA dispatcher', error: err?.message });
+// El canal de CA es UNO SOLO y vive en ca-channel.mjs. Aca solo se aplica y se loguea
+// QUE hizo con el store del proceso — numeros verificables, no un veredicto.
+// La linea de exito del canal se emite mas abajo, y solo cuando un request al Hub
+// efectivamente llego: el mecanismo aplicado no prueba que el canal sirva.
+// Fail-open: sin CA en disco seguimos con el trust default y queda registrado por que.
+async function openCaChannel() {
+  const r = applyCaChannel();
+  if (r.ok) {
+    await logLine({
+      level: 'info',
+      msg: 'canal de CA aplicado — store del proceso ampliado',
+      caPath: r.caPath,
+      subject: r.subject,
+      storeBefore: r.storeBefore,
+      storeAfter: r.storeAfter,
+      system: r.system,
+      bundled: r.bundled,
+    });
+  } else {
+    await logLine({
+      level: 'warn',
+      msg: 'canal de CA NO aplicado',
+      reason: r.reason,
+      caPath: r.caPath ?? DEFAULT_CA_PATH,
+      subject: r.subject,
+      error: r.error,
+    });
   }
+  return r;
 }
 
 // fix #2 — resuelve la URL del Hub. Precedencia: env INTEGRA_HUB_URL >
 // hub.api-url de project.config.yaml (del project dir) > fallback interno.
 // Parser minimo sin dep: la unica clave `api-url:` del yaml vive bajo `hub:`.
+// Devuelve tambien QUE fuente gano: `fetch failed` no distinguia "no llegue al Hub" de
+// "le pegue al host equivocado", y reconstruirlo costo una corrida manual.
 async function resolveHubUrl() {
-  if (process.env.INTEGRA_HUB_URL) return process.env.INTEGRA_HUB_URL;
+  if (process.env.INTEGRA_HUB_URL) {
+    return { url: process.env.INTEGRA_HUB_URL, source: 'env INTEGRA_HUB_URL' };
+  }
   try {
     const yaml = await fs.readFile(path.join(PROJECT_DIR, 'project.config.yaml'), 'utf8');
     const m = yaml.match(/^\s*api-url:\s*['"]?([^'"\n]+?)['"]?\s*$/m);
-    if (m && m[1]) return m[1].trim();
+    if (m && m[1]) return { url: m[1].trim(), source: 'project.config.yaml' };
   } catch {
     /* sin yaml en el project dir — cae al fallback */
   }
-  return FALLBACK_HUB_URL;
+  return { url: FALLBACK_HUB_URL, source: 'fallback interno' };
+}
+
+// Contexto del proceso, una vez por corrida. Es el dato que hubiera cerrado el incidente
+// de SPEC-0164 en la primera corrida en vez de en la decima: la version de Node nombra la
+// causa (el fetch global de Node 26 ignora el dispatcher de undici) y el valor efectivo de
+// NODE_EXTRA_CA_CERTS delata un path sin expandir o pisado por un tercero.
+// El starter ya NO setea esa variable: lo que aparezca aca viene del sistema o del usuario.
+async function logProcessContext() {
+  await logLine({
+    level: 'info',
+    msg: 'contexto de proceso',
+    nodeVersion: process.version,
+    execPath: process.execPath,
+    pid: process.pid,
+    ppid: process.ppid,
+    platform: `${process.platform} ${process.arch}`,
+    nodeExtraCaCerts: process.env.NODE_EXTRA_CA_CERTS ?? null,
+    nodeExtraCaCertsSetBy: process.env.NODE_EXTRA_CA_CERTS ? 'entorno externo al starter' : null,
+    claudeProjectDir: process.env.CLAUDE_PROJECT_DIR ?? null,
+    cwd: process.cwd(),
+  });
 }
 
 // fix #1 — activa el fingerprint antes de validar. Idempotente por (licenseId,
@@ -252,19 +323,31 @@ async function resolveHubUrl() {
 // activate()). validate() exige el fingerprint ya activado, asi que un dev nuevo lo
 // necesita en el primer arranque. Nunca bloquea: si falla, seguimos a validate/grace.
 async function activateFingerprint(hubUrl, licenseKey, fingerprint) {
+  const url = `${hubUrl}/license/activate`;
   try {
-    const res = await fetch(`${hubUrl}/license/activate`, {
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ licenseKey, fingerprint }),
+      signal: AbortSignal.timeout(fetchDeadlineMs()),
     });
     if (res.ok) {
       await logLine({ level: 'info', msg: 'fingerprint activado' });
       return true;
     }
-    await logLine({ level: 'warn', msg: 'activate fallo', status: res.status });
+    await logLine({ level: 'warn', msg: 'activate fallo', status: res.status, url });
   } catch (err) {
-    await logLine({ level: 'warn', msg: 'activate network error', error: err?.message });
+    // el errno real (UNABLE_TO_GET_ISSUER_CERT_LOCALLY, UNABLE_TO_VERIFY_LEAF_SIGNATURE,
+    // ENOTFOUND, TimeoutError...) viaja en err.cause; err.message es siempre 'fetch failed'.
+    const net = describeNetworkError(err);
+    await logLine({
+      level: 'warn',
+      msg: 'activate network error',
+      code: net.code,
+      cause: net.cause,
+      error: net.message,
+      url,
+    });
   }
   return false;
 }
@@ -317,31 +400,321 @@ async function populateSkillJwt(token) {
   }
 }
 
+// T2.3 — camino SIMETRICO de populateSkillJwt(). Hasta ahora el .mcp.json solo se tocaba
+// en el camino feliz: sin token quedaba como lo dejo el instalador, con
+// `Authorization: Bearer ${SPECOE_SKILL_JWT}` sin expandir, y el error emergia tres capas
+// abajo como un 401 del skill-server sin rastro del fetch que lo origino.
+// Sin JWT usable retiramos el server `specoe` del archivo: /mcp no lo va a mostrar como
+// 401 — no lo va a mostrar, que es coherente con el mensaje de arranque que ya explico
+// por que. Los demas mcpServers se preservan, igual que en el camino feliz, y
+// populateSkillJwt() reconstruye el entry completo en la primera corrida que valide.
+async function withdrawSkillServer() {
+  let doc;
+  try {
+    doc = JSON.parse(await fs.readFile(MCP_JSON_FILE, 'utf8'));
+  } catch {
+    return; // no existe o corrupto: no hay nada que retirar
+  }
+  if (!doc?.mcpServers?.specoe) return;
+  const removedUrl = doc.mcpServers.specoe.url ?? null;
+  delete doc.mcpServers.specoe;
+  try {
+    await fs.writeFile(MCP_JSON_FILE, JSON.stringify(doc, null, 2) + '\n');
+    await logLine({
+      level: 'warn',
+      msg: '.mcp.json — server specoe retirado: esta corrida no tiene JWT usable',
+      removedUrl,
+      file: MCP_JSON_FILE,
+    });
+  } catch (err) {
+    await logLine({
+      level: 'warn',
+      msg: 'no se pudo retirar specoe del .mcp.json',
+      error: err?.message,
+    });
+  }
+}
+
+// Regla unica del archivo: el .mcp.json declara `specoe` si y solo si ESTA corrida tiene
+// un JWT usable. Cualquier otro estado es fingir que el room esta servido.
+async function syncSkillServerEntry(token) {
+  if (token) await populateSkillJwt(token);
+  else await withdrawSkillServer();
+}
+
+function usableCachedToken(cache) {
+  if (!cache?.token) return null;
+  if (!cache.validatedAt) return null;
+  const ageMs = Date.now() - new Date(cache.validatedAt).getTime();
+  return ageMs < SKILL_JWT_MAX_AGE_MS ? cache.token : null;
+}
+
+// ----- diagnostico compartido (T2.1 + T2.2) -----
+//
+// Los TRES mensajes de la rama degradada y el mensaje de bloqueo salen de aca. Se escribe
+// una vez y se reusa: dos formatos distintos para el mismo fallo es como el dato se pierde
+// en el camino. Todo lo de esta seccion es puro y exportado — la suite lo ejercita sin red.
+//
+// El mensaje viejo (`SpecOE license invalida y cache expirado`) era FALSO en el incidente
+// que origino esta SPEC: la licencia no era invalida, los dos fetch murieron en el
+// handshake TLS y nunca hubo respuesta del Hub. Mando a buscar el problema donde no estaba.
+
+export const SCENARIO_NO_HUB_RESPONSE = 'no-hub-response';
+export const SCENARIO_LICENSE_REJECTED = 'license-rejected';
+export const SCENARIO_NO_LICENSE_KEY = 'no-license-key';
+
+// Prefijo estable de cada dato del diagnostico: ancla determinista para la suite, para el
+// verificador de P4 y para el dev que hace grep. Mismo criterio que el SENTINEL_PREFIX
+// de specoe-room-bootstrap.mjs.
+export const DIAG_PREFIX = 'SPECOE-DIAG';
+// Los CUATRO datos obligatorios por instruccion del Operador (ADR-002).
+export const REQUIRED_DIAG_KEYS = ['errno', 'url', 'ca', 'accion'];
+
+function diagLine(key, text) {
+  return `${DIAG_PREFIX} ${key}: ${text}`;
+}
+
+/** true solo si el texto trae los cuatro datos obligatorios. */
+export function hasAllRequiredDiagnostics(text) {
+  return REQUIRED_DIAG_KEYS.every((k) => String(text ?? '').includes(`${DIAG_PREFIX} ${k}:`));
+}
+
+/** Titular por escenario. Es lo que hace los tres mensajes distinguibles de un vistazo. */
+export function buildHeadline({ scenario, httpStatus }) {
+  switch (scenario) {
+    case SCENARIO_LICENSE_REJECTED:
+      return (
+        `SpecOE: el Hub RESPONDIO y rechazo la licencia (HTTP ${httpStatus}). ` +
+        `El canal funciono — el problema esta en la licencia.`
+      );
+    case SCENARIO_NO_LICENSE_KEY:
+      return (
+        'SpecOE: no hay license key en env, keyring ni cache. ' +
+        'No se intento ningun request: no habia nada que validar.'
+      );
+    case SCENARIO_NO_HUB_RESPONSE:
+    default:
+      return (
+        'SpecOE: NO hubo respuesta del Hub. El fallo es de red/TLS, ' +
+        'NO de la licencia: nunca se la pudo preguntar.'
+      );
+  }
+}
+
+/** Dato 1 — el errno real, el de err.cause, no la string `fetch failed`. */
+export function describeErrno({ scenario, net, httpStatus }) {
+  if (scenario === SCENARIO_LICENSE_REJECTED) {
+    return `sin error de red — el Hub contesto HTTP ${httpStatus}`;
+  }
+  if (scenario === SCENARIO_NO_LICENSE_KEY) {
+    return 'sin error de red — no se hizo ningun request';
+  }
+  const code = net?.code ?? 'desconocido';
+  const cause = net?.cause ?? net?.message ?? 'sin detalle';
+  return `${code} — ${cause} (sale de err.cause; el 'fetch failed' pelado no nombra nada)`;
+}
+
+/** Dato 2 — la URL resuelta y CUAL de las tres fuentes de resolveHubUrl() gano. */
+export function describeHubUrl({ hub }) {
+  return `${hub?.url ?? 'sin resolver'} (fuente: ${hub?.source ?? 'desconocida'})`;
+}
+
+/**
+ * Dato 3 — la fuente de CA que gano. Con el mecanismo unico de ADR-001 hay un solo camino,
+ * asi que el dato concreto es: path del .crt leido, si parseo como X509, y si el root de
+ * Caddy quedo EFECTIVAMENTE en el store del proceso. Es la diferencia entre "no llegue" y
+ * "no llegue porque el CA no esta en el trust".
+ */
+export function describeCaSource({ ca }) {
+  const at = `${ca?.caPath ?? DEFAULT_CA_PATH}`;
+  switch (ca?.reason) {
+    case 'ok':
+      return (
+        `${at} — leido y parseado como X509 (subject ${ca.subject}); ` +
+        `el root SI quedo en el store efectivo del proceso (${ca.storeBefore} -> ${ca.storeAfter} certs, ` +
+        `system=${ca.system} bundled=${ca.bundled})`
+      );
+    case 'ca-missing':
+      return `${at} — el archivo NO existe: no se leyo ningun .crt, no parseo, y el root NO quedo en el store del proceso`;
+    case 'ca-unparsable':
+      return `${at} — el archivo se leyo pero NO parseo como X509 (${ca.error ?? 'sin detalle'}): el root NO quedo en el store del proceso`;
+    case 'api-missing':
+      return `${at} — parseo como X509 (subject ${ca.subject}) pero ${process.version} no expone tls.setDefaultCACertificates: el root NO quedo en el store del proceso`;
+    case 'apply-failed':
+      return `${at} — parseo como X509 (subject ${ca.subject}) pero escribir el store fallo (${ca.error ?? 'sin detalle'}): el root NO quedo adentro`;
+    case 'not-in-effective-store':
+      return `${at} — parseo como X509 (subject ${ca.subject}) pero al releer el store el root NO aparece adentro`;
+    default:
+      return `${at} — el canal de CA no se abrio en esta corrida (no hubo request al Hub que lo necesitara)`;
+  }
+}
+
+/** Dato 4 — que hacer, en imperativo, sin mandar a leer el log. */
+export function buildAction({ scenario, ca, hub }) {
+  if (scenario === SCENARIO_NO_LICENSE_KEY) {
+    return (
+      'Guarda la license key de este rol en el keyring: corre ' +
+      './specoe-add-room.sh <ROL> <LICENSE_KEY> desde el starter, ' +
+      'o exporta SPECOE_LICENSE_KEY=<key> en el entorno. Despues volve a abrir la sesion.'
+    );
+  }
+  if (scenario === SCENARIO_LICENSE_REJECTED) {
+    return (
+      'La licencia llego al Hub y fue rechazada: pedi a un ADMIN del tenant que la revise ' +
+      'en el Hub (Administracion -> Licencias: vigencia, seats y fingerprint de esta maquina). ' +
+      'No toques el CA ni la red: el canal funciono.'
+    );
+  }
+  if (ca?.ok !== true) {
+    return (
+      'Instala el root de Caddy en esta maquina: corre ./specoe-setup-host.sh desde el ' +
+      `starter, o copia certs/caddy-root-ca.crt a ${ca?.caPath ?? DEFAULT_CA_PATH}. ` +
+      'Despues volve a abrir la sesion.'
+    );
+  }
+  return (
+    `El CA esta en el store y el Hub igual no contesto: verifica desde ESTA maquina que ` +
+    `${hub?.url ?? 'la URL del Hub'} resuelva y este arriba (curl -I ${hub?.url ?? '<url>'}), ` +
+    'y revisa proxy/firewall. Si la URL no es la que esperabas, corregi INTEGRA_HUB_URL o ' +
+    'hub.api-url en project.config.yaml.'
+  );
+}
+
+/** Via de escape del bloqueo: explicita y ejecutable en la misma corrida. */
+export function buildEscapeHatch({ escapeFile = ESCAPE_HATCH_FILE } = {}) {
+  return (
+    'para arrancar igual, degradado a proposito (sin skills SpecOE y sin contrato de rol), ' +
+    `corre UNA de estas dos y volve a abrir la sesion — PowerShell: New-Item -ItemType File -Force "${escapeFile}" — ` +
+    `bash: touch "${escapeFile}" — o exporta ${ESCAPE_HATCH_ENV}=1.`
+  );
+}
+
+/**
+ * El mensaje completo. Lo comparten los tres escenarios degradados y el bloqueo: la unica
+ * diferencia es la linea `escape`, que solo aparece cuando efectivamente se corta.
+ */
+export function buildFailureContext(diag) {
+  const lines = [
+    buildHeadline(diag),
+    diagLine('errno', describeErrno(diag)),
+    diagLine('url', describeHubUrl(diag)),
+    diagLine('ca', describeCaSource(diag)),
+    diagLine('accion', buildAction(diag)),
+  ];
+  if (diag?.blocked) lines.push(diagLine('escape', buildEscapeHatch(diag)));
+  if (diag?.escapeUsed) {
+    lines.push(
+      diagLine(
+        'escape-activo',
+        `arrancando degradado a proposito por ${diag.escapeUsed}: la sesion sigue sin skills SpecOE y sin contrato de rol.`,
+      ),
+    );
+  }
+  return lines.join('\n');
+}
+
+/** La via de escape esta activa? Devuelve por que, o null. */
+async function escapeHatchReason(escapeFile = ESCAPE_HATCH_FILE) {
+  if (process.env[ESCAPE_HATCH_ENV]) return `la variable ${ESCAPE_HATCH_ENV}`;
+  try {
+    await fs.access(escapeFile);
+    return `el archivo ${escapeFile}`;
+  } catch {
+    return null;
+  }
+}
+
+function emitContext(status, additionalContext) {
+  console.log(
+    JSON.stringify({
+      specoeStatus: status,
+      hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext },
+    }),
+  );
+}
+
+/**
+ * UNICO punto del archivo que devuelve un exit distinto de 0, y arma el mensaje el mismo:
+ * asi no existe un camino que corte sin pasar por el diagnostico (riesgo declarado 3 de la
+ * fase). Si aun asi el mensaje sale incompleto, NO bloquea — un bloqueo mudo deja al dev
+ * sin sesion y sin dato, que es peor que no bloquear.
+ */
+async function blockSession(diag) {
+  const context = buildFailureContext({ ...diag, blocked: true });
+  if (!hasAllRequiredDiagnostics(context)) {
+    await logLine({ level: 'error', msg: 'bloqueo abortado — diagnostico incompleto', context });
+    emitContext('degraded', context);
+    return 0;
+  }
+  await logLine({
+    level: 'warn',
+    msg: 'arranque BLOQUEADO — sin licencia validada y sin cache de grace',
+    scenario: diag.scenario,
+    context,
+  });
+  console.log(
+    JSON.stringify({
+      specoeStatus: 'blocked',
+      // `continue: false` es lo que corta el arranque del lado del harness; el exit 2 y el
+      // stderr son la segunda via, para el caso en que el harness no lea el JSON.
+      continue: false,
+      stopReason: 'SpecOE no pudo validar la licencia y no hay cache de grace.',
+      systemMessage: context,
+      hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: context },
+    }),
+  );
+  process.stderr.write(context + '\n');
+  return 2;
+}
+
 // ----- main -----
 
 async function main() {
   const licenseKey = await getLicenseKey();
   if (!licenseKey) {
+    // Escenario 3. NO bloquea: este hook se registra global (~/.claude/settings.json) y
+    // corre en toda sesion de Claude Code de la maquina. Una carpeta sin licencia no es un
+    // room de SpecOE roto — es una sesion sin SpecOE, y cortarla seria bloquear al dev en
+    // trabajo que nada tiene que ver. Q8 acota el bloqueo a "no hay cache de grace"
+    // DESPUES de haber intentado validar, que es el caso que origino la SPEC.
+    const hub = await resolveHubUrl();
+    const context = buildFailureContext({ scenario: SCENARIO_NO_LICENSE_KEY, hub, ca: null });
+    await syncSkillServerEntry(null);
     await logLine({ level: 'warn', msg: 'no license key encontrada — skills libres solamente' });
-    console.log(JSON.stringify({ specoeStatus: 'no-license' }));
+    emitContext('no-license', context);
     return 0;
   }
 
-  const fingerprint = await computeLocalFingerprint();
-  const hubUrl = await resolveHubUrl();
+  await logProcessContext();
 
-  // instalar el CA de Caddy en el fetch ANTES de cualquier request al Hub.
-  await installCaDispatcher();
+  const fingerprint = await computeLocalFingerprint();
+  const hub = await resolveHubUrl();
+  const { url: hubUrl, source: hubUrlSource } = hub;
+  await logLine({ level: 'info', msg: 'hub url resuelta', hubUrl, source: hubUrlSource });
+
+  // aplicar el canal de CA ANTES de cualquier request al Hub. El resultado se retiene:
+  // es el dato 3 del diagnostico, y sin el "no llegue" no se distingue de "no llegue
+  // porque el CA no esta en el trust".
+  const ca = await openCaChannel();
 
   // activar el fingerprint (idempotente) antes de validar.
   await activateFingerprint(hubUrl, licenseKey, fingerprint);
 
+  const validateUrl = `${hubUrl}/license/validate`;
+  // Que fallo exactamente: `net` => no hubo respuesta (red/TLS); `httpStatus` => el Hub
+  // contesto y rechazo. Son excluyentes y son los que eligen el escenario del mensaje.
+  let net = null;
+  let httpStatus = null;
   try {
-    const res = await fetch(`${hubUrl}/license/validate`, {
+    const res = await fetch(validateUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ licenseKey, fingerprint }),
+      signal: AbortSignal.timeout(fetchDeadlineMs()),
     });
+    // El request llego: el TLS valido. ESTA es la linea de exito del canal, y sale
+    // recien aca porque es el unico punto donde el efecto quedo comprobado.
+    await logLine({ level: 'info', msg: 'canal TLS verificado contra el Hub', hubUrl });
     if (res.ok) {
       const body = await res.json();
       const cached = {
@@ -368,48 +741,76 @@ async function main() {
       );
       return 0;
     }
-    await logLine({ level: 'warn', msg: 'validate failed', status: res.status });
+    httpStatus = res.status;
+    await logLine({ level: 'warn', msg: 'validate failed', status: res.status, url: validateUrl });
     // Fallthrough al grace period
   } catch (err) {
-    await logLine({ level: 'warn', msg: 'validate network error', error: err?.message });
+    net = describeNetworkError(err);
+    await logLine({
+      level: 'warn',
+      msg: 'validate network error',
+      code: net.code,
+      cause: net.cause,
+      error: net.message,
+      url: validateUrl,
+    });
   }
 
-  // Grace period: usar cache si esta fresco
+  const diag = {
+    scenario: net ? SCENARIO_NO_HUB_RESPONSE : SCENARIO_LICENSE_REJECTED,
+    net,
+    httpStatus,
+    hub,
+    ca,
+  };
+
+  // Grace period: usar cache si esta fresco. ADR-002 — con cache dentro de las 24 h la
+  // sesion ARRANCA, pero ya no en silencio: el mensaje visible lleva el mismo cuerpo de
+  // datos que el bloqueo. Es la diferencia entre el corte de red pasajero y la instalacion
+  // que nunca funciono, y el dev tiene que poder verla sin abrir el log.
   const cache = await readCache();
   const graceHours = DEFAULT_GRACE_HOURS; // TODO: leer de tier-specific config
   if (cache && isCacheWithinGrace(cache, graceHours)) {
     await logLine({ level: 'info', msg: 'using cached license (offline grace)', tier: cache.tier });
-    console.log(
-      JSON.stringify({
-        specoeStatus: 'cached',
-        hookSpecificOutput: {
-          hookEventName: 'SessionStart',
-          additionalContext: `SpecOE license (offline, cache fresco): tier=${cache.tier}`,
-        },
-      }),
+    await syncSkillServerEntry(usableCachedToken(cache));
+    emitContext(
+      'cached',
+      // El titular del diagnostico dice si el Hub no contesto o si contesto rechazando;
+      // esta linea no lo adelanta, para no volver a poner una causa falsa arriba de todo.
+      `SpecOE license (offline, cache fresco): tier=${cache.tier}. La sesion arranca por el grace period de ${graceHours} h, pero la validacion contra el Hub NO paso en esta corrida:\n` +
+        buildFailureContext(diag),
     );
     return 0;
   }
 
-  // Degradacion: sin token, solo skills libres
-  await logLine({ level: 'warn', msg: 'degraded — no valid license + cache stale' });
-  console.log(
-    JSON.stringify({
-      specoeStatus: 'degraded',
-      hookSpecificOutput: {
-        hookEventName: 'SessionStart',
-        additionalContext:
-          'SpecOE license invalida y cache expirado — solo skills libres disponibles',
-      },
-    }),
-  );
-  return 0;
+  // Sin cache de grace. Aca es donde ADR-002 corta.
+  await syncSkillServerEntry(null);
+  const escapeUsed = await escapeHatchReason();
+  if (escapeUsed) {
+    await logLine({
+      level: 'warn',
+      msg: 'degradado a proposito — via de escape activa, no se bloquea',
+      escapeUsed,
+    });
+    emitContext('degraded', buildFailureContext({ ...diag, escapeUsed }));
+    return 0;
+  }
+  return blockSession(diag);
 }
 
-main()
-  .then((code) => process.exit(code || 0))
-  .catch(async (err) => {
-    await logLine({ level: 'error', msg: 'unhandled', error: err?.message, stack: err?.stack });
-    // NUNCA bloquear sesion.
-    process.exit(0);
-  });
+// Guarda de entry point — solo corre main() cuando el archivo ES el proceso, nunca al
+// importarlo. Sin esto, cualquier herramienta que importe este hook para inspeccionarlo
+// (el verificador del canal, la suite de tests) moria en el process.exit() de abajo
+// ANTES de emitir su veredicto: exit 0 sin haber chequeado nada, o sea el verde falso
+// que esta SPEC existe para matar, reintroducido en la herramienta que lo detecta.
+// Mismo mecanismo que specoe-room-bootstrap.mjs.
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isMain) {
+  main()
+    .then((code) => process.exit(code || 0))
+    .catch(async (err) => {
+      await logLine({ level: 'error', msg: 'unhandled', error: err?.message, stack: err?.stack });
+      // NUNCA bloquear sesion.
+      process.exit(0);
+    });
+}

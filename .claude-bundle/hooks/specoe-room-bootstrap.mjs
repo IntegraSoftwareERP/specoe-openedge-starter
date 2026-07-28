@@ -17,15 +17,19 @@
 //   -> { content: [{ type:'text', text: <markdown del contrato del room> }] }
 //   Producto (sddRole ausente => role=null) => el tool responde isError; no inyectamos.
 //
-// Defensa/UX: NUNCA bloquea el arranque (exit 0 SIEMPRE). Fallo de red, server caido,
-// licencia sin rol o timeout => sesion arranca igual, sin contrato inyectado. El
+// Defensa/UX: este hook NUNCA bloquea el arranque (exit 0 SIEMPRE). Fallo de red, server
+// caido, licencia sin rol o timeout => sesion arranca igual, sin contrato inyectado. El
 // enforcement real del rol vive en el backend (403 del Hub), no en este hook.
+// Lo que si cambio (SPEC-0164 P2 / T2.4): arrancar sin contrato ya no es MUDO. Los cuatro
+// caminos de fallo emiten un additionalContext que declara que el room opera SIN su
+// contrato de gobierno y por que. El bloqueo por licencia, cuando corresponde, lo decide
+// specoe-license-check.mjs; este hook solo declara.
 
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import tls from 'node:tls';
 import { pathToFileURL } from 'node:url';
+import { applyCaChannel, describeNetworkError, DEFAULT_CA_PATH } from './ca-channel.mjs';
 
 // multi-rol — el cache de licencia vive POR-CARPETA (cwd de la sesion), igual que
 // en specoe-license-check.mjs. Antes era global (~/.claude): con varios roles a la vez el
@@ -40,6 +44,21 @@ const NETWORK_DEADLINE_MS = Number.parseInt(process.env.SPECOE_BOOTSTRAP_TIMEOUT
 // Sentinel estable para el probe determinista (T5.3): marca inequivoca de que el
 // contrato bajo del server y se inyecto (no vino de un CLAUDE.md en disco).
 const SENTINEL_PREFIX = 'SPECOE-ROOM-CONTRACT';
+const LOG_DIR = path.join(os.homedir(), '.claude', 'logs');
+
+// Este hook era MUDO: fail-open silencioso en el canal de CA (catch vacio) y en la red.
+// Un arranque sin contrato del room no dejaba rastro de por que. Ahora deja linea.
+// No rompe por log ni cambia el fail-open: sigue siendo exit 0 pase lo que pase.
+async function logLine(obj) {
+  try {
+    await fs.mkdir(LOG_DIR, { recursive: true });
+    const today = new Date().toISOString().slice(0, 10);
+    const file = path.join(LOG_DIR, `specoe-room-bootstrap-${today}.log`);
+    await fs.appendFile(file, JSON.stringify({ ts: new Date().toISOString(), ...obj }) + '\n');
+  } catch {
+    /* no romper por log */
+  }
+}
 
 // Lee el JWT de licencia que dejo specoe-license-check.mjs en el cache. No re-valida:
 // si el token no esta o el cache es viejo, degradamos a fail-open (sin contrato).
@@ -129,6 +148,41 @@ export function buildAdditionalContext(role, contract) {
   );
 }
 
+// SPEC-0164 P2 / T2.4 — el room que arranca sin contrato lo DECLARA.
+//
+// main() abandonaba en silencio por cuatro caminos (sin token fresco, JWT sin claim
+// sddRole, el server sin contrato para el rol, y el catch de red). Como este room no lleva
+// su CLAUDE.md en disco, sin contrato bajado no hay gobierno de rol en ningun lado — y el
+// hook estaba diseñado para no decirlo.
+//
+// El prefijo es OTRO a proposito: `SPECOE-ROOM-UNGOVERNED` no contiene la subcadena
+// `SPECOE-ROOM-CONTRACT`, asi que el probe determinista de O6 puede afirmar la AUSENCIA
+// del sentinel y la PRESENCIA de esta declaracion en el mismo texto. El sentinel no se
+// renombra: es el ancla que ya usa el probe de T5.3.
+export const UNGOVERNED_PREFIX = 'SPECOE-ROOM-UNGOVERNED';
+
+export function buildUngovernedContext(reason, detail) {
+  return (
+    `[[${UNGOVERNED_PREFIX}:${reason}]] Este room esta operando SIN su contrato de gobierno. ` +
+    `El room no lleva su CLAUDE.md en disco: el contrato del rol vive en el SpecOE Skill ` +
+    `Server y baja en cada arranque de sesion. En esta sesion NO bajo, asi que ninguna ` +
+    `regla del rol esta cargada. Motivo: ${detail} ` +
+    `El enforcement real del rol sigue estando en el backend (403 del Hub), no aca.`
+  );
+}
+
+function emitUngoverned(reason, detail) {
+  console.log(
+    JSON.stringify({
+      specoeRoomContractStatus: 'ungoverned',
+      hookSpecificOutput: {
+        hookEventName: 'SessionStart',
+        additionalContext: buildUngovernedContext(reason, detail),
+      },
+    }),
+  );
+}
+
 function emit(role, contract) {
   console.log(
     JSON.stringify({
@@ -141,44 +195,118 @@ function emit(role, contract) {
   );
 }
 
-// carga el CA de Caddy en el fetch (mismo patrón que specoe-license-check).
-// El SDK MCP corre sobre el fetch global; sin el CA, el SSE a mcp.integra.local (cert
-// `tls internal` de Caddy) falla en la extensión VSCode (NODE_EXTRA_CA_CERTS no llega al
-// hook) y el contrato del room no baja. setGlobalDispatcher afecta también al fetch del SDK.
-// Fail-open silencioso: sin CA en disco o sin undici, seguimos con el trust default.
-async function installCaDispatcher() {
-  try {
-    const caPath = path.join(os.homedir(), '.claude', 'caddy-local-root.crt');
-    const ca = await fs.readFile(caPath, 'utf8');
-    const { Agent, setGlobalDispatcher } = await import('undici');
-    // Sumamos el CA de Caddy a los root certs del sistema (no reemplazarlos).
-    setGlobalDispatcher(new Agent({ connect: { ca: [...tls.rootCertificates, ca] } }));
-  } catch {
-    /* fail-open: trust default (CLI/NODE_EXTRA_CA_CERTS o CA en el trust del sistema) */
-  }
+// Aplica el canal de CA del bundle — el MISMO modulo que usa el hook de licencia
+// (ca-channel.mjs), que es el unico punto de definicion del mecanismo. Este hook NO
+// importa specoe-license-check.mjs.
+//
+// Por que a nivel proceso y no con un dispatcher explicito: `authFetch` (:87-91) se arma
+// sobre el `fetch` global, y el SSEClientTransport del SDK MCP hace sus propios POST
+// /messages por dentro, fuera de nuestro control. El unico mecanismo que los alcanza a
+// todos es mutar el trust del proceso.
+//
+// Antes esto instalaba un dispatcher global de undici, con el catch VACIO y sin una sola
+// linea de log: en Node 26 el fetch global ignora ese dispatcher, asi que no hacia nada, y
+// el fallo del canal aca era completamente invisible. Ahora el resultado se registra.
+async function openCaChannel() {
+  const r = applyCaChannel();
+  await logLine(
+    r.ok
+      ? {
+          level: 'info',
+          msg: 'canal de CA aplicado — store del proceso ampliado',
+          caPath: r.caPath,
+          subject: r.subject,
+          storeBefore: r.storeBefore,
+          storeAfter: r.storeAfter,
+        }
+      : {
+          level: 'warn',
+          msg: 'canal de CA NO aplicado',
+          reason: r.reason,
+          caPath: r.caPath ?? DEFAULT_CA_PATH,
+          error: r.error,
+        },
+  );
+  return r;
 }
 
 async function main() {
   const token = await readCachedToken();
-  // Sin token fresco no podemos autenticar: fail-open silencioso (el license-check ya
-  // avisa por su cuenta si la licencia falta o expiro).
-  if (!token) return 0;
+  // Sin token fresco no podemos autenticar. Fail-open, pero YA NO mudo: el license-check
+  // explica por que falta el JWT, y este hook declara la consecuencia — el room queda sin
+  // gobierno de rol. Las dos mitades juntas son el mensaje completo.
+  if (!token) {
+    await logLine({
+      level: 'warn',
+      msg: 'sin JWT fresco en el cache — room sin contrato',
+      file: CACHE_FILE,
+    });
+    emitUngoverned(
+      'no-token',
+      `no hay JWT de licencia fresco en ${CACHE_FILE} (falta, o el cache tiene mas de 55 min y el token ya no sirve). El hook de licencia, que corre antes que este, dice por que.`,
+    );
+    return 0;
+  }
 
   const role = decodeRole(token);
   // Producto (sin rol): el skill-server no tiene contrato de room para role=null.
   // Evitamos la llamada de red y arrancamos sin inyectar.
-  if (!role) return 0;
+  if (!role) {
+    await logLine({ level: 'warn', msg: 'JWT sin claim sddRole — room sin contrato' });
+    emitUngoverned(
+      'no-role',
+      'el JWT de licencia no trae el claim sddRole: es una licencia de producto, no de un rol SDD. Si esta carpeta tiene que ser un room, instalala con ./specoe-add-room.sh <ROL> <LICENSE_KEY>.',
+    );
+    return 0;
+  }
 
-  // instalar el CA de Caddy en el fetch antes del SSE al skill-server.
-  await installCaDispatcher();
+  // aplicar el canal de CA antes del SSE al skill-server.
+  await openCaChannel();
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), NETWORK_DEADLINE_MS);
   try {
     const contract = await fetchRoomContract(DEFAULT_SKILL_SERVER_URL, token, controller.signal);
-    if (contract) emit(role, contract);
-  } catch {
-    // Red caida, server abajo, SDK ausente, timeout: fail-open, sin inyectar.
+    if (contract) {
+      // El SSE se abrio: el TLS valido. Linea de exito del canal — sale recien aca,
+      // con el efecto ya comprobado, nunca por haber aplicado el mecanismo.
+      await logLine({
+        level: 'info',
+        msg: 'canal TLS verificado contra el skill-server — contrato del room inyectado',
+        url: DEFAULT_SKILL_SERVER_URL,
+        role,
+      });
+      emit(role, contract);
+    } else {
+      await logLine({
+        level: 'warn',
+        msg: 'sin contrato para el rol — no se inyecta',
+        url: DEFAULT_SKILL_SERVER_URL,
+        role,
+      });
+      emitUngoverned(
+        'no-contract',
+        `el skill-server (${DEFAULT_SKILL_SERVER_URL}) respondio, pero no devolvio contrato para el rol ${role}.`,
+      );
+    }
+  } catch (err) {
+    // Red caida, server abajo, SDK ausente, timeout: fail-open, sin inyectar. Pero con
+    // el errno de err.cause a la vista: 'fetch failed' pelado no distingue un cert que no
+    // valida de un host que no resuelve.
+    const net = describeNetworkError(err);
+    await logLine({
+      level: 'warn',
+      msg: 'no se pudo bajar el contrato del room',
+      code: net.code,
+      cause: net.cause,
+      error: net.message,
+      url: DEFAULT_SKILL_SERVER_URL,
+      role,
+    });
+    emitUngoverned(
+      'network',
+      `no se pudo hablar con el skill-server (${DEFAULT_SKILL_SERVER_URL}): errno ${net.code ?? 'desconocido'} — ${net.cause ?? net.message}.`,
+    );
   } finally {
     clearTimeout(timer);
   }

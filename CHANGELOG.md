@@ -2,6 +2,57 @@
 
 All notable changes to this project. Automatic — regenerado por `./scripts/changelog.sh`.
 
+## 0.2.3 — 2026-07-28 (SPEC-0164 — conectividad thin-client → Hub desde VSCode)
+
+**CAMBIO DE CONTRATO DEL HOOK DE LICENCIA (ADR-002) — leer antes de actualizar.**
+`specoe-license-check.mjs` ya no sale 0 siempre: **a partir de esta versión el arranque del
+room puede bloquearse**. Bloquea únicamente cuando intentó validar y **no hay cache de grace**
+(`continue: false` + exit 2). Con cache de menos de 24 h arranca igual y lo dice en pantalla;
+una carpeta sin licencia sigue arrancando (no es un room roto, es una sesión sin SpecOE).
+El bloqueo lleva siempre los cuatro datos del diagnóstico (errno real, URL del Hub resuelta con
+su fuente, fuente de CA que ganó, acción concreta) y la vía de escape ejecutable: la variable
+`SPECOE_ALLOW_DEGRADED_START` o el archivo `.claude/specoe-allow-degraded-start` en el room.
+Si el diagnóstico sale incompleto **no bloquea** — un bloqueo mudo deja al dev sin sesión y sin
+dato, que es peor que no bloquear.
+
+**CAMBIO DE MECANISMO DEL CA (ADR-001) — una máquina ya instalada NO se actualiza sola.**
+No hay migración: hay que **reinstalar el bundle** (`./setup.sh` o `specoe-setup-host.sh`), que
+es lo que copia los hooks nuevos a `~/.claude/hooks/`. Hasta hacerlo, la máquina sigue con el
+mecanismo viejo.
+
+- Canal TLS único en `.claude-bundle/hooks/ca-channel.mjs`, importado por el hook de licencia,
+  el bootstrap del room y `sdd-login.mjs`. Reemplaza al dispatcher global de undici, que medido
+  en Node v26.5.0 **el `fetch` global no honra**: la función era un no-op que además logueaba
+  éxito. Ahora se muta el default CA store del proceso, armado desde `system` + `bundled` + el
+  CA de Caddy — `default` deja el trust de Windows afuera y rompe toda máquina con SSL scanning
+  del antivirus.
+- Se elimina `env.NODE_EXTRA_CA_CERTS` de `.claude/settings.json`, y `setup.sh` deja de
+  inyectarla en la línea de comando del login: era el segundo mecanismo de CA del starter.
+  Encima llevaba `${env:USERPROFILE}` adentro —interpolación de VSCode que Node descarta con un
+  warning— y bajo la extensión de VSCode esa variable **no le llega al hook**. El CA queda
+  definido en un solo lugar y se lee del archivo.
+- El hook de licencia deja de mentir sobre por qué falla: distingue el corte de red pasajero de
+  la instalación que nunca funcionó, y el bootstrap del room declara cuando arranca **sin
+  contrato de gobierno** en vez de seguir en silencio.
+
+**Verificador nuevo `specoe-verify-room.sh`** (raíz del starter) + `.claude-bundle/scripts/verify-room-serving.mjs`.
+Cinco chequeos por efecto sobre un room ya instalado — canal TLS contra el Hub, JWT del cache
+con `exp` vigente, `.mcp.json` con el JWT real, contrato del room bajado, y `specoe` conectable
+por SSE con la URL y el header literales del `.mcp.json`. Sale 0 solo con los cinco en verde.
+
+**Rango de Node certificado: 22.19.0 a 26.x, Node 23 afuera** (ADR-004). Medido, no elegido:
+`tls.setDefaultCACertificates` —sobre la que se apoya el canal— no existe en 20.x, ni en 22.x
+previo a 22.19.0, ni en 23.x. El preflight de `setup.sh` y `specoe-setup-host.sh` **aborta**
+fuera del rango y comprueba además que la API exista en esa versión; antes pedía "20+ sin
+techo", y la VM del incidente corría 26.5.0 dentro de lo declarado con el canal inexistente.
+
+- `setup.sh` copia el CA local del starter de forma **incondicional**: antes solo lo instalaba
+  si el destino no existía, así que un `.crt` viejo o de otro emisor sobrevivía invisible.
+- `setup.sh` instala `ca-channel.mjs` en el bundle (allowlist de `install_force`) — sin eso los
+  hooks importan un módulo que el instalador no copia.
+- Guías: `QUICKSTART-VSCODE.md` y `TROUBLESHOOTING.md` dejan de recomendar el fix por variable
+  de entorno que la medición invalidó.
+
 ## 0.2.2 — 2026-07-23 (TKT-0217 — instalación en máquina limpia sin pasos manuales)
 
 - `.gitattributes` (raíz del starter, se sincroniza a la raíz del repo público): `*.sh eol=lf`.

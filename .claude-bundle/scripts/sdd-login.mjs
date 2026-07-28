@@ -38,6 +38,7 @@ import { promisify } from 'node:util';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import { setSecret, getSecret, ROBOT_LOGIN_SERVICE } from '../hooks/secrets.mjs';
+import { applyCaChannel, describeNetworkError, DEFAULT_CA_PATH } from '../hooks/ca-channel.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -136,6 +137,12 @@ async function doLogin() {
 
   const fingerprint = await collectFingerprint();
 
+  // Canal TLS por el MISMO modulo que los hooks (ca-channel.mjs). Antes este fetch salia
+  // con el trust pelado y funcionaba solo porque setup.sh le inyectaba NODE_EXTRA_CA_CERTS
+  // en la linea de comando — el segundo mecanismo que SPEC-0164 elimina. Fail-open: si el
+  // CA no esta, seguimos y el error de TLS se reporta abajo con su errno real.
+  const ca = applyCaChannel();
+
   let res;
   try {
     res = await fetch(`${hubUrl}/auth/sdd/login`, {
@@ -144,9 +151,16 @@ async function doLogin() {
       body: JSON.stringify({ email, password, fingerprint }),
     });
   } catch (e) {
+    const net = describeNetworkError(e);
+    // El path efectivo del CA va en el mensaje: cuando el TLS no valida, saber contra que
+    // archivo se armo el trust es la mitad del diagnostico. setup.sh matchea el code para
+    // sugerir specoe-setup-host.sh, asi que el errno tiene que seguir viajando en `message`.
     out({
       ok: false,
-      message: `no se pudo conectar al Hub (${hubUrl}): ${e?.cause?.code ?? e?.message ?? e}`,
+      message:
+        `no se pudo conectar al Hub (${hubUrl}): ${net.code ?? net.cause ?? net.message}` +
+        ` — canal de CA: ${ca.ok ? 'aplicado' : `NO aplicado (${ca.reason})`}` +
+        ` desde ${ca.caPath ?? DEFAULT_CA_PATH}`,
     });
     return 1;
   }

@@ -51,17 +51,49 @@ specoe_node_bin() {
   fi
 }
 
+# ----- Rango de Node certificado (SPEC-0164 P3 / ADR-004) -----
+# MEDIDO, no elegido. El canal único del starter (.claude-bundle/hooks/ca-channel.mjs) se apoya
+# en tls.setDefaultCACertificates + tls.getCACertificates. Medición 2026-07-28, misma máquina:
+#   v20.20.2 → ninguna de las dos existe        v22.14.0 / v22.15.0 / v22.18.0 → falta setDefault
+#   v22.19.0 → aparecen las dos                 v23.11.1 (última 23.x, EOL)    → falta setDefault
+#   v24.18.0 · v25.9.0 · v26.5.0 → las dos existen
+# Corridas verdes registradas del mecanismo completo: 22.22.2 (suites del bundle, P1/P2) y
+# 26.5.0 (VM del incidente). Por eso el rango va de 22.19.0 a 26.x y Node 23 queda AFUERA.
+# Antes el preflight pedía ">= 20 sin techo": la VM del incidente corría 26.5.0, dentro de lo
+# declarado, y el canal no existía en 20 — un rango sin certificar es una promesa vacía.
+# ESTE BLOQUE ESTÁ DUPLICADO EN specoe-setup-host.sh (:~51). Si cambia acá, cambia allá: los
+# dos son entrypoints y el preflight corre antes de que el otro archivo esté garantizado.
+SPECOE_NODE_MIN="22.19.0"
+SPECOE_NODE_MAX_MAJOR="26"
+
+# "22.19.0" → 22019000, para comparar sin depender de sort -V.
+specoe_node_num() {
+  local a b c
+  IFS=. read -r a b c <<<"$1"
+  a="${a%%[!0-9]*}"; b="${b%%[!0-9]*}"; c="${c%%[!0-9]*}"
+  echo $(( ${a:-0} * 1000000 + ${b:-0} * 1000 + ${c:-0} ))
+}
+
 # CA local del piloto para el TLS del Hub. specoe-setup-host.sh lo deja en ~/.claude, pero
 # si se corrió solo `setup.sh --login` no está y el login moría con
 # UNABLE_TO_GET_ISSUER_CERT_LOCALLY sin decir de dónde sacarlo. El starter trae el CA en
 # certs/, así que lo instalamos nosotros. Devuelve la ruta (vacío si no hay CA). (TKT-0217)
+#
+# SPEC-0164 P3 (T3.2): la copia es INCONDICIONAL. Antes estaba condicionada a que el destino
+# NO existiera, así que un .crt viejo, truncado o de otro emisor sobrevivía invisible: el
+# archivo estaba, el canal fallaba igual y nada lo declaraba. La fuente canónica es el starter.
+# Efecto colateral aceptado: si alguien reemplazó el .crt a mano a propósito, se pierde.
+# OJO: esta función se usa como $(specoe_local_ca) — todo lo informativo va por `warn` (stderr),
+# nunca por `log`, o contamina la ruta que devuelve.
 specoe_local_ca() {
   local dst="$HOME/.claude/caddy-local-root.crt"
   local src="$SCRIPT_DIR/certs/caddy-root-ca.crt"
-  if [ ! -f "$dst" ] && [ -f "$src" ]; then
+  if [ -f "$src" ]; then
     mkdir -p "$HOME/.claude"
+    if ! cmp -s "$src" "$dst" 2>/dev/null; then
+      warn "  CA local ausente o distinto al del starter — lo reemplazo desde $src en $dst."
+    fi
     cp "$src" "$dst"
-    warn "  CA local ausente — instalado desde $src en $dst."
   fi
   # return 0 explícito: con set -e, un [ -f ] falso haría abortar al asignar $(specoe_local_ca).
   if [ -f "$dst" ]; then echo "$dst"; fi
@@ -127,12 +159,29 @@ if ! command -v node >/dev/null 2>&1; then
   # En WSL el `node.exe` de Windows se ve por el interop, pero no sirve: recibe rutas Unix y
   # las lee como Windows (MODULE_NOT_FOUND). Hace falta Node instalado DENTRO del WSL. (TKT-0217)
   if [ -n "${WSL_DISTRO_NAME:-}" ] || grep -qi microsoft /proc/version 2>/dev/null; then
-    err "node no encontrado dentro del WSL. El node.exe de Windows NO sirve acá (lee las rutas Unix como Windows). Instalá Node.js 20+ en la distro: https://github.com/nodesource/distributions"
+    err "node no encontrado dentro del WSL. El node.exe de Windows NO sirve acá (lee las rutas Unix como Windows). Instalá Node.js del rango certificado ($SPECOE_NODE_MIN a $SPECOE_NODE_MAX_MAJOR.x) en la distro: https://github.com/nodesource/distributions"
   fi
-  err "node no encontrado. Instalar Node.js 20+."
+  err "node no encontrado. Instalar Node.js del rango certificado ($SPECOE_NODE_MIN a $SPECOE_NODE_MAX_MAJOR.x)."
 fi
-NODE_MAJOR=$(node -v | sed 's/v\([0-9]*\)\..*/\1/')
-[ "$NODE_MAJOR" -ge 20 ] || err "Node $NODE_MAJOR detectado. Se requiere 20+."
+
+# Preflight de versión (SPEC-0164 P3 / ADR-004): rango certificado + comprobación de que la
+# API sobre la que se apoya el canal exista en ESTA versión. El detalle de la medición y de
+# por qué el rango es ése está en el bloque SPECOE_NODE_* de arriba.
+NODE_VER="$(node -p 'process.versions.node' 2>/dev/null || true)"
+NODE_VER="${NODE_VER%%[!0-9.]*}" # corta el \r de Git Bash y cualquier sufijo pre-release
+[ -n "$NODE_VER" ] || err "no pude leer la versión de Node (node -p process.versions.node)."
+NODE_MAJOR="${NODE_VER%%.*}"
+if [ "$(specoe_node_num "$NODE_VER")" -lt "$(specoe_node_num "$SPECOE_NODE_MIN")" ] \
+  || [ "$NODE_MAJOR" -gt "$SPECOE_NODE_MAX_MAJOR" ] \
+  || [ "$NODE_MAJOR" -eq 23 ]; then
+  err "Node v$NODE_VER detectado — FUERA del rango certificado del starter ($SPECOE_NODE_MIN a $SPECOE_NODE_MAX_MAJOR.x; Node 23 queda afuera: no expone tls.setDefaultCACertificates).
+  En esta versión el canal TLS de los hooks no puede armarse, así que el room arrancaría sin poder hablar con el Hub.
+  Instalá una versión del rango (LTS 22.19+ o 24.x) y volvé a correr este script."
+fi
+node -e "const tls=require('node:tls');process.exit(typeof tls.setDefaultCACertificates==='function'&&typeof tls.getCACertificates==='function'?0:1)" 2>/dev/null \
+  || err "Node v$NODE_VER está dentro del rango certificado pero NO expone tls.setDefaultCACertificates/getCACertificates.
+  Sin esa API el canal TLS del starter no existe. Reportá esta versión a Integra Software (soporte@integrasoftware.biz) y usá mientras tanto un LTS 22.19+ o 24.x."
+log "  Node v$NODE_VER OK (rango certificado $SPECOE_NODE_MIN a $SPECOE_NODE_MAX_MAJOR.x)"
 
 command -v claude >/dev/null 2>&1 || warn "Claude Code no encontrado en PATH. Instalar desde https://claude.ai/code"
 
@@ -185,6 +234,7 @@ else
   # install_if_absent no llegaba a bundles ya poblados).
   install_force "$BUNDLE_DIR/hooks/package.json"                  "$CLAUDE_HOME/hooks/package.json"
   install_force "$BUNDLE_DIR/hooks/package-lock.json"             "$CLAUDE_HOME/hooks/package-lock.json"
+  install_force "$BUNDLE_DIR/hooks/ca-channel.mjs"                "$CLAUDE_HOME/hooks/ca-channel.mjs"
   install_force "$BUNDLE_DIR/hooks/specoe-role-check.mjs"         "$CLAUDE_HOME/hooks/specoe-role-check.mjs"
   install_force "$BUNDLE_DIR/hooks/specoe-license-check.mjs"      "$CLAUDE_HOME/hooks/specoe-license-check.mjs"
   install_force "$BUNDLE_DIR/hooks/specoe-room-bootstrap.mjs"     "$CLAUDE_HOME/hooks/specoe-room-bootstrap.mjs"
@@ -236,13 +286,16 @@ if [ -z "$LOGIN_EMAIL" ] || [ -z "$LOGIN_PASSWORD" ]; then
 fi
 
 NODE_BIN="$(specoe_node_bin)"
-# CA local del piloto para el TLS del Hub. Si falta, specoe_local_ca lo instala desde certs/.
+# CA local del piloto para el TLS del Hub. Si falta, specoe_local_ca lo DEJA EN DISCO desde
+# certs/ — que es todo lo que hace falta: sdd-login.mjs lee ese archivo por ca-channel.mjs.
+# SPEC-0164 P1 (T1.7): ya NO se inyecta NODE_EXTRA_CA_CERTS en la linea de comando. Era el
+# segundo mecanismo de CA del starter y el que ataba el login a una variable de entorno.
 LOGIN_CA="$(specoe_local_ca)"
 [ -n "$LOGIN_CA" ] || warn "  Sin CA local (~/.claude/caddy-local-root.crt) ni certs/caddy-root-ca.crt en el starter: si el Hub usa TLS del piloto, el login va a fallar con UNABLE_TO_GET_ISSUER_CERT_LOCALLY."
 
 set +e
 LOGIN_JSON="$(SDD_LOGIN_EMAIL="$LOGIN_EMAIL" SDD_LOGIN_PASSWORD="$LOGIN_PASSWORD" \
-  SDD_LOGIN_HUB_URL="$LOGIN_HUB_URL" NODE_EXTRA_CA_CERTS="$LOGIN_CA" \
+  SDD_LOGIN_HUB_URL="$LOGIN_HUB_URL" \
   "$NODE_BIN" "$SDD_LOGIN_JS" login)"
 LOGIN_RC=$?
 set -e

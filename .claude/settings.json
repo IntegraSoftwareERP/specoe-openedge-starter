@@ -26,8 +26,7 @@
     ]
   },
   "env": {
-    "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
-    "NODE_EXTRA_CA_CERTS": "${env:USERPROFILE}/.claude/caddy-local-root.crt"
+    "CLAUDE_CODE_ENABLE_TELEMETRY": "1"
   },
   "permissions": {
     "allow": [
