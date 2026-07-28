@@ -10,9 +10,11 @@
 //   1. canal-tls-hub       el canal TLS al Hub ABRE (no: "se aplico el mecanismo")
 //   2. jwt-licencia        el JWT de licencia esta en el cache POR-CARPETA y no vencio
 //   3. mcp-json-jwt        el .mcp.json declara `specoe` con un JWT real, no el placeholder
-//   4. contrato-room       el contrato del room BAJA del skill-server en ESTA corrida
-//   5. specoe-conectable   el skill-server ACEPTA la sesion con la url y el header que el
-//                          .mcp.json tiene efectivamente escritos
+//   4. contrato-room       el contrato del room BAJA del skill-server en ESTA corrida, con el
+//                          token del CACHE (el que usa el hook que inyecta el contrato)
+//   5. specoe-conectable   el skill-server acepta la sesion con la url y el header que el
+//                          .mcp.json tiene efectivamente escritos Y le sirve EL MISMO
+//                          contrato de rol que al chequeo 4 (no producto, no otro rol)
 //
 // Exit 0 SOLO si los cinco dan verde.
 //
@@ -29,7 +31,29 @@
 //   - el 2 mira el `exp` del JWT, no la existencia del archivo de cache;
 //   - el 3 exige que el header sea un JWT parseable, no que la clave este presente;
 //   - el 4 baja el contrato del server ahora, no lee el log de un arranque anterior;
-//   - el 5 abre el SSE y espera que el server acepte la sesion.
+//   - el 5 abre el SSE con el token del .mcp.json y le PIDE el contrato del room: que el
+//     server acepte la sesion no alcanza (ver abajo).
+//
+// ----- TKT-0225: POR QUE EL 5 NO SE CONFORMA CON QUE LA SESION ABRA -----
+//
+// El room usa DOS tokens: el hook que inyecta el contrato lee el del cache por-carpeta, y
+// el cliente MCP de Claude Code usa el escrito en el .mcp.json. specoe-license-check.mjs
+// los escribe juntos, pero nada impide que se separen despues (una edicion a mano del
+// .mcp.json alcanza), y hasta TKT-0225 NADIE comparaba sus claims.
+//
+// Con esa divergencia, el 4 bajaba el contrato del rol con el token del cache y el 5 daba
+// verde porque el server ACEPTABA la sesion con el otro token — y un token de producto la
+// abre igual. Los cinco podian dar SERVIDO con la sesion real corriendo como producto: el
+// verde falso, dentro de la herramienta que existe para detectarlo. Fue exactamente lo
+// observado en SPEC-0164 P6.
+//
+// El 5 ahora discrimina el rol POR EFECTO: pide `room_contract_get` con el token del
+// .mcp.json y exige que devuelva EL MISMO contrato que bajo el 4. Producto no tiene
+// contrato de room (el tool responde isError) y otro rol devuelve otro texto: las dos
+// divergencias mueren aca. Se discrimina por el contrato servido y NO por el claim
+// `sddRole` del JWT a proposito: en USER-mode el rol lo resuelve el server desde el
+// UserSddRole y el claim puede faltar legitimamente (TKT-0227) — exigir el claim daria
+// rojo falso sobre una instalacion sana.
 //
 // ----- POR QUE NO IMPORTA specoe-license-check.mjs -----
 //
@@ -92,7 +116,9 @@ const CHECKS = [
   { n: 2, id: 'jwt-licencia', titulo: 'JWT de licencia en el cache del room' },
   { n: 3, id: 'mcp-json-jwt', titulo: '.mcp.json con JWT real' },
   { n: 4, id: 'contrato-room', titulo: 'contrato del room bajado del skill-server' },
-  { n: 5, id: 'specoe-conectable', titulo: 'server specoe efectivamente conectable' },
+  // TKT-0225 — el id no se renombra (es ancla de grep documentada en el QUICKSTART); lo que
+  // cambio es la vara: conectable Y sirviendo el rol del room.
+  { n: 5, id: 'specoe-conectable', titulo: 'server specoe conectable y sirviendo el rol' },
 ];
 
 function say(text) {
@@ -303,6 +329,73 @@ class SseSession {
     }
   }
 }
+
+// ----- handshake MCP + pedido del contrato (compartido por los chequeos 4 y 5) -----
+//
+// TKT-0225 — los chequeos 4 y 5 hacen la MISMA pregunta al server con tokens DISTINTOS a
+// proposito (el 4 con el del cache, el 5 con el del .mcp.json) y despues comparan las dos
+// respuestas. Para que la comparacion signifique algo, la pregunta tiene que ser
+// literalmente el mismo codigo: dos copias que se separen convierten la diferencia de
+// implementacion en una divergencia de rol falsa.
+//
+// `session` ya tiene que estar conectada (SSE abierto y evento `endpoint` recibido).
+
+/** Concatena el texto de un `content[]` MCP. '' si no hay partes de texto. */
+function textoDeContent(content) {
+  return Array.isArray(content)
+    ? content
+        .filter((c) => c?.type === 'text' && typeof c.text === 'string')
+        .map((c) => c.text)
+        .join('\n')
+    : '';
+}
+
+async function handshakeYContrato(session) {
+  const init = await session.request(
+    'initialize',
+    {
+      protocolVersion: '2024-11-05',
+      capabilities: {},
+      clientInfo: { name: 'specoe-verify-room', version: '1.0.0' },
+    },
+    deadlineMs(),
+  );
+  if (init?.error) {
+    return { ok: false, etapa: 'initialize', detalle: init.error.message ?? 'sin detalle' };
+  }
+  const serverInfo = init?.result?.serverInfo ?? null;
+  await session.notify('notifications/initialized', {});
+
+  const res = await session.request(
+    'tools/call',
+    { name: 'room_contract_get', arguments: {} },
+    deadlineMs(),
+  );
+  if (res?.error) {
+    return { ok: false, etapa: 'rpc', serverInfo, detalle: res.error.message ?? 'sin detalle' };
+  }
+  // El server responde isError cuando el rol del AuthContext es null (producto) o cuando el
+  // rol no tiene contrato publicado. El texto del error distingue los dos casos y se propaga
+  // tal cual: es el dato que le dice al dev cual de los dos le toco.
+  if (res?.result?.isError) {
+    return {
+      ok: false,
+      etapa: 'sin-contrato',
+      serverInfo,
+      detalle: textoDeContent(res.result.content).trim() || 'el tool respondio isError sin texto',
+    };
+  }
+  const contrato = textoDeContent(res?.result?.content);
+  if (!contrato.trim()) {
+    return { ok: false, etapa: 'vacio', serverInfo, detalle: 'room_contract_get devolvio vacio' };
+  }
+  return { ok: true, serverInfo, contrato };
+}
+
+// TKT-0225 — lo que el chequeo 4 bajo con el token del CACHE, para que el 5 lo cruce contra
+// lo que baja con el token del .mcp.json. `texto` queda en null si el 4 no llego a bajarlo:
+// sin el, el 5 no puede completar su comprobacion y no da verde por omision.
+const CONTRATO_DEL_CACHE = { rol: null, texto: null };
 
 // ----- chequeo 1 — canal TLS al Hub -----
 
@@ -537,61 +630,42 @@ async function checkContratoRoom() {
             : `verifica que ${DEFAULT_SKILL_SERVER_URL} este arriba y alcanzable desde esta maquina.`,
       };
     }
-    const init = await session.request(
-      'initialize',
-      {
-        protocolVersion: '2024-11-05',
-        capabilities: {},
-        clientInfo: { name: 'specoe-verify-room', version: '1.0.0' },
-      },
-      deadlineMs(),
-    );
-    if (init?.error) {
-      return {
-        ok: false,
-        detalle: `el skill-server rechazo el initialize: ${init.error.message ?? 'sin detalle'}.`,
-        accion: `verifica que ${DEFAULT_SKILL_SERVER_URL} sea un endpoint MCP/SSE valido.`,
-      };
-    }
-    await session.notify('notifications/initialized', {});
-    const res = await session.request(
-      'tools/call',
-      { name: 'room_contract_get', arguments: {} },
-      deadlineMs(),
-    );
-    if (res?.error) {
-      return {
-        ok: false,
-        detalle: `room_contract_get fallo: ${res.error.message ?? 'sin detalle'} (rol ${role}).`,
-        accion:
-          'pedi a un ADMIN del tenant que verifique que el rol tiene contrato de room ' +
-          'publicado en el skill-server.',
-      };
-    }
-    if (res?.result?.isError) {
+    const pedido = await handshakeYContrato(session);
+    if (!pedido.ok) {
+      if (pedido.etapa === 'initialize') {
+        return {
+          ok: false,
+          detalle: `el skill-server rechazo el initialize: ${pedido.detalle}.`,
+          accion: `verifica que ${DEFAULT_SKILL_SERVER_URL} sea un endpoint MCP/SSE valido.`,
+        };
+      }
+      if (pedido.etapa === 'rpc') {
+        return {
+          ok: false,
+          detalle: `room_contract_get fallo: ${pedido.detalle} (rol ${role}).`,
+          accion:
+            'pedi a un ADMIN del tenant que verifique que el rol tiene contrato de room ' +
+            'publicado en el skill-server.',
+        };
+      }
+      if (pedido.etapa === 'vacio') {
+        return {
+          ok: false,
+          detalle: `room_contract_get devolvio contenido VACIO para el rol ${role}.`,
+          accion: 'pedi a un ADMIN del tenant que revise el contrato publicado para este rol.',
+        };
+      }
       return {
         ok: false,
         detalle:
-          `el skill-server respondio pero NO devolvio contrato para el rol ${role}: el room ` +
-          'arrancaria sin gobierno.',
+          `el skill-server respondio pero NO devolvio contrato para el rol ${role} ` +
+          `("${pedido.detalle}"): el room arrancaria sin gobierno.`,
         accion:
           'pedi a un ADMIN del tenant que publique el contrato del room para este rol en el ' +
           'skill-server.',
       };
     }
-    const contract = Array.isArray(res?.result?.content)
-      ? res.result.content
-          .filter((c) => c?.type === 'text' && typeof c.text === 'string')
-          .map((c) => c.text)
-          .join('\n')
-      : '';
-    if (!contract.trim()) {
-      return {
-        ok: false,
-        detalle: `room_contract_get devolvio contenido VACIO para el rol ${role}.`,
-        accion: 'pedi a un ADMIN del tenant que revise el contrato publicado para este rol.',
-      };
-    }
+    const contract = pedido.contrato;
     // El sentinel no se escribe a mano aca: se arma con la MISMA funcion del hook que
     // inyecta el contrato en la sesion (buildAdditionalContext de specoe-room-bootstrap.mjs).
     // Verificar contra una copia de la string seria verificar mi copia, no el producto.
@@ -607,12 +681,16 @@ async function checkContratoRoom() {
           'reporta esto a Integra Software: es una incoherencia del bundle, no de tu instalacion.',
       };
     }
+    // TKT-0225 — lo que bajo con el token del CACHE queda disponible para el chequeo 5, que
+    // baja lo mismo con el token del .mcp.json y los cruza.
+    CONTRATO_DEL_CACHE.rol = role;
+    CONTRATO_DEL_CACHE.texto = contract;
     return {
       ok: true,
       detalle:
         `contrato del rol ${role} bajado del skill-server en esta corrida ` +
-        `(${contract.length} chars) y con el sentinel SPECOE-ROOM-CONTRACT:${role} en el ` +
-        'texto inyectable.',
+        `(${contract.length} chars, token del cache) y con el sentinel ` +
+        `SPECOE-ROOM-CONTRACT:${role} en el texto inyectable.`,
     };
   } catch (err) {
     const net = describeNetworkError(err);
@@ -630,7 +708,7 @@ async function checkContratoRoom() {
   }
 }
 
-// ----- chequeo 5 — el server specoe es efectivamente conectable -----
+// ----- chequeo 5 — el server specoe es conectable Y le sirve el rol del room -----
 //
 // O5 exige que el veredicto cubra "el MCP specoe figura connected". Ese estado lo resuelve
 // el cliente MCP de Claude Code y no es observable desde un proceso externo, asi que se
@@ -638,6 +716,11 @@ async function checkContratoRoom() {
 // .mcp.json del room, con el header Authorization que ESE archivo tiene efectivamente
 // escrito — no con el token del cache ni con una url propia — y se confirma que el
 // skill-server acepta la sesion. Es lo mismo que hace el cliente al arrancar.
+//
+// TKT-0225 — aceptar la sesion NO alcanza: un JWT de producto tambien la abre. Sobre la
+// sesion abierta se pide `room_contract_get` y se exige que devuelva EL MISMO contrato que
+// bajo el chequeo 4 con el token del cache. Es el unico modo de afirmar que la sesion real
+// corre con el rol del room y no como producto (ver la cabecera del archivo).
 
 async function checkSpecoeConectable() {
   let entry;
@@ -692,31 +775,77 @@ async function checkSpecoeConectable() {
             : `verifica que ${url.value} este arriba y alcanzable desde esta maquina, y revisa el chequeo 1.`,
       };
     }
-    const init = await session.request(
-      'initialize',
-      {
-        protocolVersion: '2024-11-05',
-        capabilities: {},
-        clientInfo: { name: 'specoe-verify-room', version: '1.0.0' },
-      },
-      deadlineMs(),
-    );
-    if (init?.error) {
+    const pedido = await handshakeYContrato(session);
+    if (!pedido.ok && pedido.etapa === 'initialize') {
       return {
         ok: false,
-        detalle:
-          `la sesion abrio contra ${url.value} pero el initialize fallo: ` +
-          `${init.error.message ?? 'sin detalle'}.`,
+        detalle: `la sesion abrio contra ${url.value} pero el initialize fallo: ${pedido.detalle}.`,
         accion: `verifica que ${url.value} sea un endpoint MCP/SSE valido.`,
       };
     }
-    const server = init?.result?.serverInfo;
+    const server = pedido.serverInfo;
+    const sesion =
+      `la sesion abrio contra ${url.value} con el Authorization de ${MCP_JSON_FILE} ` +
+      `(HTTP ${conn.status}, initialize OK` +
+      `${server?.name ? `, server ${server.name} ${server.version ?? ''}`.trimEnd() : ''})`;
+
+    // TKT-0225 — el caso del verde falso: el server ACEPTA la sesion pero no le sirve
+    // bundle de rol. Con el token de producto `room_contract_get` responde isError, y hasta
+    // este fix eso pasaba desapercibido porque el chequeo terminaba en el initialize.
+    if (!pedido.ok) {
+      return {
+        ok: false,
+        detalle:
+          `${sesion}, PERO el server NO le sirve el contrato del room a ese token: ` +
+          `${pedido.detalle}. La sesion de Claude Code corre con el JWT del .mcp.json, no ` +
+          `con el del cache: si ese token es de producto (sin rol SDD), los tools MCP ` +
+          `sirven el bundle producto aunque el hook haya inyectado el contrato del rol ` +
+          `${CONTRATO_DEL_CACHE.rol ?? 'del cache'}. El room NO esta servido.`,
+        accion:
+          'el JWT del .mcp.json y el del cache del room divergieron (una edicion a mano del ' +
+          '.mcp.json alcanza). Reabri la sesion de Claude Code en esta carpeta sin editar el ' +
+          '.mcp.json: specoe-license-check.mjs reescribe el entry con el MISMO token que deja ' +
+          'en el cache. Si persiste, reinstala el room con ./specoe-add-room.sh <ROL> <LICENSE_KEY>.',
+      };
+    }
+
+    // Sin el contrato del chequeo 4 no hay contra que cruzar. Un chequeo que no puede
+    // observar su efecto NO da verde (mismo criterio que el resto del archivo).
+    if (!CONTRATO_DEL_CACHE.texto) {
+      return {
+        ok: false,
+        detalle:
+          `${sesion} y el server le sirvio un contrato de room (${pedido.contrato.length} ` +
+          'chars), pero el chequeo 4 no dejo el contrato del token del cache: sin el no se ' +
+          'puede afirmar que los dos tokens sirvan el MISMO rol.',
+        accion: 'resolve primero el chequeo 4 (contrato del room) y volve a correr el verificador.',
+      };
+    }
+
+    // Dos tokens, dos roles: el hook inyecta el contrato de uno y los tools MCP sirven el
+    // bundle del otro. La sesion queda incoherente aunque los dos extremos anden.
+    if (pedido.contrato !== CONTRATO_DEL_CACHE.texto) {
+      return {
+        ok: false,
+        detalle:
+          `${sesion} y el server le sirvio contrato de room, pero es OTRO contrato que el ` +
+          `del token del cache (${pedido.contrato.length} vs ` +
+          `${CONTRATO_DEL_CACHE.texto.length} chars, rol del cache ` +
+          `${CONTRATO_DEL_CACHE.rol}): los dos tokens del room resuelven a roles DISTINTOS. ` +
+          'El hook inyectaria el contrato de un rol y los tools MCP servirian el bundle de otro.',
+        accion:
+          'reabri la sesion de Claude Code en esta carpeta sin editar el .mcp.json a mano: ' +
+          'specoe-license-check.mjs escribe el mismo token en el cache y en el .mcp.json. Si ' +
+          'la carpeta tiene que ser otro rol, reinstalala con ./specoe-add-room.sh <ROL> <LICENSE_KEY>.',
+      };
+    }
+
     return {
       ok: true,
       detalle:
-        `el skill-server acepto la sesion contra ${url.value} con el Authorization de ` +
-        `${MCP_JSON_FILE} (HTTP ${conn.status}, initialize OK` +
-        `${server?.name ? `, server ${server.name} ${server.version ?? ''}`.trimEnd() : ''}).`,
+        `${sesion} y el server le sirvio al token del .mcp.json EL MISMO contrato de room ` +
+        `que al token del cache (rol ${CONTRATO_DEL_CACHE.rol}, ${pedido.contrato.length} ` +
+        'chars): la sesion corre con el rol del room, no como producto.',
     };
   } catch (err) {
     const net = describeNetworkError(err);

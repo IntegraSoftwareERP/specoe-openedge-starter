@@ -2,11 +2,11 @@
 # specoe-add-room.sh — Instancia UN room de un rol, 1 vez por room (piloto Integra).
 #
 # Núcleo de la parte por-rol. NO toca hosts / CA / pre-req / bundle — eso lo hace
-# specoe-setup-host.sh (1 vez por máquina). Acá solo lo específico del room:
-#   1. Clona/actualiza el starter en la carpeta del room.
-#   2. setup.sh --room-only (config + .mcp.json), sin re-instalar el bundle.
-#   3. Fija specoe.role en el project.config.yaml de la carpeta.
-#   4. Guarda la licencia en el keyring bajo account=<ROL> (aislada por rol → multi-rol).
+# specoe-setup-host.sh (1 vez por máquina). Acá solo lo específico del room, EN ESTE ORDEN:
+#   1. Clona/actualiza el starter en la carpeta del room.  2. Fija specoe.role en su yaml.
+#   3. Guarda la licencia en el keyring bajo account=<ROL> (aislada por rol → multi-rol).
+#   4. Chequea la identidad SDD de la máquina (token + machineId en el keyring).
+#   5. setup.sh --room-only (config + .mcp.json) — ÚLTIMO: su check de config puede cortar.
 #
 # Uso:
 #   ./specoe-add-room.sh <ROL> <LICENSE_KEY> [--dir <carpeta>] [--hub <url>] [--repo <url>]
@@ -84,12 +84,18 @@ fi
 log "Fijando specoe.role='$ROLE' en project.config.yaml..."
 sed -i.bak "s|role: '[^']*'|role: '$ROLE'|" "$DEST_DIR/project.config.yaml" && rm -f "$DEST_DIR/project.config.yaml.bak"
 
-# ----- 3. Config de la carpeta (sin bundle) -----
-log "Configurando la carpeta (setup.sh --room-only) con --hub $HUB_URL ..."
-( cd "$DEST_DIR" && bash setup.sh --room-only --hub "$HUB_URL" )
-
-# ----- 4. Licencia en el keyring, account = rol (aislada → multi-rol) -----
+# ----- 3. Licencia en el keyring, account = rol (aislada → multi-rol) -----
+# ANTES del --room-only (SPEC-0167 P2 / T2.4, ADR-005): el check de config de setup.sh CORTA
+# cuando el project.config.yaml sigue con los valores del template, y corre dentro del subshell
+# del --room-only. Con `set -euo pipefail` y sin capturar ese subshell, el corte abortaba el
+# script ahi y este bloque no se ejecutaba nunca. Como el yaml solo existe desde el clone de
+# mas arriba, el dev no puede editarlo antes: la PRIMERA corrida de cualquier rol, en cualquier
+# maquina, terminaba en error con la carpeta clonada, el rol fijado y SIN licencia en el keyring
+# — el estado parcial peor de los dos, porque el sintoma que ve despues es un 401 del MCP.
+# Este bloque no depende de nada que produzca el --room-only: corre desde $HOME/.claude/hooks y
+# consume solo $LICENSE_KEY y $ROLE, parseados de argv. No lee project.config.yaml ni .mcp.json.
 log "Guardando la license key en el keyring (account=$ROLE)..."
+KEYRING_OK=0
 NODE_BIN="$(specoe_node_bin)"
 # Capturamos stdout+stderr del proceso: NO silenciamos el error (el fallo mudo era el bug).
 # Verificamos post-escritura con getPassword() para no reportar éxito falso.
@@ -101,6 +107,7 @@ entry.setPassword(key);
 if (entry.getPassword() !== key) throw new Error('verificacion post-escritura fallo: la key no quedo persistida');
 " "$LICENSE_KEY" "$ROLE" ) 2>&1 )"; then
   log "  License key guardada y verificada en el keyring (account=$ROLE)."
+  KEYRING_OK=1
 else
   warn "  ⚠ NO se pudo persistir la license key en el keyring (account=$ROLE) usando '$NODE_BIN'."
   warn "    Detalle real del error: ${keyring_out:-<el proceso no devolvió salida>}"
@@ -110,7 +117,10 @@ else
   warn "      b) Fallback env var:   exportá SPECOE_LICENSE_KEY antes de abrir el room."
 fi
 
-# ----- 5. Estado de la identidad SDD del equipo (SPEC-0157) -----
+# ----- 4. Estado de la identidad SDD del equipo (SPEC-0157) -----
+# Tambien ANTES del --room-only, por la misma razon que el bloque 3 (ADR-005): usa
+# $HOME/.claude/scripts/sdd-login.mjs y $SCRIPT_DIR —el directorio de ESTE script, no el del
+# room— asi que no depende del estado que deja el --room-only.
 # El room declara el rol; la identidad (token de usuario + machineId) es de la
 # MÁQUINA y la deja el login de specoe-setup-host.sh. Chequeo accionable acá:
 # sin ese material, la sesión del room no va a poder operar contra el Hub.
@@ -128,6 +138,23 @@ fi
 if [ -f "$SCRIPT_DIR/specoe-gate-messages.sh" ]; then
   log "Si el Hub responde 403 en la sesión, traducí el código a instrucción con:"
   log "  bash \"$SCRIPT_DIR/specoe-gate-messages.sh\" <CODIGO> $ROLE   (ej: MACHINE_PENDING_APPROVAL, SDD_ROLE_NOT_GRANTED)"
+fi
+
+# ----- 5. Config de la carpeta (sin bundle) — ULTIMO paso, porque puede cortar -----
+# El check de config de setup.sh corta cuando el yaml sigue con los valores del template
+# (SPEC-0167 P2). Va al final para que ese corte no se lleve puesto nada de lo de arriba, y
+# capturamos el subshell para decir con precision que quedo hecho y que falta.
+log "Configurando la carpeta (setup.sh --room-only) con --hub $HUB_URL ..."
+if ! ( cd "$DEST_DIR" && bash setup.sh --room-only --hub "$HUB_URL" ); then
+  warn ""
+  warn "La configuracion de la carpeta corto (el detalle esta arriba). Esta primera pasada YA dejo:"
+  warn "  - '$DEST_DIR' clonado, con specoe.role='$ROLE' fijado."
+  if [ "$KEYRING_OK" = 1 ]; then
+    warn "  - la license key guardada y verificada en el keyring (account=$ROLE)."
+  else
+    warn "  - la license key NO quedo en el keyring (ver el detalle mas arriba y recuperala antes de seguir)."
+  fi
+  err "Instalacion de DOS PASADAS: editá '$DEST_DIR/project.config.yaml' y volvé a correr el MISMO comando."
 fi
 
 log ""

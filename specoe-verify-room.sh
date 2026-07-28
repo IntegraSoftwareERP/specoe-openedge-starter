@@ -10,8 +10,9 @@
 #   ./specoe-verify-room.sh --dir <carpeta>
 #
 # Exit 0 = los cinco chequeos en verde (canal TLS al Hub, JWT de licencia, .mcp.json con
-# JWT real, contrato del room bajado, server specoe conectable). Cualquier otro exit = NO
-# servido, y la salida nombra el chequeo que falló.
+# JWT real, contrato del room bajado con el JWT del cache, y server specoe conectable
+# sirviéndole EL MISMO contrato de rol al JWT del .mcp.json — TKT-0225). Cualquier otro
+# exit = NO servido, y la salida nombra el chequeo que falló.
 #
 # Vive en la RAÍZ del starter a propósito, no en scripts/: `.syncignore` excluye `/scripts/`
 # del espejo público que clona el dev (docs/QUICKSTART-VSCODE.md), así que un verificador

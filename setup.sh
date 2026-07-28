@@ -100,6 +100,59 @@ specoe_local_ca() {
   return 0
 }
 
+# ----- Lectura de un campo del yaml ANCLADA a su seccion (SPEC-0167 P2, T2.1) -----
+# `specoe_yaml_get <archivo> <seccion>.<clave>` devuelve el valor de la clave DENTRO del
+# bloque de su seccion. El validador de config leia el ultimo segmento del nombre con
+# `grep -E "^\s*<clave>:" | head -1` sobre el archivo ENTERO: eso agarra la PRIMERA
+# coincidencia en orden de archivo, asi que una clave homonima ubicada ANTES del campo
+# objetivo gana y el check evalua un campo distinto del que declara evaluar. Andaba por el
+# orden de las claves del template, no por construccion.
+# Devuelve vacio si la seccion o la clave no estan. Quita comillas y comentario inline.
+specoe_yaml_get() {
+  local file="$1" section="${2%%.*}" key="${2#*.}"
+  [ -f "$file" ] || return 0
+  awk -v sec="$section" -v key="$key" -v q="'" '
+    # Toda linea sin indentar abre un bloque top-level (y cierra el anterior).
+    /^[^[:space:]]/ { inblock = (index($0, sec ":") == 1); next }
+    !inblock { next }
+    $0 !~ "^[[:space:]]+" key ":" { next }
+    {
+      v = $0
+      sub("^[[:space:]]+" key ":[[:space:]]*", "", v)
+      if (substr(v, 1, 1) == q) {                       # valor entre comillas simples
+        v = substr(v, 2); i = index(v, q); if (i > 0) v = substr(v, 1, i - 1)
+      } else if (substr(v, 1, 1) == "\"") {             # entre comillas dobles
+        v = substr(v, 2); i = index(v, "\""); if (i > 0) v = substr(v, 1, i - 1)
+      } else {                                          # pelado, con comentario inline opcional
+        sub(/[[:space:]]*#.*$/, "", v); sub(/[[:space:]]+$/, "", v)
+      }
+      print v
+      exit
+    }
+  ' "$file"
+}
+
+# ----- Universo del check de config (SPEC-0167 P2, ADR-003) -----
+# CINCO campos. `paths.workspace-root` entra porque es un path absoluto al workspace del
+# cliente: dejarlo en el valor del template apunta a una ruta que no existe en la maquina.
+# Deliberadamente AFUERA: `specoe.role` y `hub.api-url`, porque los reescribe el propio
+# instalador antes de que el check corra (el sed de specoe-add-room.sh y el de --hub de mas
+# abajo). Compararlos daria falso positivo sobre una instalacion sana.
+SPECOE_CONFIG_FIELDS="project.name project.vendor paths.workspace-root database.logical-name pasoe.instance-name"
+
+# Fallback declarado de ADR-003: sentinelas literales del template, para cuando el yaml
+# versionado del clone no se puede leer. Se desincronizan en silencio si el template cambia
+# — por eso es fallback y por eso el check declara en la salida cuando corre por aca.
+specoe_config_sentinel() {
+  case "$1" in
+    project.name) echo "MiCliente ERP" ;;
+    project.vendor) echo "MiCliente SA" ;;
+    paths.workspace-root) echo "C:/MiCliente/VSCode" ;;
+    database.logical-name) echo "clientedb" ;;
+    pasoe.instance-name) echo "oepas1" ;;
+  esac
+}
+
 # ----- 0. Parse argumentos -----
 
 HUB_URL=""
@@ -390,18 +443,71 @@ fi
 
 log "Validando project.config.yaml..."
 
-# Validator ligero en bash — chequea que campos obligatorios no esten vacios.
-for field in "project.name" "project.vendor" "database.logical-name" "pasoe.instance-name"; do
-  value=$(grep -E "^\s*${field##*.}:" project.config.yaml | head -1 | sed 's/.*: *//;s/"//g' || true)
+# Este check CORTA (SPEC-0167 P2, ADR-003). Antes solo verificaba que los cinco campos no
+# estuvieran vacios, y el propio script admitia el hueco a continuacion: con los valores del
+# template el check pasaba y el flujo fallaba varios pasos despues, lejos de la causa.
+#
+# Referencia contra la que se compara: el project.config.yaml VERSIONADO del propio clone,
+# leido con `git show HEAD:...`. Se compara campo por campo (no el archivo entero) para no
+# marcar como "sin editar" lo que el instalador mismo reescribe. `git show` lee del index,
+# asi que funciona aunque el archivo no este materializado en el working tree.
+# Si la carpeta no es un repo git —o HEAD no tiene el archivo— se cae al fallback por
+# sentinelas y se DECLARA en la salida: un check degradado no puede confundirse con uno completo.
+CONFIG_TEMPLATE_REF="$(mktemp)"
+CONFIG_CHECK_MODE="versionado"
+if ! ( git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+       && git show HEAD:project.config.yaml >"$CONFIG_TEMPLATE_REF" 2>/dev/null \
+       && [ -s "$CONFIG_TEMPLATE_REF" ] ); then
+  rm -f "$CONFIG_TEMPLATE_REF"
+  CONFIG_TEMPLATE_REF=""
+  CONFIG_CHECK_MODE="sentinelas"
+  warn "  MODO DEGRADADO: no pude leer el project.config.yaml versionado (git show HEAD:project.config.yaml)."
+  warn "  La deteccion de valores de template corre contra sentinelas literales, que pueden estar"
+  warn "  desactualizadas respecto del template. Este check NO equivale al completo."
+fi
+
+CONFIG_EMPTY_FIELDS=""
+CONFIG_TEMPLATE_FIELDS=""
+for field in $SPECOE_CONFIG_FIELDS; do
+  value="$(specoe_yaml_get project.config.yaml "$field")"
   if [ -z "$value" ] || [ "$value" = '""' ]; then
-    err "Campo obligatorio vacio: $field — editar project.config.yaml"
+    CONFIG_EMPTY_FIELDS="$CONFIG_EMPTY_FIELDS $field"
+    continue
+  fi
+  if [ -n "$CONFIG_TEMPLATE_REF" ]; then
+    template_value="$(specoe_yaml_get "$CONFIG_TEMPLATE_REF" "$field")"
+  else
+    template_value="$(specoe_config_sentinel "$field")"
+  fi
+  if [ -n "$template_value" ] && [ "$value" = "$template_value" ]; then
+    CONFIG_TEMPLATE_FIELDS="$CONFIG_TEMPLATE_FIELDS $field"
   fi
 done
+if [ -n "$CONFIG_TEMPLATE_REF" ]; then rm -f "$CONFIG_TEMPLATE_REF"; fi
 
-log "Config basica: campos obligatorios presentes."
-warn "  ATENCION: este check solo verifica que los campos NO esten vacios."
-warn "  Si project.config.yaml tiene los valores de template ('MiCliente ERP', 'oepas1', etc.) sin editar,"
-warn "  este check pasa pero el resto del flow puede fallar. Editar el yaml en Paso 3 y validar real con smoke-test (Paso 5)."
+if [ -n "$CONFIG_EMPTY_FIELDS" ] || [ -n "$CONFIG_TEMPLATE_FIELDS" ]; then
+  warn "project.config.yaml todavia no describe a este cliente:"
+  for field in $CONFIG_EMPTY_FIELDS; do
+    warn "  - $field — VACIO"
+  done
+  for field in $CONFIG_TEMPLATE_FIELDS; do
+    warn "  - $field — sigue en el valor del template ('$(specoe_yaml_get project.config.yaml "$field")')"
+  done
+  warn ""
+  warn "  El corte es a proposito: con estos valores el resto del flujo falla mas adelante y lejos de la causa."
+  warn "  Editá los campos de arriba en $(pwd)/project.config.yaml y volvé a correr el MISMO comando."
+  warn "  Si esto salio de specoe-add-room.sh, la instanciacion del room es de DOS PASADAS: la primera clona la"
+  warn "  carpeta, fija el rol y guarda la licencia (add-room imprime abajo que quedo hecho); la segunda, ya con"
+  warn "  el yaml editado, completa la config. El yaml recien existe despues del clone, asi que no hay forma de"
+  warn "  editarlo antes de la primera pasada."
+  err "Config incompleta o sin editar:${CONFIG_EMPTY_FIELDS}${CONFIG_TEMPLATE_FIELDS} — editar project.config.yaml y reintentar."
+fi
+
+if [ "$CONFIG_CHECK_MODE" = "versionado" ]; then
+  log "Config: los $(echo $SPECOE_CONFIG_FIELDS | wc -w | tr -d ' ') campos obligatorios estan completos y editados (comparados contra el yaml versionado del clone)."
+else
+  log "Config: campos obligatorios completos y distintos de las sentinelas del template (check en modo degradado)."
+fi
 
 # ----- 4. License -----
 
@@ -495,11 +601,14 @@ elif [ "$DO_ROOM" = 0 ]; then
   log "  (host-only: bundle de hooks + dependencias instalados en ~/.claude)"
 else
   log ""
+  # SPEC-0167 P2: el paso 1 era "Revisar y completar project.config.yaml", o sea DESPUES de
+  # que la instalacion ya habia declarado la config valida. Con el check que corta, si llegaste
+  # hasta aca el yaml ya esta editado: instruir completarlo ahora es instruir el orden inverso.
   log "Proximos pasos:"
-  log "  1. Revisar y completar project.config.yaml"
-  log "  2. Activar license (el SessionStart hook lo hace automaticamente al abrir Claude Code)"
-  log "  3. Iniciar Claude Code: claude"
-  log "  4. Ver docs/QUICKSTART-VSCODE.md para el arranque en VSCode"
+  log "  1. Activar license (el SessionStart hook lo hace automaticamente al abrir Claude Code)"
+  log "  2. Iniciar Claude Code: claude"
+  log "  3. Ver docs/QUICKSTART-VSCODE.md para el arranque en VSCode"
+  log "  (project.config.yaml ya paso el check de config: campos obligatorios completos y editados)"
   log ""
   HUB_SHOW=$(grep -E '^\s*api-url:' project.config.yaml | head -1 | sed 's/.*api-url: *//;s/"//g' || true)
   log "Hub: ${HUB_SHOW:-<no configurado>}"

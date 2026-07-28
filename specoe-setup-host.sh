@@ -260,6 +260,14 @@ elif [ "$IS_WINDOWS" -eq 1 ]; then
 \$names = @('hub.integra.local','mcp.integra.local')
 \$content = ''
 if (Test-Path \$hostsFile) { \$content = Get-Content \$hostsFile -Raw }
+# Si el hosts NO termina en salto de linea, la primera entrada se concatena al final de la
+# ultima linea existente. Si esa linea trae un comentario (p.ej. la de Gen Digital / Norton,
+# '# gen digital helper server'), la entrada queda DESPUES del '#' -> comentada e inerte.
+if (\$content -and \$content -notmatch '\n\z') {
+  Add-Content -Path \$hostsFile -Value ''
+  \$content = \$content + [Environment]::NewLine
+  Write-Host "[hosts] el archivo no terminaba en salto de linea: normalizado antes de agregar"
+}
 foreach (\$n in \$names) {
   if (\$content -match ('(?m)^\s*[0-9.]+\s+' + [regex]::Escape(\$n) + '\s*\$')) {
     Write-Host "[hosts] ya existe: \$n"

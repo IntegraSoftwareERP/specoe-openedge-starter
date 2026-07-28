@@ -2,6 +2,56 @@
 
 All notable changes to this project. Automatic — regenerado por `./scripts/changelog.sh`.
 
+## 0.2.5 — 2026-07-28 (TKT-0222 + SPEC-0167 P2 + TKT-0225 — hosts sin EOL, corte del check de config y verde falso del verificador)
+
+**EL INSTALADOR AHORA CORTA CON EL `project.config.yaml` DEL TEMPLATE (SPEC-0167 P2, ADR-003) — leer antes de actualizar.**
+El check de config de `setup.sh` pasa de advertir a **abortar** cuando encuentra campos sin
+editar, y el flujo de `specoe-add-room.sh` queda declarado **de dos pasadas**: la primera
+instala máquina + keyring + identidad y corta pidiendo el yaml completo; la segunda instala el
+room. Antes el check solo miraba campos vacíos, el template pasaba y la instalación fallaba
+varios pasos después, lejos de la causa.
+
+- **TKT-0222 — `specoe-setup-host.sh` normaliza el `hosts` antes de agregar las entradas.**
+  El bloque elevado hacía `Add-Content` sin garantizar que el archivo terminara en salto de
+  línea. Con un `hosts` cuya última línea no tiene EOL y termina en comentario (caso real:
+  `# gen digital helper server` de Gen Digital — Norton / Avast / AVG), la primera entrada se
+  concatenaba detrás del `#`: **`hub.integra.local` quedaba comentado e inerte** y solo
+  `mcp.integra.local` funcionaba. Ahora se agrega el salto antes del append. Re-correr el
+  install sobre una máquina ya rota **la repara** (agrega la entrada sana; la pegada queda
+  inerte).
+
+- **SPEC-0167 P2 — el check de config corta con valores de template y el corte no se lleva la
+  provisión del room.**
+  La lectura del campo queda **anclada a su sección** (`specoe_yaml_get`): antes se buscaba por
+  el último segmento del nombre sobre el archivo entero y ganaba la primera coincidencia, así
+  que una clave homónima ubicada antes del campo objetivo hacía que el check evaluara un campo
+  distinto del que declaraba evaluar. La detección de valores de template compara contra el
+  yaml **versionado del propio clone** (`git show HEAD:project.config.yaml`) sobre cinco campos
+  — `project.name`, `project.vendor`, `paths.workspace-root`, `database.logical-name` y
+  `pasoe.instance-name`; `specoe.role` y `hub.api-url` quedan afuera porque los reescribe el
+  instalador. Si `git show` no resuelve hay fallback a sentinelas literales, **declarado en
+  pantalla como modo degradado**. En `specoe-add-room.sh` los bloques de keyring e identidad SDD
+  se mueven **antes** del `setup.sh --room-only`: el corte abortaba el subshell antes de
+  persistir la licencia y la primera corrida de cualquier rol terminaba con la carpeta clonada,
+  el rol fijado y **sin licencia en el keyring** (ADR-005).
+
+- **TKT-0225 — el verificador discrimina el rol servido y el room declara la divergencia de
+  tokens.**
+  El room usa **dos JWT**: el del cache por-carpeta, con el que `specoe-room-bootstrap.mjs` baja
+  el contrato, y el del `.mcp.json`, con el que corren los tools MCP de la sesión.
+  `specoe-license-check.mjs` los escribe juntos, pero una edición a mano del `.mcp.json` los
+  separa y nadie comparaba sus claims: el chequeo 5 de `verify-room-serving.mjs` daba verde con
+  solo abrir la sesión — y un JWT de producto la abre igual. Los cinco chequeos podían dictaminar
+  SERVIDO con la sesión corriendo como producto: **el verde falso dentro de la herramienta que
+  existe para detectarlo**. Ahora el chequeo 5 pide `room_contract_get` con el token del
+  `.mcp.json` y exige el **mismo contrato** que bajó el chequeo 4 con el del cache — se
+  discrimina por el contrato servido y no por el claim `sddRole`, que en USER-mode lo resuelve
+  el server y puede faltar sin que nada esté roto (TKT-0227). `specoe-room-bootstrap.mjs`
+  compara su token contra el efectivo del `.mcp.json` y adjunta `SPECOE-ROOM-TOKEN-DIVERGENTE`
+  al `additionalContext` (el sentinel `SPECOE-ROOM-CONTRACT` no se toca: la advertencia se
+  concatena). Suites nuevas: `token-divergente` (6 casos) y `verificador-discrimina-rol` (3,
+  contra un skill-server SSE falso que sirve por token).
+
 ## 0.2.4 — 2026-07-28 (SPEC-0167 P1 — preflight de ExecutionPolicy en el setup del host)
 
 - El preflight de `specoe-setup-host.sh` ahora observa la ExecutionPolicy efectiva de PowerShell antes de declarar el host sano, la remedia en scope CurrentUser cuando bloquea la ejecución de scripts, y verifica el resultado ejecutando el shim real en vez de confiar en el exit code de `Set-ExecutionPolicy`.

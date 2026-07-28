@@ -36,6 +36,9 @@ import { applyCaChannel, describeNetworkError, DEFAULT_CA_PATH } from './ca-chan
 // ultimo pisaba a los demas y el bootstrap bajaba el contrato del rol equivocado.
 const PROJECT_DIR = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 const CACHE_FILE = path.join(PROJECT_DIR, '.claude', 'specoe-license-cache.json');
+// TKT-0225 — el .mcp.json de la MISMA carpeta: es de donde el cliente MCP de Claude Code
+// saca el token con el que corren los tools, y no tiene por que ser el del cache.
+const MCP_JSON_FILE = path.join(PROJECT_DIR, '.mcp.json');
 const DEFAULT_SKILL_SERVER_URL =
   process.env.SPECOE_SKILL_SERVER_URL || 'https://mcp.integra.local/sse';
 // Margen del timeout del hook (settings.json le da 15s). Cortamos la red antes para
@@ -89,6 +92,67 @@ export function decodeRole(jwtToken) {
     const json = Buffer.from(payloadB64, 'base64url').toString('utf8');
     const payload = JSON.parse(json);
     return payload?.sddRole ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// ----- TKT-0225 — divergencia de tokens entre este hook y el cliente MCP -----
+//
+// Este hook baja el contrato con el token del CACHE por-carpeta. Los tools MCP de la misma
+// sesion corren con el token escrito en el .mcp.json de la carpeta. specoe-license-check.mjs
+// escribe los dos juntos y con el mismo valor en todos sus caminos, pero nada impide que se
+// separen despues: una edicion a mano del .mcp.json alcanza. Cuando eso pasa, el contrato
+// inyectado es el de un rol y el bundle servido por los tools es el de otro (o el de
+// producto) — y hasta este fix la sesion arrancaba sin decirlo. El rotulo del sentinel no
+// miente (el contrato SI bajo del server), pero cuenta media historia.
+//
+// El prefijo es OTRO a proposito, igual que UNGOVERNED: no contiene ni `SPECOE-ROOM-CONTRACT`
+// ni `SPECOE-ROOM-UNGOVERNED` como subcadena, asi que un probe puede afirmar la presencia de
+// esta advertencia y la del sentinel de forma independiente en el mismo texto.
+export const DIVERGENCE_PREFIX = 'SPECOE-ROOM-TOKEN-DIVERGENTE';
+
+export function buildTokenDivergenceWarning(rolDelCache, rolDelMcpJson) {
+  const claim = (r) => r ?? 'sin claim sddRole';
+  return (
+    `\n\n[[${DIVERGENCE_PREFIX}]] ATENCION: el JWT con el que se bajo este contrato NO es el ` +
+    `que van a usar los tools MCP de esta sesion. El contrato de arriba se bajo con el token ` +
+    `del cache de licencia de esta carpeta (claim: ${claim(rolDelCache)}); el server specoe ` +
+    `de ${MCP_JSON_FILE} declara OTRO token (claim: ${claim(rolDelMcpJson)}). Los tools MCP ` +
+    `pueden estar sirviendo el bundle de otro rol —o el de producto— mientras esta sesion se ` +
+    `gobierna con el contrato de arriba. Reabri la sesion sin editar el .mcp.json a mano: el ` +
+    `hook de licencia escribe el mismo token en los dos lados. Corre ./specoe-verify-room.sh ` +
+    `para el veredicto (su chequeo 5 cruza los dos tokens).`
+  );
+}
+
+// Expande `${VAR}` y `${VAR:-default}` como lo hace el cliente MCP al leer el .mcp.json.
+function expandEnvPlaceholders(raw) {
+  return String(raw ?? '').replace(
+    /\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}/g,
+    (_all, name, def) =>
+      process.env[name] !== undefined && process.env[name] !== ''
+        ? process.env[name]
+        : (def ?? `\${${name}}`),
+  );
+}
+
+/**
+ * El token EFECTIVO del server `specoe` en el .mcp.json de esta carpeta, o null si no hay
+ * con que comparar: sin archivo, sin entry (el hook de licencia lo retira cuando la corrida
+ * no tiene JWT usable — eso es ausencia declarada, no divergencia) o con el placeholder sin
+ * expandir (lo nombra el chequeo 3 del verificador). Ninguno de esos casos se reporta como
+ * divergencia: un falso positivo aca es exactamente el ruido que TKT-0225 combate.
+ */
+async function readMcpJsonToken() {
+  try {
+    const doc = JSON.parse(await fs.readFile(MCP_JSON_FILE, 'utf8'));
+    const auth = doc?.mcpServers?.specoe?.headers?.Authorization;
+    if (typeof auth !== 'string' || !auth.trim()) return null;
+    const expandido = expandEnvPlaceholders(auth);
+    if (expandido.includes('${')) return null;
+    const token = expandido.replace(/^Bearer\s+/i, '').trim();
+    return token || null;
   } catch {
     return null;
   }
@@ -171,25 +235,32 @@ export function buildUngovernedContext(reason, detail) {
   );
 }
 
-function emitUngoverned(reason, detail) {
+// `extra` (TKT-0225) se CONCATENA al final del additionalContext y nunca lo reemplaza: el
+// sentinel y la declaracion de ungoverned son anclas que ya asserta el probe de T5.3, y
+// buildAdditionalContext/buildUngovernedContext se quedan puras con su firma original.
+function emitUngoverned(reason, detail, extra = '') {
   console.log(
     JSON.stringify({
       specoeRoomContractStatus: 'ungoverned',
       hookSpecificOutput: {
         hookEventName: 'SessionStart',
-        additionalContext: buildUngovernedContext(reason, detail),
+        additionalContext: buildUngovernedContext(reason, detail) + extra,
       },
     }),
   );
 }
 
-function emit(role, contract) {
+function emit(role, contract, extra = '') {
   console.log(
     JSON.stringify({
       specoeRoomContractStatus: 'injected',
+      // El status distingue la sesion coherente de la que arranca con los dos tokens
+      // separados: 'injected' sigue significando "el contrato bajo del server", y el
+      // sufijo dice que los tools MCP corren con otro JWT.
+      ...(extra ? { specoeTokenDivergence: true } : {}),
       hookSpecificOutput: {
         hookEventName: 'SessionStart',
-        additionalContext: buildAdditionalContext(role, contract),
+        additionalContext: buildAdditionalContext(role, contract) + extra,
       },
     }),
   );
@@ -230,8 +301,34 @@ async function openCaChannel() {
   return r;
 }
 
+// TKT-0225 — compara el token del cache contra el efectivo del .mcp.json de la carpeta y
+// devuelve la advertencia lista para concatenar ('' si no hay nada que declarar). Se compara
+// el TOKEN COMPLETO, no el claim `sddRole`: en USER-mode el rol lo resuelve el server desde
+// el UserSddRole y el claim puede faltar legitimamente en los dos lados (TKT-0227), asi que
+// comparar claims dejaria pasar justo el caso que importa. Dos tokens distintos en la misma
+// carpeta son siempre divergencia: el hook de licencia los escribe juntos y con el mismo
+// valor en TODOS sus caminos (camino feliz, grace period y retiro del entry).
+async function tokenDivergenceWarning(cacheToken) {
+  const mcpToken = await readMcpJsonToken();
+  if (!mcpToken || !cacheToken || mcpToken === cacheToken) return '';
+  const rolCache = decodeRole(cacheToken);
+  const rolMcp = decodeRole(mcpToken);
+  await logLine({
+    level: 'warn',
+    msg: 'el JWT del .mcp.json NO es el del cache — los tools MCP corren con otro token',
+    file: MCP_JSON_FILE,
+    rolDelCache: rolCache,
+    rolDelMcpJson: rolMcp,
+  });
+  return buildTokenDivergenceWarning(rolCache, rolMcp);
+}
+
 async function main() {
   const token = await readCachedToken();
+  // Se computa una sola vez y viaja por todos los caminos de salida: la divergencia importa
+  // igual cuando el room arranca ungoverned — ahi el .mcp.json puede seguir declarando un
+  // token vivo con el que los tools MCP corren, y el dev tiene que saberlo.
+  const divergencia = await tokenDivergenceWarning(token);
   // Sin token fresco no podemos autenticar. Fail-open, pero YA NO mudo: el license-check
   // explica por que falta el JWT, y este hook declara la consecuencia — el room queda sin
   // gobierno de rol. Las dos mitades juntas son el mensaje completo.
@@ -244,6 +341,7 @@ async function main() {
     emitUngoverned(
       'no-token',
       `no hay JWT de licencia fresco en ${CACHE_FILE} (falta, o el cache tiene mas de 55 min y el token ya no sirve). El hook de licencia, que corre antes que este, dice por que.`,
+      divergencia,
     );
     return 0;
   }
@@ -256,6 +354,7 @@ async function main() {
     emitUngoverned(
       'no-role',
       'el JWT de licencia no trae el claim sddRole: es una licencia de producto, no de un rol SDD. Si esta carpeta tiene que ser un room, instalala con ./specoe-add-room.sh <ROL> <LICENSE_KEY>.',
+      divergencia,
     );
     return 0;
   }
@@ -276,7 +375,7 @@ async function main() {
         url: DEFAULT_SKILL_SERVER_URL,
         role,
       });
-      emit(role, contract);
+      emit(role, contract, divergencia);
     } else {
       await logLine({
         level: 'warn',
@@ -287,6 +386,7 @@ async function main() {
       emitUngoverned(
         'no-contract',
         `el skill-server (${DEFAULT_SKILL_SERVER_URL}) respondio, pero no devolvio contrato para el rol ${role}.`,
+        divergencia,
       );
     }
   } catch (err) {
@@ -306,6 +406,7 @@ async function main() {
     emitUngoverned(
       'network',
       `no se pudo hablar con el skill-server (${DEFAULT_SKILL_SERVER_URL}): errno ${net.code ?? 'desconocido'} — ${net.cause ?? net.message}.`,
+      divergencia,
     );
   } finally {
     clearTimeout(timer);
