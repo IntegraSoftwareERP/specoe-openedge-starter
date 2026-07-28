@@ -2,6 +2,10 @@
 
 All notable changes to this project. Automatic — regenerado por `./scripts/changelog.sh`.
 
+## 0.2.4 — 2026-07-28 (SPEC-0167 P1 — preflight de ExecutionPolicy en el setup del host)
+
+- El preflight de `specoe-setup-host.sh` ahora observa la ExecutionPolicy efectiva de PowerShell antes de declarar el host sano, la remedia en scope CurrentUser cuando bloquea la ejecución de scripts, y verifica el resultado ejecutando el shim real en vez de confiar en el exit code de `Set-ExecutionPolicy`.
+
 ## 0.2.3 — 2026-07-28 (SPEC-0164 — conectividad thin-client → Hub desde VSCode)
 
 **CAMBIO DE CONTRATO DEL HOOK DE LICENCIA (ADR-002) — leer antes de actualizar.**

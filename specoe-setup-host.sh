@@ -72,6 +72,89 @@ specoe_node_num() {
   echo $(( ${a:-0} * 1000000 + ${b:-0} * 1000 + ${c:-0} ))
 }
 
+# ----- ExecutionPolicy de PowerShell (SPEC-0167 P1 / ADR-002) -----
+# Este script corre en Git Bash, pero el binario que el dev despues invoca (claude) es un shim
+# PowerShell que instala npm. Con la ExecutionPolicy en Restricted el shim ESTA en el PATH y NO
+# ejecuta: chequear su presencia (linea ~95) da verde exactamente donde el usuario va a chocar.
+# Por eso la policy se OBSERVA cruzando a powershell.exe —no se infiere desde bash—, se remedia
+# en scope CurrentUser (no requiere elevacion: la unica UAC que este script preve es la de hosts
+# + CA) y el resultado se verifica EJECUTANDO el shim real. El exit code de Set-ExecutionPolicy
+# NO es evidencia: con un scope de mayor precedencia imponiendo una policy restrictiva
+# (MachinePolicy/UserPolicy por GPO, o Process) el comando retorna 0 y la efectiva no cambia.
+# Son CINCO scopes, en este orden de precedencia (verificado por ejecucion, RE-014):
+SPECOE_POLICY_SCOPES="MachinePolicy UserPolicy Process CurrentUser LocalMachine"
+
+# Policies que dejan correr un shim sin firmar. Undefined tambien bloquea: en Windows client la
+# efectiva sin ningun scope seteado resuelve a Restricted.
+specoe_policy_permits() {
+  case "$1" in RemoteSigned|Unrestricted|Bypass) return 0 ;; *) return 1 ;; esac
+}
+
+SPECOE_POLICY_EFFECTIVE=""   # policy efectiva observada
+SPECOE_POLICY_SCOPE=""       # scope que impone la efectiva, solo cuando bloquea
+
+# Observacion (T1.1). SOLO mira: no remedia nada. El resultado va en el codigo de retorno, no en
+# el texto — el caso "no observable" NO puede colapsar con "permite":
+#   0 = la efectiva permite ejecutar scripts
+#   1 = la efectiva bloquea; SPECOE_POLICY_SCOPE queda con el scope que gana por precedencia
+#   2 = no se pudo observar (powershell.exe no resuelve, o la invocacion fallo)
+#   3 = no aplica (no-Windows): no se invoca nada
+specoe_observe_execution_policy() {
+  SPECOE_POLICY_EFFECTIVE=""
+  SPECOE_POLICY_SCOPE=""
+  [ "$IS_WINDOWS" -eq 1 ] || return 3
+  command -v powershell.exe >/dev/null 2>&1 || return 2
+
+  local eff list scope value
+  eff="$(powershell.exe -NoProfile -Command 'Get-ExecutionPolicy' 2>/dev/null | tr -d '\r' | head -n1)" || return 2
+  [ -n "$eff" ] || return 2
+  SPECOE_POLICY_EFFECTIVE="$eff"
+  if specoe_policy_permits "$eff"; then return 0; fi
+
+  # Bloquea: el scope ganador es el PRIMERO de la precedencia con valor distinto de Undefined.
+  list="$(powershell.exe -NoProfile -Command 'Get-ExecutionPolicy -List' 2>/dev/null | tr -d '\r')" || list=""
+  for scope in $SPECOE_POLICY_SCOPES; do
+    value="$(printf '%s\n' "$list" | awk -v s="$scope" '$1==s {print $2; exit}')"
+    if [ -n "$value" ] && [ "$value" != "Undefined" ]; then
+      SPECOE_POLICY_SCOPE="$scope"
+      break
+    fi
+  done
+  # Sin ningun scope explicito, lo que bloquea es el default del sistema. No inventamos ganador.
+  [ -n "$SPECOE_POLICY_SCOPE" ] || SPECOE_POLICY_SCOPE="(ninguno explicito: los cinco scopes en Undefined, bloquea el default del sistema)"
+  return 1
+}
+
+# Remediacion + verificacion (T1.2). Se llama SOLO cuando la observacion dio 1 (bloquea).
+#   0 = remediada y VERIFICADA por ejecucion real del shim
+#   1 = NO remediable: la efectiva sigue bloqueando; SPECOE_POLICY_SCOPE = scope que gana
+#   2 = policy remediada, pero el shim NO esta instalado (condicion propia, ajena a la policy)
+#   3 = policy remediada y el shim esta, pero su ejecucion fallo por otra causa (tampoco es policy)
+specoe_remediate_execution_policy() {
+  local shim_present=0 rc=0
+
+  # El shim se discrimina ANTES de diagnosticar la policy: con claude ausente la verificacion por
+  # ejecucion falla por una razon ajena, y reportar eso como "policy no remediable" seria un
+  # diagnostico erroneo sobre una maquina sana, nombrando un scope ganador que no existe.
+  if powershell.exe -NoProfile -Command 'if (Get-Command claude -ErrorAction SilentlyContinue) { exit 0 } else { exit 9 }' >/dev/null 2>&1; then
+    shim_present=1
+  fi
+
+  powershell.exe -NoProfile -Command 'Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force' >/dev/null 2>&1 || true
+
+  # El exit code de arriba se descarta a proposito: la policy se RE-OBSERVA.
+  specoe_observe_execution_policy || rc=$?
+  [ "$rc" -eq 0 ] || return 1
+
+  # Segunda evidencia, la que no se puede simular: el shim real arranca.
+  [ "$shim_present" -eq 1 ] || return 2
+  if powershell.exe -NoProfile -Command 'claude --version' >/dev/null 2>&1; then
+    return 0
+  fi
+  SPECOE_POLICY_SCOPE=""
+  return 3
+}
+
 # ----- 1. Pre-req -----
 log "Verificando prerrequisitos..."
 command -v node >/dev/null 2>&1 || err "node no encontrado. Instalar Node.js del rango certificado ($SPECOE_NODE_MIN a $SPECOE_NODE_MAX_MAJOR.x)."
@@ -94,6 +177,56 @@ node -e "const tls=require('node:tls');process.exit(typeof tls.setDefaultCACerti
 command -v git >/dev/null 2>&1 || err "git no encontrado."
 command -v claude >/dev/null 2>&1 || warn "Claude Code no está en PATH. Instalalo desde https://claude.ai/code y arrancalo una vez."
 log "  Node v$NODE_VER OK (rango certificado $SPECOE_NODE_MIN a $SPECOE_NODE_MAX_MAJOR.x) · git OK"
+
+# ExecutionPolicy: se nombra la situación ACÁ, antes de que el instalador siga adelante y antes
+# de cualquier fallo posterior. Cinco resultados, cinco mensajes distintos (SPEC-0167 P1, ADR-002).
+# En no-Windows el bloque entero se saltea sin emitir ninguno.
+POLICY_RC=0
+specoe_observe_execution_policy || POLICY_RC=$?
+case "$POLICY_RC" in
+  3) : ;;
+  0)
+    log "  ExecutionPolicy de PowerShell: $SPECOE_POLICY_EFFECTIVE — permite ejecutar scripts, el shim de Claude Code puede arrancar. No toco nada."
+    ;;
+  2)
+    warn "  ExecutionPolicy de PowerShell: NO PUDE OBSERVARLA (powershell.exe no resolvió desde Git Bash o la consulta falló).
+  Esto NO es lo mismo que estar sana: no sé en qué estado quedó. Si más adelante 'claude' no arranca con UnauthorizedAccess,
+  abrí PowerShell y corré: Get-ExecutionPolicy -List — y si bloquea: Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned"
+    ;;
+  1)
+    warn "  ExecutionPolicy de PowerShell: $SPECOE_POLICY_EFFECTIVE — BLOQUEA la ejecución de scripts, así que el shim de Claude Code
+  ('claude') está en el PATH pero no arranca. Scope que la impone: $SPECOE_POLICY_SCOPE. Voy a remediarla en scope CurrentUser (sin elevación)."
+    REMEDIATE_RC=0
+    specoe_remediate_execution_policy || REMEDIATE_RC=$?
+    case "$REMEDIATE_RC" in
+      0)
+        log "  ExecutionPolicy REMEDIADA Y VERIFICADA: quedó RemoteSigned en scope CurrentUser y 'claude --version' ejecutó desde PowerShell.
+  OJO: eso escribió estado PERSISTENTE en tu perfil de usuario — no es una excepción de esta corrida, queda así para tus próximas sesiones."
+        ;;
+      1)
+        if [ -n "$SPECOE_POLICY_SCOPE" ]; then
+          warn "  ExecutionPolicy NO REMEDIABLE: apliqué RemoteSigned en CurrentUser pero la efectiva sigue en $SPECOE_POLICY_EFFECTIVE
+  porque gana el scope $SPECOE_POLICY_SCOPE, de mayor precedencia (MachinePolicy y UserPolicy los impone una directiva de grupo).
+  El onboarding NO se completa solo en esta máquina: pedile a quien administra la directiva que habilite RemoteSigned para tu usuario,
+  o corré Claude Code invocándolo con: powershell.exe -ExecutionPolicy Bypass -Command claude"
+        else
+          warn "  ExecutionPolicy NO REMEDIABLE: apliqué RemoteSigned en CurrentUser y después NO pude re-observar la policy para confirmarlo.
+  No declaro la remediación exitosa sin esa confirmación. Verificá a mano en PowerShell: Get-ExecutionPolicy -List"
+        fi
+        ;;
+      2)
+        warn "  ExecutionPolicy remediada (quedó RemoteSigned para tu usuario — estado persistente de tu perfil), pero NO pude verificarla
+  ejecutando el shim porque Claude Code NO está instalado: 'claude' no existe en PowerShell. Es una instalación incompleta de
+  Claude Code, no un problema de policy. Instalalo desde https://claude.ai/code, arrancalo una vez y volvé a correr este script."
+        ;;
+      *)
+        warn "  ExecutionPolicy remediada (quedó RemoteSigned para tu usuario — estado persistente de tu perfil), pero NO pude verificarla
+  ejecutando el shim: 'claude' existe en PowerShell y aun así no arrancó, por una causa ajena a la policy. Probá a mano en
+  PowerShell: claude --version — y reportá el error que imprima."
+        ;;
+    esac
+    ;;
+esac
 
 # El bundle + el CA viven en el starter. Si no estamos parados en uno, clonamos uno base.
 if [ -f "$SCRIPT_DIR/setup.sh" ] && [ -d "$SCRIPT_DIR/certs" ]; then
