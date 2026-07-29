@@ -35,6 +35,12 @@ log() { echo -e "\033[1;34m[specoe-setup]\033[0m $*"; }
 warn() { echo -e "\033[1;33m[specoe-setup]\033[0m $*" >&2; }
 err() { echo -e "\033[1;31m[specoe-setup]\033[0m $*" >&2; exit 1; }
 
+# Repo del starter, para las remediaciones que mandan al canal de HOST (SPEC-0167 P3): el
+# instalador de maquina —specoe-setup-host.sh, certs/— NO esta dentro de la carpeta del room,
+# asi que nombrarlo con './' manda al dev a un archivo que no existe. Mismo default que
+# specoe-setup-host.sh y specoe-add-room.sh.
+SPECOE_STARTER_REPO="${SPECOE_STARTER_REPO:-https://github.com/IntegraSoftwareERP/specoe-openedge-starter.git}"
+
 # Binario de Node a usar para lo que toca el keyring / el bundle.
 # En Git Bash, `node` está envuelto por winpty y eso rompe la carga del módulo NATIVO
 # @napi-rs/keyring → `node.exe` bypassa el wrapper (TKT-0200).
@@ -78,6 +84,8 @@ specoe_node_num() {
 # si se corrió solo `setup.sh --login` no está y el login moría con
 # UNABLE_TO_GET_ISSUER_CERT_LOCALLY sin decir de dónde sacarlo. El starter trae el CA en
 # certs/, así que lo instalamos nosotros. Devuelve la ruta (vacío si no hay CA). (TKT-0217)
+# SPEC-0167 P3: en una carpeta de room recortada NO hay certs/ (es material de máquina), así
+# que ahí esta función solo puede devolver el CA que ya dejó el setup del host en ~/.claude.
 #
 # SPEC-0164 P3 (T3.2): la copia es INCONDICIONAL. Antes estaba condicionada a que el destino
 # NO existiera, así que un .crt viejo, truncado o de otro emisor sobrevivía invisible: el
@@ -196,12 +204,20 @@ done
 
 [ "$DO_HOST" = 1 ] || [ "$DO_ROOM" = 1 ] || [ "$DO_LOGIN" = 1 ] || err "--host-only, --login y --room-only son excluyentes."
 
-# `--login` necesita el bundle (sdd-login.mjs vive en ~/.claude/scripts). Antes eso era una
-# precondición NO anunciada: el usuario corría --login y se comía un error pidiéndole que
-# corriera --host-only primero. Si el bundle no está, lo instalamos acá y seguimos. (TKT-0217)
+# `--login` necesita el bundle (sdd-login.mjs vive en ~/.claude/scripts).
+#
+# SPEC-0167 P3 (T3.4). Antes esto prendía DO_HOST=1 para auto-instalar el bundle desde
+# $SCRIPT_DIR/.claude-bundle (TKT-0217). Con la carpeta del room recortada ese directorio ya no
+# existe ahi —el bundle es material de HOST y vive en ~/.claude— y la corrida caia en el warn
+# ".claude-bundle no existe en el starter — saltando install", SEGUIA, y el login moria varias
+# lineas mas abajo, lejos de la causa. `./setup.sh --login` es la remediacion exacta de
+# MACHINE_NOT_AUTHORIZED: perder su reparacion en un warn no fatal es verde-falso.
+# Ahora: o el material esta en ~/.claude y el login sigue, o corta ACA nombrando que correr.
 if [ "$DO_LOGIN" = 1 ] && [ "$DO_HOST" = 0 ] && [ ! -f "${SPECOE_SDD_LOGIN_JS:-$HOME/.claude/scripts/sdd-login.mjs}" ]; then
-  warn "El bundle de hooks no está instalado (parte de máquina) — lo instalo antes del login."
-  DO_HOST=1
+  err "Falta ${SPECOE_SDD_LOGIN_JS:-$HOME/.claude/scripts/sdd-login.mjs}: esta máquina no tiene el bundle de hooks instalado, y sin él no hay login SDD.
+  El bundle es de la MÁQUINA, no de esta carpeta: se instala con specoe-setup-host.sh — vive en el starter con el que preparaste la máquina, NO en la carpeta del room.
+  Si no lo tenés a mano: git clone --depth 1 $SPECOE_STARTER_REPO specoe-starter && cd specoe-starter && ./specoe-setup-host.sh
+  Cuando termine, volvé a esta carpeta y corré ./setup.sh --login"
 fi
 
 # ----- 1. Prereqs -----
@@ -258,7 +274,15 @@ CLAUDE_HOME="$HOME/.claude"
 BUNDLE_DIR="$SCRIPT_DIR/.claude-bundle"
 
 if [ ! -d "$BUNDLE_DIR" ]; then
-  warn ".claude-bundle no existe en el starter — saltando install. Si Claude Code no autentica al Hub, contactar a Integra Software."
+  # SPEC-0167 P3 (T3.4): esto era un warn no fatal y la corrida SEGUIA hasta el mensaje de
+  # exito con el bundle sin instalar. Desde el recorte de la carpeta del room, .claude-bundle
+  # no esta en un room —es material de MAQUINA y vive en ~/.claude— asi que este camino solo
+  # se alcanza pidiendole a una carpeta que haga el trabajo del host. Corta y dice cual es el
+  # canal que si existe, en vez de reportar exito sin haber instalado nada.
+  err "No hay bundle de hooks en esta carpeta ($BUNDLE_DIR) y esta corrida incluye la parte de MÁQUINA.
+  El bundle es de la máquina, no de la carpeta: se instala con specoe-setup-host.sh — vive en el starter con el que preparaste la máquina, NO en la carpeta del room.
+  Si no lo tenés a mano: git clone --depth 1 $SPECOE_STARTER_REPO specoe-starter && cd specoe-starter && ./specoe-setup-host.sh
+  Si lo que querías era configurar ESTA carpeta, corré ./setup.sh --room-only (y ./setup.sh --login para la identidad SDD)."
 else
   mkdir -p "$CLAUDE_HOME/hooks" "$CLAUDE_HOME/scripts"
 
@@ -293,8 +317,19 @@ else
   install_force "$BUNDLE_DIR/hooks/specoe-room-bootstrap.mjs"     "$CLAUDE_HOME/hooks/specoe-room-bootstrap.mjs"
   install_force "$BUNDLE_DIR/hooks/secrets.mjs"                   "$CLAUDE_HOME/hooks/secrets.mjs"
   install_force "$BUNDLE_DIR/hooks/credentials.mjs"               "$CLAUDE_HOME/hooks/credentials.mjs"
+  # TKT-0232: lo importan specoe-license-check.mjs (hooks/) y sdd-login.mjs (scripts/). Esta
+  # lista es un allowlist por archivo, asi que un modulo nuevo que no se agregue aca NO llega
+  # a la maquina y el import falla en la RESOLUCION — antes de que corra el catch del hook,
+  # o sea sin mensaje y en cada arranque de Claude Code de esa maquina.
+  install_force "$BUNDLE_DIR/hooks/sdd-identity.mjs"              "$CLAUDE_HOME/hooks/sdd-identity.mjs"
   install_force "$BUNDLE_DIR/scripts/provision-secrets.mjs"       "$CLAUDE_HOME/scripts/provision-secrets.mjs"
   install_force "$BUNDLE_DIR/scripts/sdd-login.mjs"               "$CLAUDE_HOME/scripts/sdd-login.mjs"
+  # SPEC-0167 P3 (T3.4): el motor del verificador viaja al HOST. Antes no se instalaba en
+  # ningun lado y specoe-verify-room.sh lo resolvia dentro de la carpeta del room
+  # ($SCRIPT_DIR/.claude-bundle/scripts), que es justo lo que el recorte del room saca. Sus dos
+  # imports son relativos a ../hooks/ (ca-channel.mjs y specoe-room-bootstrap.mjs), asi que
+  # desde ~/.claude/scripts/ resuelven contra ~/.claude/hooks/, que este mismo bloque puebla.
+  install_force "$BUNDLE_DIR/scripts/verify-room-serving.mjs"     "$CLAUDE_HOME/scripts/verify-room-serving.mjs"
 
   # Dependencias de los hooks. Corremos npm install si cambiaron las deps (DEPS_CHANGED) o si
   # falta node_modules / alguna dep clave (@modelcontextprotocol/sdk del bootstrap, undici del
@@ -315,7 +350,9 @@ log "Login SDD (identidad por usuario)..."
 
 # SPECOE_SDD_LOGIN_JS: override para test aislado (apunta al bundle del repo).
 SDD_LOGIN_JS="${SPECOE_SDD_LOGIN_JS:-$HOME/.claude/scripts/sdd-login.mjs}"
-[ -f "$SDD_LOGIN_JS" ] || err "Falta $SDD_LOGIN_JS — corré primero la parte de máquina (./setup.sh --host-only o specoe-setup-host.sh)."
+[ -f "$SDD_LOGIN_JS" ] || err "Falta $SDD_LOGIN_JS — el bundle de hooks (material de MÁQUINA) no quedó instalado.
+  Se instala con specoe-setup-host.sh — vive en el starter con el que preparaste la máquina, NO en la carpeta del room.
+  Si no lo tenés a mano: git clone --depth 1 $SPECOE_STARTER_REPO specoe-starter && cd specoe-starter && ./specoe-setup-host.sh"
 
 # URL del Hub: --hub > INTEGRA_HUB_API_URL > prompt con default (Enter = default).
 LOGIN_HUB_URL="${HUB_URL:-${INTEGRA_HUB_API_URL:-}}"
@@ -344,7 +381,7 @@ NODE_BIN="$(specoe_node_bin)"
 # SPEC-0164 P1 (T1.7): ya NO se inyecta NODE_EXTRA_CA_CERTS en la linea de comando. Era el
 # segundo mecanismo de CA del starter y el que ataba el login a una variable de entorno.
 LOGIN_CA="$(specoe_local_ca)"
-[ -n "$LOGIN_CA" ] || warn "  Sin CA local (~/.claude/caddy-local-root.crt) ni certs/caddy-root-ca.crt en el starter: si el Hub usa TLS del piloto, el login va a fallar con UNABLE_TO_GET_ISSUER_CERT_LOCALLY."
+[ -n "$LOGIN_CA" ] || warn "  Sin CA local en ~/.claude/caddy-local-root.crt (en una carpeta de room no hay certs/: el CA es material de MÁQUINA y lo deja specoe-setup-host.sh). Si el Hub usa TLS del piloto, el login va a fallar con UNABLE_TO_GET_ISSUER_CERT_LOCALLY."
 
 set +e
 LOGIN_JSON="$(SDD_LOGIN_EMAIL="$LOGIN_EMAIL" SDD_LOGIN_PASSWORD="$LOGIN_PASSWORD" \
@@ -371,8 +408,11 @@ if [ "$LOGIN_RC" -ne 0 ]; then
   case "$ERR_MSG" in
     *UNABLE_TO_GET_ISSUER_CERT_LOCALLY* | *SELF_SIGNED_CERT_IN_CHAIN* | *CERT_* | *DEPTH_ZERO_SELF_SIGNED_CERT*)
       warn "  → El Hub del piloto usa un TLS firmado por el CA de Integra y esta máquina no lo tiene."
-      warn "    Instalalo con: ./specoe-setup-host.sh   (copia certs/caddy-root-ca.crt al trust del SO y a ~/.claude/caddy-local-root.crt)"
-      warn "    A mano: cp \"$SCRIPT_DIR/certs/caddy-root-ca.crt\" ~/.claude/caddy-local-root.crt"
+      # SPEC-0167 P3 (T3.3): el CA y el instalador de máquina NO están en la carpeta del room
+      # (certs/ y specoe-setup-host.sh quedan fuera del recorte), así que la remediación no
+      # puede nombrarlos con './' ni con $SCRIPT_DIR: apunta al canal de host, que sí existe.
+      warn "    Se instala con specoe-setup-host.sh — vive en el starter con el que preparaste la máquina, NO en esta carpeta. Copia el CA al trust del SO y a ~/.claude/caddy-local-root.crt."
+      warn "    Si no lo tenés a mano: git clone --depth 1 $SPECOE_STARTER_REPO specoe-starter && cd specoe-starter && ./specoe-setup-host.sh"
       ;;
   esac
   err "Sin login no hay identidad SDD: el MCP integra-hub no va a poder operar. Corregí y reintentá con ./setup.sh --login"

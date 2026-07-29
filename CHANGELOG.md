@@ -2,6 +2,49 @@
 
 All notable changes to this project. Automatic — regenerado por `./scripts/changelog.sh`.
 
+## 0.2.6 — 2026-07-29 (TKT-0232 — el arranque declara el usuario del seat: en USER-mode el room ya baja el bundle de su rol)
+
+**EN USER-MODE, TODO ROOM RECIÉN INSTALADO CORRÍA COMO PRODUCTO. Se repara solo al actualizar
+—sin re-login— pero hay que instalar el bundle nuevo (`setup.sh --host-only`).**
+
+- **TKT-0232 — `specoe-license-check.mjs` manda `userContext` al `/license/validate`.**
+  El hook validaba la licencia con `licenseKey` + `fingerprint` y nada más. En USER-mode
+  (`Tenant.sddIdentityMode='USER'`) el Hub **no** lee `License.sddRole`: deriva el claim
+  `sddRole` de los `UserSddRole` activos del usuario que el caller declara en `userContext`, y
+  la derivación es **fail-closed** — sin ese campo emite el JWT **sin el claim**. El
+  skill-server resuelve `role = payload.sddRole ?? null`, así que el room entero corría con el
+  **bundle producto**: `room_contract_get` sin contrato y solo las skills libres. No fallaba
+  nada de forma visible, por eso sobrevivió a dos tickets. Ahora el hook lee el userId del seat
+  del canal de secretos y lo manda; en MACHINE-mode el Hub lo ignora, así que el hook no tiene
+  que averiguar el modo del tenant. Sin material en el canal el body queda **idéntico** al de
+  antes del fix.
+- **El userId del seat viaja por el canal de secretos (`integra-sdd-identity`, `user-id`).**
+  No se puede sacar del material que ya había: el `UserSddToken` es **opaco** (`isdd_` + 32
+  bytes random) y `/auth/sdd/login` no devuelve el userId. La única fuente es el `sub` del JWT
+  que emite `/auth/sdd/session`. `sdd-login.mjs` lo deriva **una vez** al hacer el login y lo
+  deja guardado (`userIdStored` en su salida, `userId` en `status`), y el hook de arranque lo
+  lee de ahí — un request por instalación, no uno por sesión.
+- **La instalación anterior al fix se repara sola.** Si el canal tiene token + machineId pero no
+  el userId, el hook lo deriva en el primer arranque y lo persiste: **no hace falta re-login**.
+  Solo se intenta cuando queda presupuesto de hook suficiente, para no cambiar un room sin rol
+  por un room sin licencia.
+- **El fingerprint SDD pasa a `hooks/sdd-identity.mjs`,** compartido por el login y el hook. Es
+  distinto del fingerprint de licencia y una segunda copia que se separara haría que el Hub
+  rechace la derivación con `MACHINE_FINGERPRINT_MISMATCH`.
+- **`verify-room-serving.mjs` — el chequeo 4 ya no atribuye el claim ausente solo a la
+  licencia.** Decía «es una licencia de producto → instalá con `specoe-add-room.sh <ROL>
+<LICENSE_KEY>`», que es el razonamiento de MACHINE-mode: en USER-mode mandaba a cambiar la
+  licencia cuando lo que faltaba era el login SDD. Ahora nombra las causas de los dos modos con
+  la acción de cada uno.
+- **Corrección de trail (subsume TKT-0227).** El QUICKSTART y el CHANGELOG de 0.2.5 decían que
+  «en USER-mode el rol lo resuelve el server y el claim puede faltar sin que nada esté roto».
+  **Es falso**: el skill-server no consulta `UserSddRole` en ningún momento y el claim **debe**
+  estar en los dos modos. Lo que TKT-0227 planteó como hipótesis era este bug, no una decisión
+  de diseño. Corregido en `docs/QUICKSTART-VSCODE.md` y en la cabecera del verificador.
+- Suite nueva `usercontext-license-validate` (7 casos, incluido el control negativo de que sin
+  material el campo no viaja) y `setup.sh` instala el módulo nuevo — el allowlist del bundle es
+  por archivo y un módulo que falte ahí rompe el import antes de que corra el hook.
+
 ## 0.2.5 — 2026-07-28 (TKT-0222 + SPEC-0167 P2 + TKT-0225 — hosts sin EOL, corte del check de config y verde falso del verificador)
 
 **EL INSTALADOR AHORA CORTA CON EL `project.config.yaml` DEL TEMPLATE (SPEC-0167 P2, ADR-003) — leer antes de actualizar.**

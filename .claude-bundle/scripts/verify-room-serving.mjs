@@ -50,10 +50,18 @@
 // El 5 ahora discrimina el rol POR EFECTO: pide `room_contract_get` con el token del
 // .mcp.json y exige que devuelva EL MISMO contrato que bajo el 4. Producto no tiene
 // contrato de room (el tool responde isError) y otro rol devuelve otro texto: las dos
-// divergencias mueren aca. Se discrimina por el contrato servido y NO por el claim
-// `sddRole` del JWT a proposito: en USER-mode el rol lo resuelve el server desde el
-// UserSddRole y el claim puede faltar legitimamente (TKT-0227) — exigir el claim daria
-// rojo falso sobre una instalacion sana.
+// divergencias mueren aca. Se discrimina por el contrato SERVIDO y no solo por el claim
+// `sddRole` porque el contrato es el efecto y el claim es el medio: dos tokens con el mismo
+// claim pero distinto contrato servido serian un verde falso igual.
+//
+// TKT-0232 — correccion de esta nota. Decia que "en USER-mode el rol lo resuelve el server
+// desde el UserSddRole y el claim puede faltar legitimamente (TKT-0227)". Es FALSO, y era
+// la hipotesis equivocada de aquel ticket: el skill-server resuelve
+// `role = payload.sddRole ?? null` (auth.ts) y NO consulta UserSddRole en ningun momento.
+// Lo que pasa en USER-mode es que el Hub DERIVA el claim del userId que el arranque manda
+// en `userContext` — el claim DEBE estar, y si falta el room corre como producto. Un claim
+// ausente nunca fue "una instalacion sana": era el bug que este ticket repara en
+// specoe-license-check.mjs.
 //
 // ----- POR QUE NO IMPORTA specoe-license-check.mjs -----
 //
@@ -606,12 +614,29 @@ async function checkContratoRoom() {
   }
   const role = decodeJwtPayload(token)?.sddRole ?? null;
   if (!role) {
+    // TKT-0232 — el mensaje viejo atribuia esto SIEMPRE a "licencia de producto, instala con
+    // una licencia con rol". Ese razonamiento es de MACHINE-mode, donde el claim sale de
+    // License.sddRole. En USER-mode el claim se DERIVA del userId del seat que el arranque
+    // manda como `userContext`, y falta por cualquiera de tres motivos que se reparan
+    // distinto. Mandar a cambiar la licencia cuando lo que falta es el login SDD es mandar a
+    // arreglar lo que no esta roto: el room se queda igual de producto y el dev pierde la
+    // corrida. Las dos causas se nombran, sin fingir que este proceso sabe el modo del
+    // tenant (no lo puede leer: vive en Tenant.sddIdentityMode, server-side).
     return {
       ok: false,
       detalle:
-        'el JWT de licencia no trae el claim sddRole: es una licencia de producto, no de un ' +
-        'rol SDD, y el skill-server no tiene contrato de room para ella.',
-      accion: 'instala esta carpeta como room con ./specoe-add-room.sh <ROL> <LICENSE_KEY>.',
+        'el JWT de licencia no trae el claim sddRole, asi que el skill-server le sirve el ' +
+        'bundle PRODUCTO y no tiene contrato de room que darle. El claim falta por una de ' +
+        'dos razones segun el modo de identidad del tenant: en MACHINE-mode, porque la ' +
+        'licencia no tiene rol SDD; en USER-mode, porque el arranque no pudo declarar el ' +
+        'usuario del seat (sin login SDD en esta maquina, o el usuario no tiene exactamente ' +
+        'UN rol SDD activo — con cero o con mas de uno el Hub emite el JWT sin claim).',
+      accion:
+        'en USER-mode: corre ./setup.sh --login en esta maquina y volve a abrir la sesion ' +
+        '(el login deja el userId del seat en el keyring y el arranque lo manda como ' +
+        'userContext); si el login ya esta hecho, pedi a un ADMIN del tenant que verifique ' +
+        'que tu usuario tenga UN solo rol SDD activo. En MACHINE-mode: instala esta carpeta ' +
+        'como room con ./specoe-add-room.sh <ROL> <LICENSE_KEY>.',
     };
   }
 

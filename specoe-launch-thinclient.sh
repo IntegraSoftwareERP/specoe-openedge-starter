@@ -53,10 +53,13 @@ NODE_BIN="$(specoe_node_bin)"
 if [ -f "$HOME/.claude/scripts/sdd-login.mjs" ]; then
   if ! ( cd "$HOME/.claude/scripts" && "$NODE_BIN" sdd-login.mjs status >/dev/null 2>&1 ); then
     warn "Identidad SDD incompleta: no está el token de usuario y/o el machineId en el keyring."
-    warn "  → Hacé el login primero: ./setup.sh --login (o ./specoe-setup-host.sh). Sin eso el Hub responde 401."
+    warn "  → Hacé el login primero desde la carpeta del room: ./setup.sh --login . Sin eso el Hub responde 401."
   fi
 else
-  warn "Bundle sin instalar (~/.claude/scripts/sdd-login.mjs ausente) — corré specoe-setup-host.sh primero."
+  # SPEC-0167 P3 (T3.3): el instalador de MÁQUINA no está en la carpeta del room, así que la
+  # remediación no puede nombrarlo con './' — apunta al canal de host, que sí existe.
+  warn "Bundle sin instalar (~/.claude/scripts/sdd-login.mjs ausente)."
+  warn "  → Corré specoe-setup-host.sh — vive en el starter con el que preparaste la máquina, NO en la carpeta del room. Si no lo tenés a mano: git clone --depth 1 ${SPECOE_STARTER_REPO:-https://github.com/IntegraSoftwareERP/specoe-openedge-starter.git} specoe-starter && cd specoe-starter && ./specoe-setup-host.sh"
 fi
 
 log "=== Sesion SDD thin-client: rol $ROLE (identidad por usuario) ==="

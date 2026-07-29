@@ -13,3 +13,8 @@ coverage/
 # Licencia local (no commitear)
 .claude/specoe-license-cache.json
 .claude/integra-hub-session.json
+# Bootstrap del room: lo genera setup.sh en runtime y lleva el JWT del skill-server inline
+# (specoe-license-check.mjs lo reescribe con el JWT fresco). Nunca se commitea. Ademas, sin
+# esta linea quedaba untracked y reportado por git status, lo que hacia imposible cualquier
+# criterio de divergencia acotada sobre la carpeta del room (SPEC-0167 P3, ADR-004).
+.mcp.json

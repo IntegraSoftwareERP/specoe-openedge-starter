@@ -62,19 +62,151 @@ esac
 # Default de carpeta según el rol (discovery-room, engineering-room, ...).
 [ -n "$DEST_DIR" ] || DEST_DIR="$(echo "$ROLE" | tr 'A-Z_' 'a-z-')-room"
 
+# Como conseguir el canal de HOST desde una carpeta de room recortada (SPEC-0167 P3): el
+# instalador de maquina (specoe-setup-host.sh, install-specoe.sh, certs/) NO esta dentro de la
+# carpeta del room, asi que nombrarlo con './' manda al dev a un archivo que no existe.
+specoe_host_hint() {
+  echo "specoe-setup-host.sh — vive en el starter con el que preparaste la maquina, NO en la carpeta del room. Si no lo tenés a mano: git clone --depth 1 $STARTER_REPO specoe-starter && cd specoe-starter && ./specoe-setup-host.sh"
+}
+
 # El host se corre antes: avisamos si el bundle no está (pero no bloqueamos — setup.sh --room-only
 # no lo necesita; el hook sí, al abrir Claude Code).
 [ -f "$HOME/.claude/hooks/specoe-license-check.mjs" ] || \
-  warn "El bundle de hooks no está en ~/.claude — corré specoe-setup-host.sh primero."
+  warn "El bundle de hooks no está en ~/.claude — corré $(specoe_host_hint)"
+
+# ----- Conjunto firmado de la carpeta del room (SPEC-0167 P3, Q3) -----
+# La carpeta del room lleva SOLO lo que el room usa para operar y para re-provisionarse a si
+# mismo. El instalador de MAQUINA (install-specoe.sh, specoe-setup-host.sh, los cuatro wrappers
+# por rol, certs/, docker/, examples/) y el bundle de hooks (.claude-bundle/, material de host
+# que vive en ~/.claude despues del setup-host) NO entran.
+#
+# CONSERVA (12). Lista INCLUSIVA: se enumera lo que se conserva, una entrada por linea con
+# barra inicial. No son negaciones sobre '/*' — asi una entrada NUEVA del starter no llega al
+# room por omision, que es el default seguro (y la contrapartida: cuando el starter suma algo
+# que el room necesita, se agrega ACA a proposito).
+SPECOE_ROOM_KEEP='/.claude/
+/.gitattributes
+/.gitignore
+/project.config.yaml
+/setup.sh
+/specoe-add-room.sh
+/specoe-gate-messages.sh
+/specoe-launch-thinclient.sh
+/specoe-verify-room.sh
+/README.md
+/VERSION
+/docs/QUICKSTART-VSCODE.md'
+
+# EXCLUYE (11). Se enumeran aparte porque el exit code del sparse-checkout NO es evidencia:
+# --no-cone acepta patrones que no corresponden a ninguna ruta real sin emitir error, y en
+# Git Bash la conversion de rutas de MSYS destroza los patrones que empiezan con barra si se
+# pasan por argv. Las dos cosas juntas producen un recorte que no se aplica CON EXIT 0. Por
+# eso despues de aplicarlo se verifica entrada por entrada contra el disco.
+SPECOE_ROOM_DROP='install-specoe.sh
+specoe-setup-host.sh
+specoe-room-discovery.sh
+specoe-room-engineering.sh
+specoe-room-adversarial.sh
+specoe-room-ccdev.sh
+CHANGELOG.md
+.claude-bundle
+certs
+docker
+examples'
+
+SPECOE_GIT_MIN="2.25.0"
+
+specoe_ver_num() {
+  local a b c
+  IFS=. read -r a b c <<<"$1"
+  a="${a%%[!0-9]*}"; b="${b%%[!0-9]*}"; c="${c%%[!0-9]*}"
+  echo $(( ${a:-0} * 1000000 + ${b:-0} * 1000 + ${c:-0} ))
+}
+
+# Sin `git sparse-checkout` (2.25+) no hay recorte posible. Cortamos ANTES de clonar: un
+# recorte que falla abierto deja el room con el instalador completo adentro y el instalador
+# reportando exito, que es el defecto original con una capa mas de disfraz.
+specoe_require_git_sparse() {
+  local ver
+  ver="$(git --version | awk '{print $3}')"
+  if [ "$(specoe_ver_num "$ver")" -lt "$(specoe_ver_num "$SPECOE_GIT_MIN")" ]; then
+    err "git $ver detectado y hace falta $SPECOE_GIT_MIN o superior para recortar la carpeta del room (git sparse-checkout).
+  Sin el recorte la carpeta quedaria con el instalador completo adentro, asi que corto en vez de seguir.
+  Actualizá git (https://git-scm.com/downloads) y volvé a correr el MISMO comando."
+  fi
+}
+
+# Aplica (o refresca) el recorte sobre una carpeta que ya es repo git.
+# --no-cone, no cone: el modo cone materializa SIEMPRE todos los archivos de la raiz y solo
+# excluye directorios, y SIETE de las once entradas a excluir son archivos de raiz.
+# Por --stdin, nunca por argv: en Git Bash MSYS convierte '/setup.sh' en una ruta absoluta de
+# Windows y el recorte no se aplica, con exit 0.
+specoe_sparse_apply() {
+  local dir="$1"
+  git -C "$dir" sparse-checkout init --no-cone
+  printf '%s\n' "$SPECOE_ROOM_KEEP" | git -C "$dir" sparse-checkout set --no-cone --stdin
+}
+
+# Verificacion POST-aplicacion: el disco, no el exit code.
+specoe_sparse_verify() {
+  local dir="$1" entry leftover=""
+  while IFS= read -r entry; do
+    [ -n "$entry" ] || continue
+    if [ -e "$dir/$entry" ]; then
+      leftover="$leftover
+  - $entry"
+    fi
+  done <<< "$SPECOE_ROOM_DROP"
+  if [ -n "$leftover" ]; then
+    err "El recorte de la carpeta del room NO se aplico: sigue habiendo entradas excluidas en '$dir':$leftover
+  Corto en vez de seguir — una carpeta con el instalador adentro reportando exito es el defecto que este paso viene a evitar.
+  Revisá la version de git ($(git --version)) y que el sparse-checkout se haya aplicado: git -C \"$dir\" sparse-checkout list"
+  fi
+}
 
 # ----- 1. Clonar/actualizar la carpeta del room -----
+specoe_require_git_sparse
 if [ -d "$DEST_DIR/.git" ]; then
-  log "Actualizando '$DEST_DIR' (git pull --ff-only)..."
-  git -C "$DEST_DIR" pull --ff-only || warn "  pull falló (cambios locales?). Sigo con lo que hay."
+  log "Actualizando '$DEST_DIR'..."
+
+  # Divergencia ESPERADA y acotada (SPEC-0167 P3, ADR-004). El working tree de un room NUNCA
+  # esta limpio: el sed de mas abajo reescribe specoe.role sobre project.config.yaml —que es un
+  # archivo TRACKED— en toda instanciacion, y el dev ademas lo edita con los valores del cliente.
+  # Lo que el instalador pone es eso y el .mcp.json que genera setup.sh (untracked hasta que la
+  # carpeta reciba el .gitignore que lo cubre). CUALQUIER otra entrada es trabajo que el
+  # instalador no puso: no se recorta ni se borra nada, se corta y se pide intervencion.
+  divergence="$(git -C "$DEST_DIR" status --porcelain)"
+  unexpected="$(printf '%s\n' "$divergence" | grep -v -e '^$' -e '^ M project\.config\.yaml$' -e '^?? \.mcp\.json$' || true)"
+  if [ -n "$unexpected" ]; then
+    err "La carpeta '$DEST_DIR' tiene cambios locales que este instalador no puso:
+$unexpected
+  No toco nada: aplicar el recorte o actualizar acá puede destruir trabajo tuyo.
+  Resolvelos (commit, stash o descarte segun corresponda) y volvé a correr el MISMO comando."
+  fi
+
+  # Recorte retroactivo: una carpeta instanciada ANTES de este cambio tiene el instalador
+  # adentro. Se aplica aca, con la divergencia ya verificada como esperada.
+  specoe_sparse_apply "$DEST_DIR"
+
+  # El pull ya NO degrada a warn. El '|| warn "pull fallo (cambios locales?). Sigo con lo que
+  # hay."' se tragaba la falla pese al `set -euo pipefail` —el cortocircuito la capturaba— y la
+  # corrida terminaba en el mensaje de exito: el dev creia que actualizo y seguia con el starter
+  # viejo. Si el pull falla, corta nombrando el archivo del conflicto.
+  if ! pull_out="$(git -C "$DEST_DIR" pull --ff-only 2>&1)"; then
+    err "La actualizacion de '$DEST_DIR' FALLO y corto (antes esto era un warn y la corrida seguia con el starter viejo):
+$pull_out
+  Archivos con cambios locales en la carpeta:
+$(git -C "$DEST_DIR" status --porcelain || true)
+  Si el conflicto es project.config.yaml, el template cambio y tu config tiene lo del cliente: resolvelo a mano (git -C \"$DEST_DIR\" diff project.config.yaml) y volvé a correr el MISMO comando."
+  fi
+  printf '%s\n' "$pull_out"
 else
-  log "Clonando el starter en '$DEST_DIR' (room $ROLE)..."
-  git clone --depth 1 "$STARTER_REPO" "$DEST_DIR"
+  log "Clonando el starter en '$DEST_DIR' (room $ROLE, contenido recortado)..."
+  git clone --depth 1 --no-checkout "$STARTER_REPO" "$DEST_DIR"
+  specoe_sparse_apply "$DEST_DIR"
+  git -C "$DEST_DIR" checkout
 fi
+specoe_sparse_verify "$DEST_DIR"
 [ -f "$DEST_DIR/setup.sh" ] || err "El starter no tiene setup.sh en '$DEST_DIR'. ¿Repo correcto?"
 
 # ----- 2. Fijar el rol en el yaml de la carpeta -----
@@ -130,10 +262,11 @@ if [ -f "$HOME/.claude/scripts/sdd-login.mjs" ]; then
     log "Identidad SDD: token de usuario + machineId presentes en el keyring."
   else
     warn "Identidad SDD INCOMPLETA: falta el token de usuario o el machineId en el keyring."
-    warn "  → Corré el login: ./setup.sh --login (o ./specoe-setup-host.sh). Sin eso, el MCP integra-hub del room no autentica."
+    warn "  → Corré el login desde la carpeta del room: ./setup.sh --login . Sin eso, el MCP integra-hub del room no autentica."
   fi
 else
-  warn "No está ~/.claude/scripts/sdd-login.mjs — corré specoe-setup-host.sh primero (bundle + login)."
+  warn "No está ~/.claude/scripts/sdd-login.mjs (bundle de hooks + login de la maquina)."
+  warn "  → Corré $(specoe_host_hint)"
 fi
 if [ -f "$SCRIPT_DIR/specoe-gate-messages.sh" ]; then
   log "Si el Hub responde 403 en la sesión, traducí el código a instrucción con:"

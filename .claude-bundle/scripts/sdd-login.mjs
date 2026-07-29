@@ -11,9 +11,19 @@
 //     → si el login trajo token de robot (P5, display-once), lo guarda bajo
 //         (integra-sdd-robot-login, <tenantId>)
 //
+// TKT-0232 — el login deja además el userId del seat en el canal:
+//         (integra-sdd-identity, user-id)      → User.id
+// El Hub NO lo devuelve en el login y el UserSddToken es opaco, así que se lee
+// del `sub` del JWT que emite /auth/sdd/session. Sin ese dato, el hook de
+// licencia no puede mandar `userContext` al /license/validate y en USER-mode el
+// JWT sale SIN el claim sddRole: el room arranca como producto. Es fail-open —
+// el login NO se cae si la derivación falla (el hook la reintenta).
+//
 // El fingerprint es la MISMA derivación que el cliente MCP recomputa en runtime
 // (mcp-server/src/sdd-identity.ts, ADR-004) — si difiere, el enrolamiento y la
 // derivación de sesión no coinciden y el Hub rechaza MACHINE_FINGERPRINT_MISMATCH.
+// Vive en ../hooks/sdd-identity.mjs, compartido con el hook de licencia: una
+// segunda copia que se separe es exactamente ese rechazo.
 //
 // Credenciales SIEMPRE por ENV (nunca argv: no quedan en history ni en la
 // lista de procesos). Lo invoca setup.sh / specoe-setup-host.sh.
@@ -24,28 +34,25 @@
 //
 // Salida: UNA línea JSON en stdout, SIN tokens (los tokens van solo al canal).
 //   login ok  → { ok:true, machineId, machineStatus, tenantId, tenantSlug, roles,
-//                 robot:{ configured, provisioned, tokenStored, seatPoolExhausted } }
+//                 userIdStored:bool, robot:{ configured, provisioned, tokenStored,
+//                 seatPoolExhausted } }
 //   login err → { ok:false, statusCode?, code?, message, missing? }   (exit 1)
-//   status    → { userToken:bool, machineId:bool }
+//   status    → { userToken:bool, machineId:bool, userId:bool }
 //
 // El import de secrets.mjs es relativo (../hooks/): resuelve igual en el repo
 // (.claude-bundle/scripts → .claude-bundle/hooks) y deployado
 // (~/.claude/scripts → ~/.claude/hooks).
 
-import { createHash } from 'node:crypto';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-import { promises as fs } from 'node:fs';
-import os from 'node:os';
 import { setSecret, getSecret, ROBOT_LOGIN_SERVICE } from '../hooks/secrets.mjs';
 import { applyCaChannel, describeNetworkError, DEFAULT_CA_PATH } from '../hooks/ca-channel.mjs';
-
-const execFileAsync = promisify(execFile);
-
-// Convención keyring del modo USER (mcp-server/src/sdd-identity.ts — P2).
-const SDD_IDENTITY_SERVICE = 'integra-sdd-identity';
-const SDD_IDENTITY_TOKEN_NAME = 'user-token';
-const SDD_IDENTITY_MACHINE_NAME = 'machine-id';
+import {
+  SDD_IDENTITY_SERVICE,
+  SDD_IDENTITY_TOKEN_NAME,
+  SDD_IDENTITY_MACHINE_NAME,
+  SDD_IDENTITY_USER_NAME,
+  collectSddFingerprint,
+  deriveUserId,
+} from '../hooks/sdd-identity.mjs';
 
 const DEFAULT_HUB_URL = 'https://hub.integra.local/api/v1';
 
@@ -53,76 +60,16 @@ function out(obj) {
   process.stdout.write(JSON.stringify(obj) + '\n');
 }
 
-// ----- fingerprint — réplica exacta de mcp-server/src/sdd-identity.ts -----
-
-function hashDiskSerial(serial) {
-  return createHash('sha256')
-    .update((serial ?? '').trim().toLowerCase(), 'utf8')
-    .digest('hex');
-}
-
-async function getDiskSerial() {
-  try {
-    if (process.platform === 'win32') {
-      const { stdout } = await execFileAsync(
-        'wmic',
-        [
-          'diskdrive',
-          'where',
-          "MediaType='Fixed hard disk media'",
-          'get',
-          'SerialNumber',
-          '/value',
-        ],
-        { timeout: 3000 },
-      );
-      const match = stdout.match(/SerialNumber=(.+)/);
-      return match ? match[1].trim() : '';
-    }
-    if (process.platform === 'linux') {
-      const blocks = await fs.readdir('/sys/block');
-      for (const name of blocks) {
-        if (name.startsWith('loop') || name.startsWith('ram') || name.startsWith('sr')) continue;
-        try {
-          const s = (await fs.readFile(`/sys/block/${name}/device/serial`, 'utf8')).trim();
-          if (s) return s;
-        } catch {
-          /* siguiente block device */
-        }
-      }
-      return '';
-    }
-    if (process.platform === 'darwin') {
-      const { stdout } = await execFileAsync('ioreg', ['-rd1', '-c', 'IOAHCIBlockStorageDevice'], {
-        timeout: 3000,
-      });
-      const match =
-        stdout.match(/"IOPropertyMatch".*?"Serial Number"\s*=\s*"([^"]+)"/s) ??
-        stdout.match(/"Serial Number"\s*=\s*"([^"]+)"/);
-      return match ? match[1].trim() : '';
-    }
-    return '';
-  } catch {
-    return '';
-  }
-}
-
-async function collectFingerprint() {
-  const diskSerial = await getDiskSerial();
-  return {
-    hostname: os.hostname(),
-    os: process.platform,
-    cpuModel: os.cpus()[0]?.model ?? 'unknown',
-    diskSerialHash: hashDiskSerial(diskSerial),
-  };
-}
-
 // ----- subcomandos -----
 
 async function doStatus() {
   const userToken = (await getSecret(SDD_IDENTITY_SERVICE, SDD_IDENTITY_TOKEN_NAME)) != null;
   const machineId = (await getSecret(SDD_IDENTITY_SERVICE, SDD_IDENTITY_MACHINE_NAME)) != null;
-  out({ userToken, machineId });
+  // TKT-0232 — el userId es parte del material: sin él, el arranque no puede mandar
+  // `userContext` y el room corre como producto. Un `status` que no lo mire diría "listo"
+  // sobre una instalación que no sirve el rol.
+  const userId = (await getSecret(SDD_IDENTITY_SERVICE, SDD_IDENTITY_USER_NAME)) != null;
+  out({ userToken, machineId, userId });
   return userToken && machineId ? 0 : 1;
 }
 
@@ -135,7 +82,7 @@ async function doLogin() {
     return 1;
   }
 
-  const fingerprint = await collectFingerprint();
+  const fingerprint = await collectSddFingerprint();
 
   // Canal TLS por el MISMO modulo que los hooks (ca-channel.mjs). Antes este fetch salia
   // con el trust pelado y funcionaba solo porque setup.sh le inyectaba NODE_EXTRA_CA_CERTS
@@ -197,6 +144,26 @@ async function doLogin() {
     return 1;
   }
 
+  // TKT-0232 — userId del seat al canal. El login NO lo devuelve y el UserSddToken es
+  // opaco, así que se canjea el material recién guardado por un JWT de sesión y se lee su
+  // `sub`. Se hace ACÁ, una vez, porque acá ya hay red, CA aplicado y fingerprint
+  // computado: el hook de arranque lo lee del canal y no gasta un request por sesión.
+  // Fail-open a propósito — el material principal YA está persistido y verificado, y el
+  // hook re-intenta esta misma derivación cuando encuentra el canal sin userId. Cortar el
+  // login acá dejaría al dev sin identidad por un dato que se puede recuperar solo.
+  const derived = await deriveUserId({
+    hubUrl,
+    token: body.token,
+    machineId: body.machineId,
+    fingerprint,
+  });
+  let userIdStored = false;
+  if (derived.userId) {
+    await setSecret(SDD_IDENTITY_SERVICE, SDD_IDENTITY_USER_NAME, derived.userId);
+    userIdStored =
+      (await getSecret(SDD_IDENTITY_SERVICE, SDD_IDENTITY_USER_NAME)) === derived.userId;
+  }
+
   // Robot (P5): token display-once → canal (integra-sdd-robot-login, tenantId).
   let robotTokenStored = false;
   if (body.robot?.token) {
@@ -211,6 +178,10 @@ async function doLogin() {
     tenantId: body.tenantId,
     tenantSlug: body.tenantSlug,
     roles: body.roles ?? [],
+    // El motivo viaja SOLO cuando no se pudo: un `userIdStored:false` mudo manda a
+    // diagnosticar el arranque cuando el dato está acá.
+    userIdStored,
+    ...(userIdStored ? {} : { userIdReason: derived.reason ?? 'no se pudo persistir en el canal' }),
     robot: {
       configured: body.robot?.configured ?? false,
       provisioned: body.robot?.provisioned ?? false,

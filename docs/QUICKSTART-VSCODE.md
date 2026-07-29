@@ -52,6 +52,14 @@ cd specoe-openedge-starter
 Los scripts (`specoe-setup-host.sh`, `specoe-room-*.sh`) viven en esa carpeta — los pasos
 siguientes se corren desde ahí. Si el clone pide auth, ver **Acceso al repo** en Pre-requisitos.
 
+> **Ojo si estás leyendo esto DENTRO de una carpeta de room.** El room conserva este
+> quickstart, pero no el instalador de máquina: `specoe-setup-host.sh`, `specoe-room-*.sh`,
+> `install-specoe.sh`, `certs/`, `docker/` y `examples/` quedan fuera del room a propósito
+> (SPEC-0167). Esos comandos se corren en la **carpeta del starter**, la de este paso 0.
+> Lo que sí corre dentro del room: `./setup.sh --room-only`, `./setup.sh --login`,
+> `./specoe-add-room.sh <ROL> <KEY>`, `./specoe-launch-thinclient.sh <ROL> <TENANT>`,
+> `./specoe-verify-room.sh` y `bash specoe-gate-messages.sh <CODIGO>`.
+
 ### 1) Host — una sola vez por máquina
 
 ```bash
@@ -140,7 +148,9 @@ Dictamina solo, sin pasos manuales, con **cinco chequeos** que comprueban el EFE
 
 `exit 0` solo si los cinco dan verde (`SPECOE-VERIFY veredicto: SERVIDO`). Si alguno falla, la salida nombra el chequeo y qué hacer.
 
-> **Por qué el 5 pide el contrato y no le alcanza con que la sesión abra** (TKT-0225): el room usa dos JWT —el del cache de la carpeta, con el que el hook baja el contrato, y el del `.mcp.json`, con el que corren los tools MCP—. El hook de licencia los escribe juntos, pero una edición a mano del `.mcp.json` los separa, y un JWT de producto abre la sesión igual. Antes, con los dos tokens divergentes, los cinco chequeos podían dictaminar `SERVIDO` con la sesión corriendo como **producto**. Ahora el 5 pide `room_contract_get` con el token del `.mcp.json` y exige el mismo contrato que bajó el 4: producto no tiene contrato de room y otro rol devuelve otro texto, así que las dos divergencias dan rojo. Se compara el **contrato servido**, no el claim `sddRole` del JWT: en USER-mode el rol lo resuelve el server y el claim puede faltar sin que nada esté roto.
+> **Por qué el 5 pide el contrato y no le alcanza con que la sesión abra** (TKT-0225): el room usa dos JWT —el del cache de la carpeta, con el que el hook baja el contrato, y el del `.mcp.json`, con el que corren los tools MCP—. El hook de licencia los escribe juntos, pero una edición a mano del `.mcp.json` los separa, y un JWT de producto abre la sesión igual. Antes, con los dos tokens divergentes, los cinco chequeos podían dictaminar `SERVIDO` con la sesión corriendo como **producto**. Ahora el 5 pide `room_contract_get` con el token del `.mcp.json` y exige el mismo contrato que bajó el 4: producto no tiene contrato de room y otro rol devuelve otro texto, así que las dos divergencias dan rojo. Se compara el **contrato servido** y no solo el claim `sddRole`, porque el contrato es el efecto y el claim es apenas el medio.
+
+> **Corrección** (TKT-0232): la versión anterior de esta nota decía que «en USER-mode el rol lo resuelve el server y el claim puede faltar sin que nada esté roto». **Es falso.** El skill-server resuelve el rol de una sola fuente —el claim `sddRole` del JWT— y no consulta nada más. Lo que cambia en USER-mode es de dónde sale el claim: el Hub lo **deriva** del usuario del seat que el arranque declara en `userContext`, en vez de leerlo de la licencia. O sea que el claim **tiene que estar** en los dos modos, y un JWT sin claim significa siempre lo mismo: el room corre con el **bundle producto**. Hasta 0.2.5 el hook de licencia no mandaba `userContext`, así que en USER-mode el claim faltaba **siempre** y ningún room recién instalado bajaba el bundle de su rol. Si tu JWT no trae el claim, mirá el chequeo 4: la salida nombra las dos causas posibles y qué hacer en cada modo.
 
 El verificador **no** exige que el MCP `integra-hub` conecte: ese server no forma parte del arranque servido del room.
 

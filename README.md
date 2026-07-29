@@ -26,6 +26,16 @@ Contactar a Integra Software: `soporte@integrasoftware.biz`
 Flujo **VSCode / thin-client**: instalás el host una vez por máquina, un room por rol y
 abrís cada room en VSCode. Todos los comandos van en **Git Bash** (en Windows, no PowerShell/CMD).
 
+> **Dos carpetas distintas, no confundirlas.** Los comandos de instalación de acá abajo
+> (`specoe-setup-host.sh`, `specoe-room-*.sh`, `install-specoe.sh`) se corren en la **carpeta
+> del starter** — la que clonás en el paso 1. La **carpeta del room** que crea el paso 3 lleva
+> solo lo que el room usa para operar y para re-provisionarse (`setup.sh`, `specoe-add-room.sh`,
+> `specoe-launch-thinclient.sh`, `specoe-gate-messages.sh`, `specoe-verify-room.sh`,
+> `project.config.yaml`, `.claude/`, `README.md`, `VERSION`, `docs/QUICKSTART-VSCODE.md`):
+> el instalador de máquina y el bundle de hooks **no** están adentro del room a propósito
+> (SPEC-0167). Si estás parado en un room y necesitás el setup del host, volvé a la carpeta
+> del starter (o clonalo de nuevo) — no lo busques en la carpeta del room.
+
 ```bash
 # 1. Bajar el starter
 git clone https://github.com/IntegraSoftwareERP/specoe-openedge-starter.git

@@ -5,6 +5,11 @@
 // Flujo:
 //   1. Lee license key del keyring o de env var SPECOE_LICENSE_KEY.
 //   2. Genera machine fingerprint local (hostname, os, cpuModel, pseudo-diskSerial).
+//   2b. Resuelve el userId del seat del canal de secretos (sdd-identity.mjs) y lo manda
+//      como `userContext` en el validate. TKT-0232: en USER-mode el claim `sddRole` del
+//      JWT deriva de los UserSddRole de ESE usuario y la derivacion es fail-closed —
+//      mandar el body sin ese campo emite un JWT SIN claim, y el skill-server sirve el
+//      bundle PRODUCTO. En MACHINE-mode el Hub lo ignora: no hay que decidir el modo aca.
 //   3. POST /api/v1/license/validate al Hub.
 //   4. Si OK -> setea SPECOE_TIER / SPECOE_TOKEN / SPECOE_FEATURES en el entorno
 //      (via output JSON que Claude Code lee) y cachea resultado en ~/.claude/specoe-license-cache.json.
@@ -28,6 +33,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { pathToFileURL } from 'node:url';
 import { applyCaChannel, describeNetworkError, DEFAULT_CA_PATH } from './ca-channel.mjs';
+import { resolveUserContext } from './sdd-identity.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -44,6 +50,14 @@ function fetchDeadlineMs() {
   const left = HOOK_BUDGET_MS - (Date.now() - STARTED_AT);
   return Math.max(MIN_FETCH_MS, Math.min(MAX_FETCH_MS, left));
 }
+
+// TKT-0232 — presupuesto MINIMO que tiene que quedar para intentar DERIVAR el userContext
+// (el canje /auth/sdd/session). Leerlo del canal no cuesta red y no pasa por aca; derivarlo
+// es un tercer request, y gastarlo cuando ya no queda presupuesto se lleva puesto el
+// validate — o sea cambiaria un room sin rol por un room sin licencia. Si no entra, se
+// saltea: el proximo arranque lo intenta con el presupuesto entero, y el login normal ya
+// deja el dato guardado (esta rama es solo para instalaciones anteriores al fix).
+const MIN_DERIVE_BUDGET_MS = 2500;
 
 // multi-rol — el .mcp.json, el project.config.yaml y el cache de
 // licencia viven en el project dir (cwd de la sesion Claude Code). Claude Code expone
@@ -700,6 +714,26 @@ async function main() {
   // activar el fingerprint (idempotente) antes de validar.
   await activateFingerprint(hubUrl, licenseKey, fingerprint);
 
+  // TKT-0232 — el userId del seat. En USER-mode el claim `sddRole` del JWT deriva de los
+  // UserSddRole de ESTE usuario y la derivacion es fail-closed: sin `userContext` el Hub
+  // emite el JWT SIN claim, el skill-server resuelve rol null y el room corre como
+  // producto. Mandarlo NO es condicional al modo: en MACHINE-mode el Hub lo ignora, asi
+  // que el hook no tiene que adivinar en que modo esta el tenant. `null` reproduce
+  // exactamente el body anterior.
+  const userCtx = await resolveUserContext({
+    hubUrl,
+    timeoutMs: fetchDeadlineMs(),
+    allowDerive: HOOK_BUDGET_MS - (Date.now() - STARTED_AT) >= MIN_DERIVE_BUDGET_MS,
+  });
+  await logLine({
+    level: userCtx.userId ? 'info' : 'warn',
+    msg: userCtx.userId
+      ? 'userContext resuelto — el validate puede derivar el rol en USER-mode'
+      : 'sin userContext — en USER-mode el JWT sale SIN claim sddRole (bundle producto)',
+    source: userCtx.source,
+    reason: userCtx.reason,
+  });
+
   const validateUrl = `${hubUrl}/license/validate`;
   // Que fallo exactamente: `net` => no hubo respuesta (red/TLS); `httpStatus` => el Hub
   // contesto y rechazo. Son excluyentes y son los que eligen el escenario del mensaje.
@@ -709,7 +743,11 @@ async function main() {
     const res = await fetch(validateUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ licenseKey, fingerprint }),
+      body: JSON.stringify({
+        licenseKey,
+        fingerprint,
+        ...(userCtx.userId ? { userContext: userCtx.userId } : {}),
+      }),
       signal: AbortSignal.timeout(fetchDeadlineMs()),
     });
     // El request llego: el TLS valido. ESTA es la linea de exito del canal, y sale

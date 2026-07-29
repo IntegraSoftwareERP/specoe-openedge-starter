@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # specoe-verify-room.sh — ¿este room quedó SERVIDO? Veredicto binario, sin pasos manuales.
 #
-# SPEC-0164 P4 / T4.2. Wrapper fino sobre .claude-bundle/scripts/verify-room-serving.mjs:
+# SPEC-0164 P4 / T4.2. Wrapper fino sobre ~/.claude/scripts/verify-room-serving.mjs:
 # resuelve el Node del sistema, apunta a la carpeta del room y propaga el exit code.
 #
 # Uso:
@@ -16,8 +16,15 @@
 #
 # Vive en la RAÍZ del starter a propósito, no en scripts/: `.syncignore` excluye `/scripts/`
 # del espejo público que clona el dev (docs/QUICKSTART-VSCODE.md), así que un verificador
-# ahí no llegaría nunca a la máquina donde tiene que correr. Su parte Node vive en
-# `.claude-bundle/scripts/`, subdirectorio al que esa exclusión anclada a la raíz no alcanza.
+# ahí no llegaría nunca a la máquina donde tiene que correr. Este wrapper es una de las doce
+# entradas que la carpeta del room conserva (SPEC-0167 P3, Q3).
+#
+# Su parte Node vive en `~/.claude/scripts/` — el bundle de hooks, que es material de MÁQUINA
+# y lo instala el setup del host. Antes se resolvía en `$SCRIPT_DIR/.claude-bundle/scripts/`, o
+# sea dentro de la carpeta del room: con el recorte de SPEC-0167 P3 ese directorio ya no está
+# ahí y el verificador cortaba por construcción. No se conserva un subárbol del bundle en el
+# room a propósito — sería reintroducir un árbol de imports para mantener a mano dentro de la
+# carpeta, que es justo lo que ese recorte vino a sacar (decisión del Arquitecto, ronda 2).
 
 set -euo pipefail
 
@@ -63,9 +70,14 @@ done
 [ -d "$ROOM_DIR" ] || err "No existe la carpeta '$ROOM_DIR'."
 ROOM_DIR="$(cd "$ROOM_DIR" && pwd)"
 
-VERIFIER_DIR="$SCRIPT_DIR/.claude-bundle/scripts"
+# El motor vive en el bundle de la MÁQUINA (~/.claude/scripts), no en la carpeta del room.
+# SPECOE_VERIFIER_DIR: override para test aislado (apunta al bundle del repo).
+VERIFIER_DIR="${SPECOE_VERIFIER_DIR:-$HOME/.claude/scripts}"
 [ -f "$VERIFIER_DIR/verify-room-serving.mjs" ] \
-  || err "Falta $VERIFIER_DIR/verify-room-serving.mjs — el bundle del starter está incompleto."
+  || err "Falta $VERIFIER_DIR/verify-room-serving.mjs: esta máquina no tiene el bundle de hooks instalado (o es anterior a SPEC-0167).
+  El motor del verificador es material de MÁQUINA: lo instala specoe-setup-host.sh — vive en el starter con el que preparaste la máquina, NO en esta carpeta.
+  Si no lo tenés a mano: git clone --depth 1 ${SPECOE_STARTER_REPO:-https://github.com/IntegraSoftwareERP/specoe-openedge-starter.git} specoe-starter && cd specoe-starter && ./specoe-setup-host.sh
+  Cuando termine, volvé a esta carpeta y corré ./specoe-verify-room.sh"
 
 NODE_BIN="$(specoe_node_bin)"
 command -v "$NODE_BIN" >/dev/null 2>&1 || err "Node no está en el PATH. Instalá Node 22.19+ (o 24.x/26.x)."
