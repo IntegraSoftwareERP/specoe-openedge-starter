@@ -63,6 +63,34 @@
 // ausente nunca fue "una instalacion sana": era el bug que este ticket repara en
 // specoe-license-check.mjs.
 //
+// ----- TKT-0234: POR QUE EL DEADLINE ES UN CORTE Y NO UNA DECLARACION -----
+//
+// El verificador anunciaba "deadlines: 8000 ms por chequeo, 40000 ms total" y NO los
+// cumplia. Los dos numeros solo viajaban como argumento a `withTimeout`, que corre contra
+// las esperas del stream SSE; los `fetch` de este archivo — el GET que abre el SSE y los
+// POST de cada mensaje JSON-RPC — no tenian corte de ninguna clase. Un server que acepta la
+// conexion y NUNCA manda cabeceras de respuesta (upstream caido detras del proxy, por
+// ejemplo) dejaba ese `await fetch` pendiente para siempre: reproducido con un server de
+// agujero negro, el chequeo 4 se colgo mas alla de los 40 s del deadline TOTAL y hubo que
+// matar el proceso a mano. Es exactamente lo observado en la re-corrida de SPEC-0164 P6.
+//
+// El agujero no era del chequeo 4: era de la clase entera de esperas. Por eso el fix NO es
+// ponerle timeout a la llamada que se colgo — es hacer estructural lo que estaba declarado:
+//
+//   1. cada `fetch` (GET del SSE y POST de mensajes) corre bajo `withDeadline`, que al
+//      vencer ABORTA la sesion en vuelo en vez de esperarla;
+//   2. cada CHEQUEO corre bajo su propio deadline como carrera: lo que no termine a tiempo
+//      se corta y sale ROJO nombrando el corte. Vale para cualquier cuelgue, incluso uno
+//      que no sea de red y que este codigo no anticipe — que es la unica forma honesta de
+//      cerrar una clase de defecto en vez de su instancia;
+//   3. el deadline TOTAL se respeta como reloj: un chequeo que arranca sin presupuesto no
+//      corre, y lo dice.
+//
+// Un chequeo cortado NUNCA sale verde: cortarse es no haber podido observar el efecto, y
+// este archivo entero existe para no dar verde sin observarlo. El corte tampoco puede ser
+// un rojo comodo — la suite de esta correccion lleva control positivo (server sano => los
+// chequeos 4 y 5 en OK) justamente para que un verificador que corte SIEMPRE no pase.
+//
 // ----- POR QUE NO IMPORTA specoe-license-check.mjs -----
 //
 // El canal de CA se toma de ca-channel.mjs, que es el punto UNICO de definicion del
@@ -94,6 +122,13 @@ import { buildAdditionalContext } from '../hooks/specoe-room-bootstrap.mjs';
 // de cuanto tarde la red y el requisito de reproducibilidad de O5 (mismo veredicto en dos
 // corridas sin tocar nada) no se puede cumplir: un chequeo que a veces espera 3 s y a
 // veces 40 s no da el mismo resultado dos veces.
+//
+// TKT-0234 — el CHECK_DEADLINE_MS acota el chequeo ENTERO, no cada await por separado. El
+// chequeo 4 encadena tres esperas de red (abrir el SSE, initialize, tools/call) y con el
+// deadline por-espera podia tardar el triple de lo que el encabezado de la corrida declara.
+// Ahora los 8000 ms son el techo del chequeo completo, que es lo que siempre dijo la linea
+// de deadlines. Ambos numeros siguen siendo ajustables por entorno para instalaciones
+// lentas, y los defaults dan 5 x 8000 = 40000, o sea el total exacto.
 const CHECK_DEADLINE_MS = Number.parseInt(process.env.SPECOE_VERIFY_CHECK_TIMEOUT_MS || '8000', 10);
 const TOTAL_DEADLINE_MS = Number.parseInt(
   process.env.SPECOE_VERIFY_TOTAL_TIMEOUT_MS || '40000',
@@ -146,6 +181,58 @@ function msLeft() {
 /** Deadline efectivo de un chequeo: el propio, acotado por lo que queda del total. */
 function deadlineMs() {
   return Math.max(0, Math.min(CHECK_DEADLINE_MS, msLeft()));
+}
+
+// ----- TKT-0234 — el corte de deadline -----
+
+/** Vencimiento. Es un Symbol para que no pueda colisionar con ningun valor de retorno. */
+const DEADLINE = Symbol('deadline vencido');
+
+/**
+ * Espera `promise` hasta `timeoutMs`. Si vence, corre `onTimeout` (para abortar lo que
+ * quedo en vuelo) y devuelve DEADLINE; el llamador decide que rojo emitir.
+ *
+ * Detalle que importa: `promise` se envuelve en una que NUNCA se rechaza. Un `fetch`
+ * abortado por `onTimeout` se rechaza DESPUES de que la carrera ya quedo resuelta, y ese
+ * rechazo suelto voltearia el proceso entero con un unhandled rejection — o sea, cambiar
+ * un cuelgue por una caida. El error real, cuando llega a tiempo, se relanza tal cual: los
+ * chequeos lo traducen con describeNetworkError y el errno es la mitad del diagnostico.
+ */
+function withDeadline(promise, timeoutMs, onTimeout) {
+  let timer = null;
+  const corte = new Promise((resolve) => {
+    timer = setTimeout(
+      () => {
+        try {
+          onTimeout?.();
+        } catch {
+          /* abortar lo que quedo en vuelo no puede impedir el corte */
+        }
+        resolve(DEADLINE);
+      },
+      Math.max(0, timeoutMs),
+    );
+  });
+  const atrapada = Promise.resolve(promise).then(
+    (valor) => ({ valor }),
+    (error) => ({ error }),
+  );
+  return Promise.race([atrapada, corte]).then((r) => {
+    clearTimeout(timer);
+    if (r === DEADLINE) return DEADLINE;
+    if (r.error) throw r.error;
+    return r.valor;
+  });
+}
+
+/**
+ * Sesiones SSE vivas. Un chequeo cortado por su deadline deja el socket en vuelo y el
+ * proceso no tiene por que quedarse esperandolo: el corte las cierra a todas.
+ */
+const SESIONES_ABIERTAS = new Set();
+
+function cerrarSesionesAbiertas() {
+  for (const s of [...SESIONES_ABIERTAS]) s.close();
 }
 
 // ----- helpers -----
@@ -222,14 +309,27 @@ class SseSession {
     this.nextId = 1;
     this.closed = false;
     this.streamError = null;
+    SESIONES_ABIERTAS.add(this);
   }
 
   async connect(timeoutMs) {
-    const res = await fetch(this.url, {
-      method: 'GET',
-      headers: { Accept: 'text/event-stream', Authorization: this.authorization },
-      signal: this.controller.signal,
-    });
+    const t0 = Date.now();
+    // TKT-0234 — `fetch` sin corte propio era el cuelgue: un server que acepta el TCP y no
+    // manda cabeceras deja este await pendiente para siempre, y el deadline del chequeo
+    // (que solo acotaba las esperas del stream, mas abajo) nunca lo alcanzaba.
+    const res = await withDeadline(
+      fetch(this.url, {
+        method: 'GET',
+        headers: { Accept: 'text/event-stream', Authorization: this.authorization },
+        signal: this.controller.signal,
+      }),
+      timeoutMs,
+      () => this.close(),
+    );
+    if (res === DEADLINE) {
+      this.close();
+      return { ok: false, reason: `sin-respuesta-al-GET-en-${timeoutMs}ms` };
+    }
     if (!res.ok) {
       this.close();
       return { ok: false, status: res.status, reason: 'http-status' };
@@ -244,7 +344,8 @@ class SseSession {
     this.pump(res.body).catch((err) => {
       this.streamError = err;
     });
-    const endpoint = await this.withTimeout(endpointPromise, timeoutMs);
+    // Lo que queda del deadline, no el deadline entero: abrir el socket ya consumio parte.
+    const endpoint = await this.withTimeout(endpointPromise, timeoutMs - (Date.now() - t0));
     if (!endpoint) {
       this.close();
       return { ok: false, status: res.status, reason: 'sin-evento-endpoint' };
@@ -297,25 +398,45 @@ class SseSession {
     ]);
   }
 
-  async post(body) {
-    return fetch(this.endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: this.authorization },
-      body: JSON.stringify(body),
-      signal: this.controller.signal,
-    });
+  /**
+   * POST de un mensaje JSON-RPC. `{ timeout:true }` si el server no contesto cabeceras
+   * dentro del deadline — el segundo agujero de TKT-0234: el POST no tenia corte tampoco,
+   * asi que un /messages que acepta y se calla colgaba igual que el GET.
+   */
+  async post(body, timeoutMs) {
+    const res = await withDeadline(
+      fetch(this.endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: this.authorization },
+        body: JSON.stringify(body),
+        signal: this.controller.signal,
+      }),
+      timeoutMs,
+      () => this.close(),
+    );
+    if (res === DEADLINE) return { timeout: true };
+    // El cuerpo de la respuesta se descarta SIEMPRE y sin esperarlo: undici no devuelve el
+    // socket al pool mientras una respuesta siga sin consumir, y el 202 del transporte MCP
+    // no trae nada que este verificador tenga que leer. La respuesta viene por el stream.
+    res.body?.cancel?.().catch(() => {});
+    return { ok: res.ok, status: res.status };
   }
 
   /** JSON-RPC request: POST + espera la respuesta por el stream. null si no llego a tiempo. */
   async request(method, params, timeoutMs) {
+    const t0 = Date.now();
     const id = this.nextId++;
     const waiter = new Promise((resolve) => this.pending.set(id, resolve));
-    const res = await this.post({ jsonrpc: '2.0', id, method, params });
+    const res = await this.post({ jsonrpc: '2.0', id, method, params }, timeoutMs);
+    if (res.timeout) {
+      this.pending.delete(id);
+      return { error: { message: `el POST de ${method} no respondio en ${timeoutMs} ms` } };
+    }
     if (!res.ok && res.status !== 202) {
       this.pending.delete(id);
       return { error: { message: `POST ${method} -> HTTP ${res.status}` } };
     }
-    const msg = await this.withTimeout(waiter, timeoutMs);
+    const msg = await this.withTimeout(waiter, timeoutMs - (Date.now() - t0));
     if (!msg) {
       this.pending.delete(id);
       return { error: { message: `sin respuesta a ${method} dentro del deadline` } };
@@ -323,11 +444,12 @@ class SseSession {
     return msg;
   }
 
-  async notify(method, params) {
-    await this.post({ jsonrpc: '2.0', method, params });
+  async notify(method, params, timeoutMs) {
+    await this.post({ jsonrpc: '2.0', method, params }, timeoutMs);
   }
 
   close() {
+    SESIONES_ABIERTAS.delete(this);
     if (this.closed) return;
     this.closed = true;
     try {
@@ -372,7 +494,7 @@ async function handshakeYContrato(session) {
     return { ok: false, etapa: 'initialize', detalle: init.error.message ?? 'sin detalle' };
   }
   const serverInfo = init?.result?.serverInfo ?? null;
-  await session.notify('notifications/initialized', {});
+  await session.notify('notifications/initialized', {}, deadlineMs());
 
   const res = await session.request(
     'tools/call',
@@ -896,18 +1018,56 @@ const RUNNERS = {
   'specoe-conectable': checkSpecoeConectable,
 };
 
+/**
+ * TKT-0234 — corre un chequeo CON su deadline como corte duro.
+ *
+ * El corte va aca, envolviendo al chequeo entero, y no solo dentro de cada llamada de red:
+ * asi cubre tambien un cuelgue que este archivo no anticipe (parseo, disco, una espera
+ * futura que alguien agregue sin timeout). Un chequeo cortado sale ROJO — cortarse es no
+ * haber podido observar el efecto, y este verificador no da verde sin observarlo.
+ */
+async function runCheck(check) {
+  const ms = deadlineMs();
+  if (ms <= 0) {
+    return {
+      ok: false,
+      detalle:
+        `no se corrio: el deadline TOTAL (${TOTAL_DEADLINE_MS} ms) ya estaba agotado al ` +
+        'llegar a este chequeo, asi que su efecto no se pudo observar.',
+      accion:
+        'resolve primero los chequeos anteriores que se comieron el tiempo, o subi ' +
+        'SPECOE_VERIFY_TOTAL_TIMEOUT_MS si esta instalacion es legitimamente lenta.',
+    };
+  }
+  const res = await withDeadline(RUNNERS[check.id](), ms, cerrarSesionesAbiertas);
+  if (res === DEADLINE) {
+    return {
+      ok: false,
+      detalle:
+        `el chequeo NO termino dentro de su deadline de ${ms} ms y se corto. Lo tipico es ` +
+        'un server que acepta la conexion y no responde (upstream caido detras del proxy, ' +
+        'red que traga los paquetes): la sesion de Claude Code se colgaria igual.',
+      accion:
+        'verifica que el skill-server y el Hub esten arriba y respondan desde ESTA maquina. ' +
+        'Si la instalacion es lenta pero sana, subi SPECOE_VERIFY_CHECK_TIMEOUT_MS (y ' +
+        'SPECOE_VERIFY_TOTAL_TIMEOUT_MS con el) y volve a correr el verificador.',
+    };
+  }
+  return res;
+}
+
 async function main() {
   say(`${PREFIX} room: ${ROOM_DIR}`);
   say(
     `${PREFIX} deadlines: ${CHECK_DEADLINE_MS} ms por chequeo, ${TOTAL_DEADLINE_MS} ms total ` +
-      '(fijos: dos corridas seguidas sin tocar nada dan el mismo veredicto).',
+      '(fijos y con corte: dos corridas seguidas sin tocar nada dan el mismo veredicto).',
   );
 
   const fallaron = [];
   for (const check of CHECKS) {
     let res;
     try {
-      res = await RUNNERS[check.id]();
+      res = await runCheck(check);
     } catch (err) {
       // Un chequeo que revienta es un chequeo que NO pudo comprobar su efecto: es rojo,
       // nunca verde por omision.

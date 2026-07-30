@@ -9,7 +9,7 @@
 Hub y Skill Server estan centralizados en el servidor gestionado por Integra Software. El cliente solo necesita:
 
 - Git (Git for Windows incluye **Git Bash**)
-- Node.js 20+
+- Node.js del rango certificado: **22.19.0 a 26.x, con Node 23 afuera** (probado hasta 26.5.0)
 - **VSCode + extensión Claude Code** (Anthropic)
 - Licencia SpecOE (o trial)
 

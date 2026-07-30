@@ -2,6 +2,75 @@
 
 All notable changes to this project. Automatic — regenerado por `./scripts/changelog.sh`.
 
+## 0.2.9 — 2026-07-30 (TKT-0221 — el verificador dejaba pasar la versión de Node que la SPEC vino a prohibir)
+
+**`scripts/smoke-test.sh` daba PASS en Node 20.** SPEC-0164 P3 subió el piso a 22.19.0 —porque
+abajo de esa versión `tls.setDefaultCACertificates` no existe y el canal TLS del bundle no puede
+armarse— pero la declaración vieja `>= 20 sin techo` sobrevivió en el **verificador de la
+instalación**. O sea: el instalador abortaba correctamente y el smoke-test, corriendo después,
+declaraba verde sobre una instalación donde el canal no podía funcionar. **Es el verde-falso que
+la SPEC existe para matar, un escalón al costado**, y ya viajó al espejo público en `starter-v0.2.3`.
+
+- **`scripts/smoke-test.sh` — el único de los tres sitios con lógica de gate activa.** Pasa a usar
+  el mismo criterio que el preflight del instalador: rango numérico `22.19.0` a `26.x` con **Node 23
+  excluido explícitamente**, más la segunda capa que comprueba en runtime que
+  `tls.setDefaultCACertificates`/`getCACertificates` existan de verdad en esa versión. Estar dentro
+  del rango no prueba que la API esté: son dos chequeos, no uno.
+- **`.claude-bundle/hooks/package.json` — `engines.node` declarativo, y viaja al cliente.** Mientras
+  decía `>=20`, `npm` no rechazaba la instalación de los hooks en una versión donde no pueden
+  funcionar. Ahora declara `>=22.19.0 <23.0.0 || >=24.0.0 <27.0.0`, que expresa la exclusión de
+  Node 23 en la propia sintaxis de rangos (un `>=22.19.0 <27` no la expresaría).
+- **Documentación alineada** — `docs/RUNBOOK-ONBOARDING-CLIENTE-EXTERNO.md` (las **tres**
+  menciones: prerrequisitos, troubleshooting y checklist de cierre), `README.md` y
+  `docs/TROUBLESHOOTING.md`. Este último citaba los mensajes literales del smoke-test y traía una
+  nota que decía «el smoke-test todavía declara el viejo `>= 20`»: con el gate arreglado esa nota
+  pasaba a ser falsa, así que se corrigió junto con los mensajes.
+- **`scripts/test-node-range-gate.sh` (nuevo, interno).** Ejerce el gate contra versiones
+  sintéticas —20.20.2, 22.18.0, 22.19.0, 23.0.0, 23.11.1, 26.5.0, 27.0.0— leyendo las constantes
+  **del propio `smoke-test.sh`**, no re-declarándolas. Un rango sin un test que lo ejerza vuelve a
+  aflojarse solo; ahora aflojarlo tiene que ser deliberado.
+
+Rango canónico, medido y no elegido (SPEC-0164 P3 / ADR-004, medición 2026-07-28): **22.19.0 a
+26.x, Node 23 afuera, probado hasta 26.5.0**.
+
+## 0.2.8 — 2026-07-29 (SPEC-0167 P4 — el quickstart en línea con lo que el instalador exige hoy)
+
+- `docs/QUICKSTART-VSCODE.md` actualizado para que refleje el flujo real del instalador: el onboarding de dos pasadas (host + room) y los pasos que el setup exige hoy. Corrige el texto que había quedado desalineado con el comportamiento actual del instalador.
+
+## 0.2.7 — 2026-07-29 (TKT-0234 — el verificador ya no se cuelga: el deadline pasa a ser un corte)
+
+**`./specoe-verify-room.sh` se colgaba en el chequeo 4/5 cuando el room estaba BIEN servido.**
+No se perdía el serving —el room funcionaba—, pero el verificador no podía emitir su veredicto
+sobre una instalación sana y había que matarlo a mano.
+
+- **TKT-0234 — los deadlines que el verificador anunciaba no existían.** Cada corrida abría con
+  «deadlines: 8000 ms por chequeo, 40000 ms total» y no cumplía ninguno de los dos: los números
+  solo viajaban como argumento a `withTimeout`, que corre contra las esperas del stream SSE. Los
+  `fetch` —el GET que abre el SSE y los POST de cada mensaje JSON-RPC— **no tenían corte de
+  ninguna clase**. Un server que acepta la conexión y nunca manda cabeceras de respuesta (típico:
+  upstream caído detrás del proxy) dejaba ese `await` pendiente para siempre. Reproducido con un
+  server de agujero negro: el chequeo 4 pasó los 40 s del total y hubo que matar el proceso.
+- **El fix es estructural, no un timeout puntual.** (1) Cada `fetch` corre bajo un deadline que
+  al vencer **aborta** la sesión en vuelo; (2) **cada chequeo** corre bajo su propio deadline como
+  carrera, así que cualquier cuelgue —de red o no, previsto o no— sale **ROJO nombrando el corte**
+  en vez de colgar; (3) el deadline TOTAL se respeta como reloj: un chequeo que arranca sin
+  presupuesto no corre y lo dice. Un chequeo cortado **nunca** sale verde: cortarse es no haber
+  podido observar el efecto.
+- **`CHECK_DEADLINE_MS` ahora acota el chequeo entero,** no cada `await` por separado. El chequeo 4
+  encadena tres esperas de red (abrir el SSE, `initialize`, `tools/call`) y antes podía tardar el
+  triple de lo que el encabezado declaraba. `SPECOE_VERIFY_CHECK_TIMEOUT_MS` y
+  `SPECOE_VERIFY_TOTAL_TIMEOUT_MS` siguen ajustando los dos para instalaciones lentas.
+- **El cuerpo de las respuestas POST se descarta explícitamente.** Nadie lo consumía y undici no
+  devuelve el socket al pool mientras una respuesta siga sin leer.
+- **Suite nueva `verificador-deadline-efectivo` (6 casos, con control positivo).** Cubre el server
+  que acepta y se calla en el GET y en el POST, el aislamiento entre los chequeos 4 y 5, y la
+  reproducibilidad de O5. El control positivo (server sano → 4 y 5 en OK) está para que un
+  verificador que corte SIEMPRE no pase: «todo rojo» no es un gate. Contra el verificador anterior
+  al fix, 4 de los 6 casos dan rojo — medido, no supuesto.
+- **Nota sobre la suite de TKT-0225.** Su escenario A **sí** ejercitaba el camino feliz del chequeo
+  4 y seguía en verde: el agujero no estaba ahí. Lo que ningún test cubría era el server que acepta
+  y no contesta — contra un server que siempre responde, este bug es invisible.
+
 ## 0.2.6 — 2026-07-29 (TKT-0232 — el arranque declara el usuario del seat: en USER-mode el room ya baja el bundle de su rol)
 
 **EN USER-MODE, TODO ROOM RECIÉN INSTALADO CORRÍA COMO PRODUCTO. Se repara solo al actualizar

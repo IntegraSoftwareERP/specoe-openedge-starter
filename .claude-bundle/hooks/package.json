@@ -4,8 +4,9 @@
   "description": "Integra Hub hooks para Claude Code (auth + telemetry)",
   "private": true,
   "type": "module",
+  "_engines_comment": "TKT-0221 — rango certificado SPEC-0164 P3 / ADR-004: piso 22.19.0 (antes de esa version tls.setDefaultCACertificates no existe y el canal TLS de estos hooks no puede armarse), Node 23 excluido por la misma razon, techo 26.x (probado hasta 26.5.0). Este package.json VIAJA en el bundle al cliente: mientras declaraba >=20, npm no rechazaba la instalacion en una version donde los hooks no pueden funcionar.",
   "engines": {
-    "node": ">=20"
+    "node": ">=22.19.0 <23.0.0 || >=24.0.0 <27.0.0"
   },
   "scripts": {
     "test": "node --test"

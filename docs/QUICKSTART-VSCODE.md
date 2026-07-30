@@ -12,7 +12,8 @@ Claude Code**. Automatiza con `install-specoe.sh` los pasos que antes eran manua
 ## Lo que te da Integra
 
 - Tu **license key** de SPECOE (según tu rol: DISCOVERY / ENGINEERING / CC_DEV / …).
-- Tu **usuario del Hub** (email + password) para entrar a la UI por intranet.
+- Tu **usuario del Hub** (email + password). Lo vas a usar en **dos** lados: el **login SDD** que el
+  setup del host te pide por prompt (paso 1.6), y la UI del Hub por intranet.
 - El `install-specoe.sh` (o el link para bajarlo).
 
 ---
@@ -31,9 +32,8 @@ Estos tres los instalás vos; el resto lo hace el script.
 
 > Windows: los comandos van en **Git Bash**, no en PowerShell/CMD.
 
-> **Acceso al repo**: el clone del starter (paso 0) es un repo **privado** de Integra. En una
-> máquina limpia `git clone` te va a pedir autenticación de GitHub. Resolvelo una vez con
-> `gh auth login` (GitHub CLI) o un **Personal Access Token** con scope `repo`. Sin acceso, pedíselo a Integra.
+> **Acceso al repo**: el starter es un repo **público**. El clone del paso 0 resuelve **sin
+> credenciales de GitHub** — no hace falta `gh auth login` ni un Personal Access Token.
 
 ---
 
@@ -50,7 +50,7 @@ cd specoe-openedge-starter
 ```
 
 Los scripts (`specoe-setup-host.sh`, `specoe-room-*.sh`) viven en esa carpeta — los pasos
-siguientes se corren desde ahí. Si el clone pide auth, ver **Acceso al repo** en Pre-requisitos.
+siguientes se corren desde ahí.
 
 > **Ojo si estás leyendo esto DENTRO de una carpeta de room.** El room conserva este
 > quickstart, pero no el instalador de máquina: `specoe-setup-host.sh`, `specoe-room-*.sh`,
@@ -79,6 +79,27 @@ Hace lo que se comparte entre todos tus rooms:
    mecanismo único de CA): `ping` al server + un `fetch` de prueba al Hub. Si el canal no da,
    **aborta** — no imprime "Host listo". El mensaje te dice qué quedó aplicado (bundle, hosts, CA)
    y con qué comando retomar sin volver a pedir elevación: `./specoe-setup-host.sh --skip-elevation`.
+6. **Login SDD — es interactivo y te va a pedir tres cosas por pantalla.** El script llama a
+   `./setup.sh --login`, que enrola esta máquina contra el Hub y guarda tu token de usuario + el
+   `machineId` en el keyring del sistema. Te pregunta, en este orden:
+   - **URL del Hub** — con default entre corchetes; en el piloto alcanza con **Enter**.
+   - **Email de tu usuario del Hub** — el mismo de "Lo que te da Integra".
+   - **Clave** — no se ve mientras la tipeás y nunca viaja por la línea de comandos.
+
+   Si el login falla, el host **no queda listo**. Se retoma solo con `./setup.sh --login`, sin
+   volver a pedir elevación.
+
+> **Después del host quedan uno o dos pasos que NO los hace el script.**
+> Los hace **un admin del tenant** en el Hub, y el instalador te dice en pantalla cuál te toca:
+>
+> - **Aprobar este equipo.** Si el login dejó la máquina en estado `PENDING`, **un admin del tenant**
+>   la aprueba en **Administración → SDD → Equipos autorizados**. Hasta que eso pase, el MCP
+>   `integra-hub` no opera. El script lo imprime como _"único paso humano restante"_.
+> - **Concederte los roles SDD.** Si el login informa `Roles SDD de tu usuario: <ninguno>`,
+>   **un admin del tenant** te los concede en **Administración → SDD → Roles por usuario**.
+>
+> Los dos son pedidos a otra persona, no algo que puedas resolver en tu máquina. Pedilos apenas
+> termine el host: son lo que más suele demorar el arranque.
 
 ### 2) Room — una vez por rol
 
@@ -95,6 +116,22 @@ Cada uno crea su carpeta (`discovery-room`, `cc-dev-room`, …), fija el rol en 
 y guarda la licencia en el keyring bajo `account=<ROL>`. Los roles quedan **aislados**: JWT cacheado
 por carpeta, licencia por rol — no se pisan. Abrís cada carpeta en su propia ventana de VSCode.
 
+> **El primer room de la máquina son DOS pasadas del mismo comando, y es a propósito.** El
+> `project.config.yaml` viene con valores de template, y el instalador **corta** en vez de seguir con
+> ellos: antes fallaba varios pasos después, lejos de la causa.
+>
+> **Primera pasada** — crea la carpeta, fija el rol, guarda la licencia en el keyring y **corta**
+> enumerando los campos que faltan editar. Que corte es lo esperado; la licencia **ya quedó
+> persistida**, no se pierde.
+>
+> **Editá ahí el `project.config.yaml`** — el de la carpeta del room recién creada — con los datos de
+> tu proyecto. Son cinco campos: `project.name`, `project.vendor`, `paths.workspace-root`,
+> `database.logical-name` y `pasoe.instance-name`. El rol y la URL del Hub los escribe el
+> instalador: esos no los toques.
+>
+> **Segunda pasada** — volvé a correr **el mismo comando**. Ahora el check pasa y el room queda
+> instalado.
+
 > Opciones: `--dir <carpeta>`, `--hub <url>`. Debajo, `specoe-add-room.sh <ROL> <key>` es el núcleo
 > común (los 4 scripts de arriba son wrappers finos que le fijan el rol).
 
@@ -109,6 +146,9 @@ Si sólo querés **un** rol en esta máquina, un solo comando hace host + room:
 Es un composer de los dos scripts de arriba. Para multi-rol conviene el host 1 vez + un room por rol
 (no repetís hosts/CA/bundle en cada uno).
 
+Le aplica todo lo del camino largo: el **login SDD interactivo** del paso 1.6, los pasos del **admin
+del tenant**, y las **dos pasadas** por el `project.config.yaml` del paso 2.
+
 ---
 
 ## Abrir en VSCode
@@ -119,11 +159,13 @@ Abrí la carpeta del room (una por rol):
 code cc-dev-room   # o discovery-room, engineering-room, adversarial-room
 ```
 
-1. Editá `project.config.yaml` con los datos de tu proyecto (nombre, DB, PASOE).
-2. Con la carpeta abierta, la extensión **Claude Code** arranca la sesión:
+El `project.config.yaml` ya lo editaste en el paso 2 — es lo que destraba la segunda pasada del
+instalador. Acá no queda nada de config por hacer.
+
+1. Con la carpeta abierta, la extensión **Claude Code** arranca la sesión:
    - el SessionStart hook valida tu licencia, activa el seat y **puebla el JWT del skill-server**;
    - el room queda **servido por SPECOE** — tus skills/commands bajan por el MCP `specoe`.
-3. **No toques ninguna variable de entorno a mano.** Si te pide `export`, algo falló — ver abajo.
+2. **No toques ninguna variable de entorno a mano.** Si te pide `export`, algo falló — ver abajo.
 
 ---
 

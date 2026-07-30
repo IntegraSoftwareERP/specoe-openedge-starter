@@ -311,6 +311,10 @@ else
   # install_if_absent no llegaba a bundles ya poblados).
   install_force "$BUNDLE_DIR/hooks/package.json"                  "$CLAUDE_HOME/hooks/package.json"
   install_force "$BUNDLE_DIR/hooks/package-lock.json"             "$CLAUDE_HOME/hooks/package-lock.json"
+  # TKT-0221: sin el .npmrc (engine-strict=true) el `engines.node` del package.json de al lado
+  # es un cartel, no un gate — npm avisa y sigue. Como el allowlist es POR ARCHIVO, omitirlo aca
+  # dejaria el rango declarado sin nada que lo haga cumplir en la maquina del cliente.
+  install_force "$BUNDLE_DIR/hooks/.npmrc"                        "$CLAUDE_HOME/hooks/.npmrc"
   install_force "$BUNDLE_DIR/hooks/ca-channel.mjs"                "$CLAUDE_HOME/hooks/ca-channel.mjs"
   install_force "$BUNDLE_DIR/hooks/specoe-role-check.mjs"         "$CLAUDE_HOME/hooks/specoe-role-check.mjs"
   install_force "$BUNDLE_DIR/hooks/specoe-license-check.mjs"      "$CLAUDE_HOME/hooks/specoe-license-check.mjs"
