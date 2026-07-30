@@ -10,6 +10,10 @@
 //      JWT deriva de los UserSddRole de ESE usuario y la derivacion es fail-closed —
 //      mandar el body sin ese campo emite un JWT SIN claim, y el skill-server sirve el
 //      bundle PRODUCTO. En MACHINE-mode el Hub lo ignora: no hay que decidir el modo aca.
+//   2c. Lee el rol que la carpeta DECLARA de INTEGRA_SDD_ROLE y lo manda como
+//      `declaredRole` en el MISMO validate. SPEC-0176 P2: el Hub lo AUTORIZA contra los
+//      UserSddRole del usuario (nunca lo acepta), y devuelve `roleResolution` con el
+//      veredicto. Un rol no concedido ya no es silencio: sale por mensaje de sesion.
 //   3. POST /api/v1/license/validate al Hub.
 //   4. Si OK -> setea SPECOE_TIER / SPECOE_TOKEN / SPECOE_FEATURES en el entorno
 //      (via output JSON que Claude Code lee) y cachea resultado en ~/.claude/specoe-license-cache.json.
@@ -627,6 +631,86 @@ export function buildFailureContext(diag) {
   return lines.join('\n');
 }
 
+// ----- rol declarado + veredicto del Hub (SPEC-0176 P2) -----
+//
+// El room DECLARA su rol y el Hub lo AUTORIZA: `declaredRole` es INPUT, nunca un claim
+// firmado. Hasta esta fase el rechazo de autorizacion no tenia forma de verse — el JWT
+// salia sin claim `sddRole`, los tools MCP servian el bundle producto, y la sesion
+// arrancaba en el mismo silencio que una carpeta legitimamente sin rol. Los dos casos se
+// veian igual, asi que el dev no tenia como distinguir "no tengo rol" de "pedi un rol y me
+// lo negaron". Todo lo de esta seccion es puro y exportado: la suite lo ejercita sin red.
+
+/**
+ * El rol que la carpeta declara. FUENTE UNICA: la env `INTEGRA_SDD_ROLE` — la misma que ya
+ * consumen specoe-role-check.mjs (:19, :29) y el cliente MCP para el header `x-sdd-role`.
+ *
+ * NO se lee de project.config.yaml ni del .mcp.json: ADR-001 los declara inertes por
+ * diseno como fuente de rol, y una segunda fuente reabre exactamente el defecto que
+ * SPEC-0176 cierra (dos lugares que pueden discrepar y nadie sabe cual gana). Cuesta cero:
+ * es una lectura de memoria, sin request ni I/O, asi que el presupuesto del hook
+ * (HOOK_BUDGET_MS) no se toca.
+ *
+ * Normaliza trim+upper porque el valor viene de un launcher escrito a mano. Sin la env
+ * devuelve null, y el body del validate queda byte-a-byte como antes de esta fase.
+ */
+export function resolveDeclaredRole(env = process.env) {
+  return env.INTEGRA_SDD_ROLE?.trim().toUpperCase() || null;
+}
+
+/** Unico outcome de `roleResolution` que produce mensaje propio: el rechazo. */
+export const OUTCOME_ROLE_NOT_GRANTED = 'ROLE_NOT_GRANTED';
+
+// Prefijo estable del aviso, para grep y para la suite. Es OTRO a proposito, igual que el
+// DIVERGENCE_PREFIX de specoe-room-bootstrap.mjs: no contiene `SPECOE-DIAG` como subcadena,
+// asi que un probe puede afirmar la presencia de este aviso y la del diagnostico de forma
+// independiente sobre el mismo texto.
+export const ROLE_REJECTED_PREFIX = 'SPECOE-ROL-RECHAZADO';
+
+/**
+ * El aviso de autorizacion rechazada, o null cuando no hay nada que avisar.
+ *
+ * Solo `ROLE_NOT_GRANTED` produce texto. Los otros cuatro outcomes son estados legitimos y
+ * conservan el mensaje vigente: GRANTED sirve el rol pedido; NO_ROLES_ACTIVE es producto
+ * legitimo (el usuario no tiene ningun rol, no le negaron ninguno); NOT_DECLARED y
+ * AMBIGUOUS_LEGACY son el camino legacy de una instalacion que todavia no declara rol.
+ * Inventarles un aviso convertiria el caso normal en ruido y el aviso dejaria de leerse.
+ *
+ * NO bloquea el arranque: hereda el contrato de salida de ADR-002 (SPEC-0164 P2). La
+ * licencia es valida — lo que fallo es la autorizacion del rol, y cortar la sesion por eso
+ * seria cambiar un room sin rol por un room sin sesion.
+ */
+export function buildRoleNotice(roleResolution) {
+  if (roleResolution?.outcome !== OUTCOME_ROLE_NOT_GRANTED) return null;
+  const declarado = roleResolution.declaredRole ?? 'sin rol declarado';
+  return (
+    `\n\n[[${ROLE_REJECTED_PREFIX}]] ATENCION: la licencia es valida, pero la AUTORIZACION ` +
+    `DE ROL fallo. Este room declaro el rol ${declarado} (env INTEGRA_SDD_ROLE) y el Hub NO ` +
+    `lo tiene concedido a tu usuario: el JWT sale SIN claim sddRole, asi que los tools MCP ` +
+    `de esta sesion van a servir el bundle PRODUCTO, no el de ${declarado}. La sesion ` +
+    `arranca igual — esto no corta el arranque. Accion: pedi a un ADMIN del tenant que te ` +
+    `conceda ${declarado} en Administracion -> Identidad SDD, o corregi INTEGRA_SDD_ROLE en ` +
+    `el launcher de esta carpeta si el rol que declaraste no es el que te toca.`
+  );
+}
+
+/**
+ * La linea de log estructurada del veredicto. Los tres datos que hacen falta para contar
+ * poblaciones sin ir maquina por maquina: que pidio el room, que le sirvio el Hub, y con
+ * que outcome. `declaredRole` cae al valor que ESTE hook mando cuando la respuesta no trae
+ * `roleResolution` (MACHINE-mode, ADR-006): ahi no hay veredicto que registrar, pero lo que
+ * el room declaro sigue siendo el dato util.
+ */
+export function buildRoleResolutionLog({ roleResolution, declaredRole }) {
+  const outcome = roleResolution?.outcome ?? null;
+  return {
+    level: outcome === OUTCOME_ROLE_NOT_GRANTED ? 'warn' : 'info',
+    msg: 'resolucion de rol del Hub',
+    outcome,
+    declaredRole: roleResolution?.declaredRole ?? declaredRole ?? null,
+    servedRole: roleResolution?.servedRole ?? null,
+  };
+}
+
 /** La via de escape esta activa? Devuelve por que, o null. */
 async function escapeHatchReason(escapeFile = ESCAPE_HATCH_FILE) {
   if (process.env[ESCAPE_HATCH_ENV]) return `la variable ${ESCAPE_HATCH_ENV}`;
@@ -734,6 +818,10 @@ async function main() {
     reason: userCtx.reason,
   });
 
+  // SPEC-0176 P2 — el rol que esta carpeta declara. Viaja en el MISMO validate: cero
+  // requests nuevos, cero lecturas de disco. Sin la env queda null y el body es el de antes.
+  const declaredRole = resolveDeclaredRole();
+
   const validateUrl = `${hubUrl}/license/validate`;
   // Que fallo exactamente: `net` => no hubo respuesta (red/TLS); `httpStatus` => el Hub
   // contesto y rechazo. Son excluyentes y son los que eligen el escenario del mensaje.
@@ -747,6 +835,7 @@ async function main() {
         licenseKey,
         fingerprint,
         ...(userCtx.userId ? { userContext: userCtx.userId } : {}),
+        ...(declaredRole ? { declaredRole } : {}),
       }),
       signal: AbortSignal.timeout(fetchDeadlineMs()),
     });
@@ -767,13 +856,22 @@ async function main() {
       // poblar el JWT del skill-server para el MCP `specoe`.
       await populateSkillJwt(body.token);
       await logLine({ level: 'info', msg: 'license validated', tier: body.tier });
+      // SPEC-0176 P2 — el veredicto de rol del Hub. La linea de log va SIEMPRE (es como se
+      // cuentan las poblaciones); el aviso al dev sale solo cuando le negaron un rol que
+      // pidio. AUSENTE en MACHINE-mode (ADR-006): ahi `roleResolution` no viene y no hay
+      // veredicto, solo queda registrado lo que el room declaro.
+      const roleResolution = body.roleResolution ?? null;
+      await logLine(buildRoleResolutionLog({ roleResolution, declaredRole }));
+      const roleNotice = buildRoleNotice(roleResolution);
       // Output JSON para el harness (puede usar hookSpecificOutput para env vars).
       console.log(
         JSON.stringify({
           specoeStatus: 'ok',
           hookSpecificOutput: {
             hookEventName: 'SessionStart',
-            additionalContext: `SpecOE license: tier=${body.tier}, features=${body.features.length}`,
+            additionalContext:
+              `SpecOE license: tier=${body.tier}, features=${body.features.length}` +
+              (roleNotice ?? ''),
           },
         }),
       );
