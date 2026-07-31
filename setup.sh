@@ -583,6 +583,20 @@ fi
 # Idempotente y preservador: no pisa `specoe` si ya existe ni borra otros servers; el entry
 # `integra-hub` sí se regenera (es config derivada del yaml, no estado del dev).
 
+# Precondicion dura del artefacto del MCP (SPEC-0165 P4 / T4.2). El entry integra-hub que se
+# escribe abajo apunta al bundle VENDORIZADO con path relativo al cwd del room — el mismo cwd
+# desde el que corre este script. Si el archivo no esta y lo escribimos igual, el .mcp.json
+# queda apuntando a la nada y la corrida termina en el "Setup base completado" de mas abajo:
+# verde con el room sin MCP, que es exactamente el defecto que esta SPEC viene a cerrar. Se
+# corta ANTES de escribir, con err — mismo patron que el corte por identidad del login.
+MCP_BUNDLE="vendor/integra-hub-mcp.mjs"
+[ -f "$MCP_BUNDLE" ] || err "Falta el MCP integra-hub: no esta el bundle '$MCP_BUNDLE' en esta carpeta.
+  Sin ese archivo el room no puede levantar el MCP integra-hub, asi que corto en vez de escribir un .mcp.json que apunte a la nada.
+  Hay DOS causas posibles y hay que descartar las dos:
+    a) el starter de esta carpeta es anterior al release que vendoriza el MCP — actualizalo (git -C \"$SCRIPT_DIR\" pull --ff-only) y volvé a correr el MISMO comando;
+    b) esta carpeta es un room recortado y '/vendor/' no quedo en SPECOE_ROOM_KEEP (la lista INCLUSIVA de specoe-add-room.sh): entonces el clon del room NO lo trae aunque el starter lo tenga.
+  Para distinguirlas: git -C \"$SCRIPT_DIR\" sparse-checkout list   (si no devuelve nada, esta carpeta no es un room recortado y es (a); si devuelve la lista y '/vendor/' no figura, es (b))."
+
 log "Generando/actualizando .mcp.json (specoe + integra-hub modo USER)..."
 
 ROOM_ROLE="$(grep -E "^\s*role:" project.config.yaml | head -1 | sed "s/.*role: *'\{0,1\}//;s/'.*//;s/ *#.*//" || true)"
@@ -593,9 +607,9 @@ MCP_HUB_URL="${MCP_HUB_URL:-https://hub.integra.local/api/v1}"
 NODE_BIN="$(specoe_node_bin)"
 MCP_CA="$(specoe_local_ca)"
 
-"$NODE_BIN" - "$ROOM_ROLE" "$MCP_HUB_URL" "$MCP_CA" <<'EOF'
+"$NODE_BIN" - "$ROOM_ROLE" "$MCP_HUB_URL" "$MCP_CA" "$MCP_BUNDLE" <<'EOF'
 const fs = require('fs');
-const [role, hubUrl, caPath] = process.argv.slice(2);
+const [role, hubUrl, caPath, bundle] = process.argv.slice(2);
 let doc = { mcpServers: {} };
 try {
   doc = JSON.parse(fs.readFileSync('.mcp.json', 'utf8'));
@@ -615,7 +629,11 @@ if (!doc.mcpServers.specoe) {
   console.log('  [SKIP]    mcpServers.specoe (ya existe)');
 }
 
-// integra-hub: SIEMPRE al shape USER-mode (config derivada — sin secretos).
+// integra-hub: SIEMPRE al shape USER-mode (config derivada — sin secretos). El command sigue
+// siendo `node` con path RELATIVO al cwd del room (modelo stdio sin cambios): lo que cambia es
+// a QUE apunta — el bundle vendorizado que viene dentro de la carpeta (SPEC-0165 P4 / T4.1),
+// no un node_modules/ que este instalador nunca instala. La existencia del archivo ya se
+// verifico mas arriba con err.
 const env = {
   INTEGRA_HUB_API_URL: hubUrl,
   INTEGRA_SDD_IDENTITY_MODE: 'USER',
@@ -624,7 +642,7 @@ if (role) env.INTEGRA_SDD_ROLE = role;
 if (caPath) env.NODE_EXTRA_CA_CERTS = caPath;
 doc.mcpServers['integra-hub'] = {
   command: 'node',
-  args: ['node_modules/integra-hub-mcp/dist/index.js'],
+  args: [bundle],
   env,
 };
 console.log(`  [WRITE]   mcpServers.integra-hub (modo USER${role ? ', rol ' + role : ', SIN rol'})`);

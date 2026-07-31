@@ -20,3 +20,16 @@
 
 # Certificados: binarios a los ojos de git, no tocar el contenido.
 *.crt -text
+
+# Paquete del plugin VSCode vendorizado (vendor/integra-hub-vscode.vsix): es un ZIP.
+# Sin esta regla queda a merced de la normalizacion de fin de linea y el artefacto llega
+# corrupto al clon, con el fallo apareciendo recien en `code --install-extension` —
+# lejos de la causa. Se verifica comparando el `packageSha256` del .vsix clonado contra el
+# del MANIFEST, no mirando que el archivo este. (SPEC-0165 P3 / T3.2)
+#
+# TKT-0252 — para ESTA falla el hash del zip es el correcto: una normalizacion de fin de
+# linea cambia los bytes del archivo y el `packageSha256` lo ve. Lo que ese hash NO puede
+# responder es "¿este .vsix salio de ese commit?" — vsce mete timestamps adentro, asi que
+# dos corridas del mismo commit dan dos valores distintos. Esa pregunta la contesta el
+# `contentSha256` del MANIFEST. Son dos verificaciones distintas: no usar una por la otra.
+*.vsix -text

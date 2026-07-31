@@ -682,14 +682,54 @@ export const ROLE_REJECTED_PREFIX = 'SPECOE-ROL-RECHAZADO';
 export function buildRoleNotice(roleResolution) {
   if (roleResolution?.outcome !== OUTCOME_ROLE_NOT_GRANTED) return null;
   const declarado = roleResolution.declaredRole ?? 'sin rol declarado';
-  return (
+
+  const cabecera =
     `\n\n[[${ROLE_REJECTED_PREFIX}]] ATENCION: la licencia es valida, pero la AUTORIZACION ` +
     `DE ROL fallo. Este room declaro el rol ${declarado} (env INTEGRA_SDD_ROLE) y el Hub NO ` +
-    `lo tiene concedido a tu usuario: el JWT sale SIN claim sddRole, asi que los tools MCP ` +
-    `de esta sesion van a servir el bundle PRODUCTO, no el de ${declarado}. La sesion ` +
-    `arranca igual — esto no corta el arranque. Accion: pedi a un ADMIN del tenant que te ` +
-    `conceda ${declarado} en Administracion -> Identidad SDD, o corregi INTEGRA_SDD_ROLE en ` +
-    `el launcher de esta carpeta si el rol que declaraste no es el que te toca.`
+    `firmo el claim sddRole: los tools MCP de esta sesion van a servir el bundle PRODUCTO, ` +
+    `no el de ${declarado}. La sesion arranca igual — esto no corta el arranque.`;
+
+  // TKT-0248 — el Hub llega a ROLE_NOT_GRANTED por DOS caminos con diagnosticos OPUESTOS, y
+  // hasta ahora este aviso mostraba siempre el de uno solo. Cuando el rechazo venia de no
+  // haber usuario del seat, mandaba al dev a pedir un rol que probablemente YA tiene: el
+  // admin miraba y lo veia otorgado, y nadie sabia para donde seguir.
+  //
+  // `seatUserResolved` es el discriminador que el Hub expone desde TKT-0248. Se ramifica
+  // sobre ESE boolean y no sobre el texto de `reason` — el reason es para que el humano lea
+  // el detalle, no para que un cliente lo matchee.
+  //
+  // `=== false` y no `!seatUserResolved`: contra un Hub ANTERIOR a TKT-0248 el campo llega
+  // `undefined`, y ahi la unica respuesta honesta es el mensaje generico de abajo. Tratar el
+  // undefined como "no hubo usuario" seria inventar un diagnostico con un dato que no vino.
+  if (roleResolution.seatUserResolved === false) {
+    return (
+      `${cabecera} Causa: el Hub NO pudo resolver el usuario del seat contra quien autorizar ` +
+      `el rol (no llego userContext en el validate). OJO: esto NO significa que te falte el ` +
+      `rol — lo mas probable es que ${declarado} ya lo tengas concedido. Pedirle el rol a un ` +
+      `admin no va a arreglar nada: lo va a ver otorgado. Accion: revisa el login SDD de esta ` +
+      `maquina (que la sesion tenga usuario resuelto) y volve a arrancar el room; si persiste, ` +
+      `reportalo con este aviso — el problema es de resolucion de identidad, no de permisos.`
+    );
+  }
+
+  if (roleResolution.seatUserResolved === true) {
+    return (
+      `${cabecera} Causa: tu usuario existe y tiene otros roles activos, pero ${declarado} no ` +
+      `esta entre ellos. Accion: pedi a un ADMIN del tenant que te conceda ${declarado} en ` +
+      `Administracion -> Identidad SDD, o corregi INTEGRA_SDD_ROLE en el launcher de esta ` +
+      `carpeta si el rol que declaraste no es el que te toca.`
+    );
+  }
+
+  // Hub anterior a TKT-0248: sin el discriminador no se puede diagnosticar, asi que se
+  // nombran las DOS causas en vez de elegir una a la suerte. Es peor que los mensajes de
+  // arriba —le pasa el diagnostico al dev— pero no miente.
+  return (
+    `${cabecera} Causa: puede ser (a) que ${declarado} no este concedido a tu usuario ` +
+    `— pedilo a un ADMIN en Administracion -> Identidad SDD, o corregi INTEGRA_SDD_ROLE — o ` +
+    `(b) que el Hub no haya podido resolver el usuario del seat, en cuyo caso el rol ya lo ` +
+    `tenes y lo que falla es el login SDD de esta maquina. Este Hub no informa cual de las ` +
+    `dos: si mirando Identidad SDD el rol figura otorgado, es (b).`
   );
 }
 

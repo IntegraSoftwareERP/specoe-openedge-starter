@@ -80,10 +80,15 @@ specoe_host_hint() {
 # por rol, certs/, docker/, examples/) y el bundle de hooks (.claude-bundle/, material de host
 # que vive en ~/.claude despues del setup-host) NO entran.
 #
-# CONSERVA (12). Lista INCLUSIVA: se enumera lo que se conserva, una entrada por linea con
+# CONSERVA (13). Lista INCLUSIVA: se enumera lo que se conserva, una entrada por linea con
 # barra inicial. No son negaciones sobre '/*' — asi una entrada NUEVA del starter no llega al
 # room por omision, que es el default seguro (y la contrapartida: cuando el starter suma algo
 # que el room necesita, se agrega ACA a proposito).
+#
+# '/vendor/' es exactamente ese caso (SPEC-0165 P4 / T4.4, ADR-008): el .mcp.json que escribe
+# setup.sh apunta al bundle del MCP integra-hub con path RELATIVO al cwd del room, asi que el
+# artefacto tiene que estar dentro de la carpeta recortada o el entry apunta a la nada. Entra
+# ACA a proposito, no por omision.
 SPECOE_ROOM_KEEP='/.claude/
 /.gitattributes
 /.gitignore
@@ -95,6 +100,7 @@ SPECOE_ROOM_KEEP='/.claude/
 /specoe-verify-room.sh
 /README.md
 /VERSION
+/vendor/
 /docs/QUICKSTART-VSCODE.md'
 
 # EXCLUYE (11). Se enumeran aparte porque el exit code del sparse-checkout NO es evidencia:
@@ -208,6 +214,20 @@ else
 fi
 specoe_sparse_verify "$DEST_DIR"
 [ -f "$DEST_DIR/setup.sh" ] || err "El starter no tiene setup.sh en '$DEST_DIR'. ¿Repo correcto?"
+
+# ----- 1b. El artefacto del MCP llego a la carpeta (SPEC-0165 P4 / T4.3) -----
+# El --room-only de mas abajo escribe el entry integra-hub del .mcp.json apuntando a este bundle
+# con path RELATIVO al cwd del room, y corta si no esta. Lo chequeamos tambien aca porque desde
+# aca se puede nombrar la causa que el room solo no ve: el recorte. La carpeta del room NO es un
+# clon completo del starter — la arma SPECOE_ROOM_KEEP, lista INCLUSIVA — asi que un starter con
+# el release correcto igual deja el room SIN el artefacto si '/vendor/' no esta en esa lista.
+# Va antes del keyring y de la identidad: si el artefacto no llego, el room no sirve igual.
+[ -f "$DEST_DIR/vendor/integra-hub-mcp.mjs" ] || err "Falta el MCP integra-hub en '$DEST_DIR': no esta 'vendor/integra-hub-mcp.mjs'.
+  Sin ese archivo el room no levanta el MCP integra-hub, asi que corto aca en vez de dejar la carpeta a medio configurar y terminar en verde.
+  Hay DOS causas posibles y hay que descartar las dos:
+    a) el starter que se clona ($STARTER_REPO) es anterior al release que vendoriza el MCP — actualizá el release y volvé a correr el MISMO comando;
+    b) '/vendor/' no quedo en SPECOE_ROOM_KEEP (la lista INCLUSIVA de ESTE script): entonces el clon del room NO lo trae aunque el starter lo tenga.
+  Para distinguirlas: git -C \"$DEST_DIR\" sparse-checkout list   (si '/vendor/' no figura, es (b))."
 
 # ----- 2. Fijar el rol en el yaml de la carpeta -----
 # ANTES del --room-only: el .mcp.json que genera setup.sh lee specoe.role para

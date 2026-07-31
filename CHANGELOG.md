@@ -2,6 +2,34 @@
 
 All notable changes to this project. Automatic — regenerado por `./scripts/changelog.sh`.
 
+## 0.2.11 — 2026-07-31 (SPEC-0165 P3 — el MCP y el plugin viajan DENTRO del starter)
+
+**Esta versión no cambia ningún comportamiento del instalador: agrega carga.** El clon del starter
+pasa a traer dos artefactos bajo `vendor/`, y todavía **no los usa nadie** — el cableado del MCP
+(`setup.sh` → `.mcp.json`) y la instalación del plugin llegan en las fases siguientes de la SPEC.
+Instalar esta versión no instala el MCP ni la extensión; deja los dos archivos en el room.
+
+- **`vendor/integra-hub-mcp.mjs`** — el MCP `integra-hub` como UN archivo autocontenido, con sus
+  tres dependencias de runtime inlineadas. **La instalación en la VM es cero**: el archivo ya está
+  en el room porque el room es un clon del starter. No hay `npm install`, no hay descarga, no hay
+  registry — que es el punto: la conectividad de la VM del cliente era una asunción, y ahora no
+  hace falta para tener el MCP en disco. Imprime su versión sin levantar el server ni tocar el
+  keyring: `node vendor/integra-hub-mcp.mjs --version`.
+- **`vendor/integra-hub-vscode.vsix`** — el paquete de la extensión de VSCode, disponible fuera de
+  la máquina donde se construye y identificable por versión.
+- **`vendor/MANIFEST.json`** — por cada componente: versión, repo y SHA de origen, y **`sha256` del
+  artefacto**. El `sha256` no es decorativo: es lo único que permite verificar, desde la VM, que el
+  archivo que está en el disco es el que el manifiesto declara. Comparar la versión leída contra la
+  del manifiesto puede ser comparar el manifiesto consigo mismo, y ese camino no detecta el caso
+  que importa — **artefacto viejo con manifiesto nuevo**.
+- **`.gitattributes` marca `*.vsix -text`.** El `.vsix` es un ZIP; sin la regla queda a merced de la
+  normalización de fin de línea del checkout y llega corrupto, con el fallo apareciendo recién en
+  `code --install-extension`, lejos de la causa. Se verifica comparando el `sha256` del `.vsix`
+  clonado contra el del artefacto de origen, no mirando que el archivo esté.
+
+**Peso**: los dos artefactos suman ~1,5 MB. Cada room es un clon completo del starter, así que ese
+costo se paga una vez por room y es la contrapartida deliberada de no depender de la red.
+
 ## 0.2.10 — 2026-07-30 (SPEC-0176 P2 — el room declara su rol al validar, y un rol negado deja de ser silencio)
 
 **REQUIERE EL HUB CON SPEC-0176 P1 DESPLEGADO. El orden no es negociable: primero el Hub, después

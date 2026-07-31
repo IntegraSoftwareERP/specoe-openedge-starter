@@ -449,6 +449,97 @@ test('6. solo ROLE_NOT_GRANTED produce aviso; los otros cuatro outcomes conserva
   assert.ok(sinRol?.includes(ROLE_REJECTED_PREFIX));
 });
 
+// ---------- 6b. TKT-0248: el aviso diagnostica el camino correcto ----------
+//
+// El Hub llega a ROLE_NOT_GRANTED por dos caminos con diagnosticos OPUESTOS. Hasta TKT-0248
+// el aviso mostraba siempre el de uno solo: cuando el rechazo venia de no haber usuario del
+// seat, mandaba al dev a pedir un rol que probablemente YA tenia concedido — el admin miraba,
+// lo veia otorgado, y nadie sabia para donde seguir.
+
+test('6b. seatUserResolved=false NO manda a pedir el rol (el rol probablemente ya esta)', () => {
+  const notice = buildRoleNotice({
+    outcome: OUTCOME_ROLE_NOT_GRANTED,
+    declaredRole: 'ENGINEERING',
+    servedRole: null,
+    seatUserResolved: false,
+    reason: 'rol declarado sin userContext: no hay usuario del seat contra quien autorizarlo',
+  });
+
+  assert.ok(notice?.includes(ROLE_REJECTED_PREFIX), 'sigue siendo el mismo canal de aviso');
+  assert.match(notice, /ENGINEERING/, 'nombra el rol declarado');
+  // Lo que NO puede decir: el diagnostico errado que el ticket vino a matar.
+  assert.ok(
+    !/pedi a un ADMIN/i.test(notice),
+    'sin usuario del seat, pedirle el rol a un admin es un diagnostico ERRADO: lo va a ver otorgado',
+  );
+  // Lo que SI tiene que decir: donde mirar de verdad.
+  assert.match(notice, /usuario del seat/i, 'nombra la causa real');
+  assert.match(notice, /login SDD/i, 'dice donde mirar');
+});
+
+test('6b. seatUserResolved=true SI manda a pedir el rol (ahi el diagnostico es correcto)', () => {
+  const notice = buildRoleNotice({
+    outcome: OUTCOME_ROLE_NOT_GRANTED,
+    declaredRole: 'ENGINEERING',
+    servedRole: null,
+    seatUserResolved: true,
+    reason: "el rol declarado 'ENGINEERING' no esta concedido y activo para el usuario",
+  });
+
+  assert.match(notice, /pedi a un ADMIN/i, 'con usuario del seat, pedir el rol SI corresponde');
+  assert.match(notice, /Identidad SDD/);
+  assert.ok(
+    !/login SDD/i.test(notice),
+    'no puede mandar a revisar el login: el usuario se resolvio bien',
+  );
+});
+
+test('6b. los dos caminos producen textos DISTINTOS — es todo el punto del ticket', () => {
+  const base = { outcome: OUTCOME_ROLE_NOT_GRANTED, declaredRole: 'CC_DEV', servedRole: null };
+  const sinSeat = buildRoleNotice({ ...base, seatUserResolved: false });
+  const conSeat = buildRoleNotice({ ...base, seatUserResolved: true });
+
+  assert.notEqual(
+    sinSeat,
+    conSeat,
+    'mismo outcome y mismo rol declarado, pero el dev tiene que leer cosas distintas',
+  );
+});
+
+test('6b. Hub viejo (sin el campo) nombra las DOS causas en vez de elegir una a la suerte', () => {
+  // Un Hub anterior a TKT-0248 no manda `seatUserResolved`. Elegir un diagnostico con un dato
+  // que no vino seria inventar; el aviso pasa a describir las dos posibilidades y como
+  // distinguirlas. Peor que los otros dos mensajes, pero honesto.
+  const notice = buildRoleNotice({
+    outcome: OUTCOME_ROLE_NOT_GRANTED,
+    declaredRole: 'CC_DEV',
+    servedRole: null,
+  });
+
+  assert.ok(notice?.includes(ROLE_REJECTED_PREFIX));
+  assert.match(notice, /\(a\)/, 'nombra la primera causa posible');
+  assert.match(notice, /\(b\)/, 'nombra la segunda');
+  assert.match(
+    notice,
+    /si mirando Identidad SDD el rol figura otorgado, es \(b\)/i,
+    'le da al dev como distinguirlas sin el campo',
+  );
+});
+
+test('6b. `reason` es para leer, no para ramificar: el aviso no lo matchea', () => {
+  // Si el aviso dependiera del texto del reason, un cambio de redaccion server-side lo
+  // romperia en silencio. Con reason contradictorio y seatUserResolved=true, gana el boolean.
+  const notice = buildRoleNotice({
+    outcome: OUTCOME_ROLE_NOT_GRANTED,
+    declaredRole: 'CC_DEV',
+    servedRole: null,
+    seatUserResolved: true,
+    reason: 'sin userContext: no hay usuario del seat contra quien autorizarlo',
+  });
+
+  assert.match(notice, /pedi a un ADMIN/i, 'ramifica por el boolean, no por la prosa del reason');
+});
+
 // ---------- 7. la linea de log lleva los tres datos, tambien sin veredicto ----------
 
 test('7. el log estructurado lleva outcome, declaredRole y servedRole en todos los caminos', () => {
