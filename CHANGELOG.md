@@ -2,6 +2,77 @@
 
 All notable changes to this project. Automatic — regenerado por `./scripts/changelog.sh`.
 
+## 0.2.10 — 2026-07-30 (SPEC-0176 P2 — el room declara su rol al validar, y un rol negado deja de ser silencio)
+
+**REQUIERE EL HUB CON SPEC-0176 P1 DESPLEGADO. El orden no es negociable: primero el Hub, después
+esta versión.** Contra un Hub sin P1, el `declaredRole` que este bundle manda no se descarta —
+rebota **400** (`ValidationPipe` con `forbidNonWhitelisted`), el hook clasifica ese 400 como
+licencia rechazada y, sin caché de grace fresco, **corta el arranque con exit 2**. O sea: instalar
+esto antes de tiempo convierte un room sin rol en un room BLOQUEADO, que es exactamente el síntoma
+más caro que esta SPEC vino a eliminar. Si ya está instalado y el Hub todavía no, la salida de
+emergencia de ADR-002 sigue valiendo (`SPECOE_ALLOW_DEGRADED_START=1` o el archivo
+`.claude/specoe-allow-degraded-start`).
+
+**Hasta esta versión, un rol NEGADO y una carpeta legítimamente sin rol se veían igual.** El rol de
+un room no viajaba en el `/license/validate`: el Hub lo resolvía por **unicidad** —un usuario con
+dos roles activos no desempataba y se quedaba sin claim— y un rol que el usuario NO tenía concedido
+terminaba en el mismo lugar que no haber pedido ninguno. Los dos casos emitían el mismo JWT sin
+claim `sddRole`, los tools MCP servían el bundle **producto** en los dos, y la sesión arrancaba en
+silencio. El dev veía «no tengo skills» sin forma de saber si nunca declaró un rol o si se lo
+negaron.
+
+- **`.claude-bundle/hooks/specoe-license-check.mjs` manda `declaredRole` en el MISMO validate.** Lo
+  lee de **`INTEGRA_SDD_ROLE`** —la misma env que ya consumen `specoe-role-check.mjs` y el cliente
+  MCP para el header `x-sdd-role`— normalizado trim+upper. **Cero requests nuevos y cero lecturas de
+  disco**: es una lectura de memoria, así que el presupuesto del hook (`HOOK_BUDGET_MS = 4500`, que
+  ya comparten el activate, el validate y la derivación del `userContext`) no se toca. **Sin la env
+  el body queda byte-a-byte como antes**: una instalación que no la setea no se rompe, y el Hub la
+  registra como `NOT_DECLARED` — que es como se cuenta cuántas máquinas siguen atrasadas sin ir
+  máquina por máquina.
+- **El rol es INPUT, no un claim firmado.** El Hub lo **autoriza** contra los roles concedidos al
+  usuario del seat; nunca lo acepta porque sí. Editar el launcher a mano para declarar un rol ajeno
+  no sirve de nada salvo para quedar registrado como rechazo.
+- **La fuente del rol es UNA.** `project.config.yaml` y `.mcp.json` siguen **inertes** como fuente
+  de rol (ADR-001): una segunda fuente reabre el defecto que esta SPEC cierra —dos lugares que
+  pueden discrepar y nadie sabe cuál gana—. La suite lo fija **midiendo el comportamiento** (yaml
+  con `role: DISCOVERY` y sin la env ⇒ el rol no viaja), no leyendo el código: un grep no distingue
+  «no lo lee» de «lo lee y lo descarta».
+- **Mensaje de sesión ante rol rechazado, con prefijo estable `SPECOE-ROL-RECHAZADO`.** Nombra el
+  rol declarado, dice que lo que falló es la **AUTORIZACIÓN y no la licencia**, avisa que los tools
+  MCP van a servir el bundle producto, y da la acción concreta (pedir el rol a un ADMIN del tenant,
+  o corregir `INTEGRA_SDD_ROLE`). El prefijo NO contiene `SPECOE-DIAG` como subcadena, así que un
+  probe puede afirmar este aviso y el diagnóstico de licencia de forma independiente sobre el mismo
+  texto.
+- **Sólo el rechazo habla.** Los otros cuatro veredictos —rol concedido, usuario sin ningún rol
+  (producto legítimo), y los dos del camino legacy— **conservan el mensaje vigente**. Inventarles un
+  aviso convertiría el caso normal en ruido y el aviso del rechazo dejaría de leerse. La
+  discriminación de los cuatro vive en el log, no en la pantalla.
+- **Línea de log estructurada con `outcome` + `declaredRole` + `servedRole`,** en
+  `~/.claude/logs/specoe-license-<fecha>.log`. Va **siempre**, también cuando el Hub no emite
+  veredicto (tenant en MACHINE-mode): ahí no hay autorización que registrar, pero lo que el room
+  declaró sigue siendo el dato útil.
+- **No bloquea el arranque.** Hereda el contrato de salida de ADR-002 (SPEC-0164 P2): la licencia es
+  válida, y cortar la sesión por la autorización del rol sería cambiar un room sin rol por un room
+  sin sesión. El único corte sigue siendo el de siempre — sin licencia validada y sin caché de grace.
+- **Suite nueva `rol-declarado-license-validate` (7 casos, con dos controles negativos).** Cubre las
+  dos ramas del body (con la env y sin ella), la normalización, la inercia del yaml, los tres
+  mensajes verificados **distintos entre sí** con exit 0 en los tres, los cinco veredictos posibles y
+  el log en todos los caminos. Los controles positivos están corridos: sacar el campo del body pone
+  en rojo tres casos, y anular el aviso pone en rojo otros dos — un verde que no puede dar rojo no
+  es un gate.
+
+Este cambio llega a una máquina por **instalación del bundle** (`setup.sh --host-only`), no por
+actualizar el Hub. Un room con el hook anterior no declara rol y sigue funcionando por el camino
+legacy.
+
+**También entró en esta versión, sin relación con lo de arriba:**
+
+- **`docs/TROUBLESHOOTING.md` — re-alineación de la tabla del mapa de FAILs (TKT-0221).** Las dos
+  filas que sumó 0.2.9 eran más anchas que el resto y la tabla quedó sin re-alinear. **Sólo
+  whitespace: 19 líneas, cero cambios de contenido** — ningún mensaje ni ninguna sección cambia de
+  texto. Se nombra acá porque un diff de 0.2.9 a 0.2.10 muestra 38 líneas tocadas en ese archivo y
+  conviene saber de antemano que no hay nada que leer ahí.
+
 ## 0.2.9 — 2026-07-30 (TKT-0221 — el verificador dejaba pasar la versión de Node que la SPEC vino a prohibir)
 
 **`scripts/smoke-test.sh` daba PASS en Node 20.** SPEC-0164 P3 subió el piso a 22.19.0 —porque
