@@ -26,9 +26,17 @@ Estos tres los instalás vos; el resto lo hace el script.
    Verificá: `node --version` → `v22.19.0` o mayor, sin pasar de `v26`. El instalador aborta fuera
    del rango: abajo de 22.19 el canal TLS de los hooks directamente no existe (ver tabla del final).
 2. **Git para Windows** (incluye **Git Bash**) — https://git-scm.com/download/win.
-3. **VSCode** — https://code.visualstudio.com — con la **extensión Claude Code**:
+3. **VSCode** — https://code.visualstudio.com — con la **extensión Claude Code** y el **CLI `code` en el PATH**:
    - VSCode → Extensions (Ctrl+Shift+X) → buscar **"Claude Code"** (Anthropic) → Install.
    - Arrancá Claude Code **una vez** (para que cree `~/.claude/`): abrí la extensión o corré `claude --help` en Git Bash.
+   - **El CLI `code`**: verificá con `code --version` en Git Bash. Si no lo encuentra, abrí VSCode →
+     Ctrl+Shift+P → **"Shell Command: Install 'code' command in PATH"**, cerrá y volvé a abrir Git Bash.
+     (En el instalador de Windows es la opción **"Add to PATH"**.) El instalador del room lo necesita
+     para instalarte el **plugin Integra Hub**, y si no está **aborta**.
+
+> **El plugin Integra Hub NO lo instalás vos.** Viene dentro del starter (`vendor/integra-hub-vscode.vsix`)
+> y lo instala el instalador del room, que además le deja apuntada la URL del Hub. Si querés instalarlo
+> a mano igual —porque algo falló—, mirá "Si algo falla" al final.
 
 > Windows: los comandos van en **Git Bash**, no en PowerShell/CMD.
 
@@ -165,7 +173,16 @@ instalador. Acá no queda nada de config por hacer.
 1. Con la carpeta abierta, la extensión **Claude Code** arranca la sesión:
    - el SessionStart hook valida tu licencia, activa el seat y **puebla el JWT del skill-server**;
    - el room queda **servido por SPECOE** — tus skills/commands bajan por el MCP `specoe`.
-2. **No toques ninguna variable de entorno a mano.** Si te pide `export`, algo falló — ver abajo.
+2. La extensión **Integra Hub** ya está instalada: el instalador del room la instaló desde el
+   `.vsix` que trae el starter. Su ícono aparece en la **Activity Bar** (barra lateral izquierda) y
+   ya apunta al Hub — el instalador dejó `integraHub.baseUrl` en el `.vscode/settings.json` de la
+   carpeta del room. **No hay nada que configurar acá.**
+   - Lo único que queda a tu criterio es el **roster de rooms** (`integraHub.rooms`): es config
+     tuya, el instalador no la toca. El TreeView de Rooms arranca vacío hasta que la cargues, y eso
+     es lo esperado.
+   - Cada room apunta a su propio Hub: el valor va en el settings **de la carpeta**, no en el global
+     de tu usuario, así que dos rooms pueden hablar con Hubs distintos sin pisarse.
+3. **No toques ninguna variable de entorno a mano.** Si te pide `export`, algo falló — ver abajo.
 
 ---
 
@@ -216,5 +233,29 @@ Verificación manual equivalente, si querés mirarlo vos mismo en la sesión de 
 | `hub.integra.local` no resuelve                                                                                                                                                           | hosts sin entrada                                                                                                                         | Re-corré el install, o agregá `<IP> hub.integra.local` al hosts (admin).                                                                                                                                                                              |
 | `hub.integra.local` no resuelve y en el hosts la entrada aparece pegada al final de otra línea (típico con Norton / Avast / AVG: `... # gen digital helper server<IP> hub.integra.local`) | La instaló un starter viejo: el `hosts` no terminaba en salto de línea, así que la entrada quedó **después del `#` → comentada e inerte** | Re-corré el install con este starter: normaliza el archivo y vuelve a agregar la entrada sana. La línea pegada queda inerte, se puede borrar a mano (admin).                                                                                          |
 | `license expired` / `invalid signature`                                                                                                                                                   | licencia vencida/mal firmada                                                                                                              | Pedí license nueva a Integra.                                                                                                                                                                                                                         |
+| El instalador aborta con **`No encontre el CLI 'code' de VSCode en el PATH`**                                                                                                             | VSCode está instalado pero sin el CLI en el PATH (típico en Windows: en el instalador no se tildó "Add to PATH")                          | VSCode → Ctrl+Shift+P → **"Shell Command: Install 'code' command in PATH"**. Cerrá y volvé a abrir Git Bash y corré **el mismo comando**: el `.mcp.json` de la carpeta ya quedó escrito y la corrida retoma desde ahí.                                |
+| El instalador aborta con **`Falta el plugin VSCode: no esta el artefacto 'vendor/integra-hub-vscode.vsix'`**                                                                              | O el starter es anterior al release que vendoriza el plugin, o esta carpeta es un room recortado que no conserva `vendor/`                | Actualizá el starter (`git pull --ff-only`) y reintentá. Para distinguir las dos causas, el propio mensaje del instalador trae el comando (`git sparse-checkout list`).                                                                               |
+| El instalador aborta con **`El plugin NO quedó instalado`**                                                                                                                               | `code --install-extension` salió 0 pero la extensión no quedó — el instalador verifica el **efecto**, no el código de salida              | Corré a mano `code --install-extension vendor/integra-hub-vscode.vsix --force` para ver el error completo (ver abajo) y reportalo.                                                                                                                    |
+| El instalador dice **`[SKIP] .vscode/settings.json existe y no pude leerlo como JSON`**                                                                                                   | Tu `settings.json` de la carpeta tiene comentarios o una coma de más: no es JSON estricto y el instalador **no lo pisa** a propósito      | Agregale la clave a mano: `"integraHub.baseUrl": "<url del Hub>"`. El resto de tu config queda intacta.                                                                                                                                               |
+| El ícono de **Integra Hub** no aparece en la Activity Bar                                                                                                                                 | La extensión no quedó instalada, o VSCode venía abierto de antes                                                                          | Verificá con `code --list-extensions \| grep integrasoftwareerp`. Si figura, reabrí VSCode. Si no figura, corré `./setup.sh --room-only` en la carpeta del room.                                                                                      |
+
+### Instalar el plugin a mano (solo si el instalador no pudo)
+
+El mecanismo normal es el instalador — esto es la salida de emergencia. Desde la carpeta del room:
+
+```bash
+code --install-extension vendor/integra-hub-vscode.vsix --force
+code --list-extensions | grep integrasoftwareerp   # tiene que listar integrasoftwareerp.integra-hub-vscode
+```
+
+Y si además te falta la URL del Hub, agregala en `<carpeta-del-room>/.vscode/settings.json`:
+
+```json
+{
+  "integraHub.baseUrl": "https://hub.integra.local/api/v1"
+}
+```
+
+Ese archivo está en el `.gitignore` del starter: no ensucia el `git status` del room.
 
 Si algo no cierra después de revisar la tabla de arriba, contactá a Integra Software: `soporte@integrasoftware.biz`.

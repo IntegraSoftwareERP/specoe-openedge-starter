@@ -2,6 +2,34 @@
 
 All notable changes to this project. Automatic — regenerado por `./scripts/changelog.sh`.
 
+## 0.2.13 — 2026-08-01 (TKT-0261 — el MCP resuelve el CA por el trust del sistema, no sólo por variable de entorno)
+
+**Arregla un room que arranca "Connected" y no puede hablar con el Hub.** En una VM limpia, toda
+tool del MCP `integra-hub` invocada desde la sesión de Claude Code de la extensión de VSCode
+devolvía `fetch failed`, con stderr vacío. El server levantaba y hablaba con el cliente; lo que no
+funcionaba era su llamada saliente.
+
+- **El entry `integra-hub` del `.mcp.json` pasa a escribirse con `--use-system-ca` como primer
+  argumento de Node, delante del bundle.** El bundle vendorizado no arma canal de CA propio: su
+  única vía al CA del piloto era `NODE_EXTRA_CA_CERTS`, o sea que la validación TLS dependía de
+  que el cliente propagara ese `env` al proceso hijo — y la sesión de la extensión de VSCode no lo
+  propaga. El CA de Caddy ya está en el trust de Windows (lo instala `specoe-setup-host.sh` en el
+  paso del UAC) y el flag hace que Node lo lea de ahí.
+- **`NODE_EXTRA_CA_CERTS` se conserva.** El objetivo son **dos caminos independientes al mismo
+  CA**, no reemplazar uno frágil por otro: si el cliente sí propaga el `env`, ese camino sigue
+  vivo; si no lo propaga, el del trust del sistema alcanza solo. Verificado midiendo el camino del
+  sistema **con la variable borrada del entorno**: el MCP responde payload donde antes daba
+  `fetch failed`.
+- **El flag está medido en el piso del rango certificado.** SPEC-0164 lo había descartado para los
+  hooks —"flag de CLI, inservible cuando el proceso lo spawnea otro"—; acá el que spawnea es el
+  que escribe los `args`, así que sí sirve. Se verificó que Node **22.19.0** (el `SPECOE_NODE_MIN`
+  del instalador) lo acepta y lo aplica: con el flag, `fetch` contra el Hub devuelve HTTP 401 —
+  respuesta, o sea transporte sano; sin el flag y sin la variable, `UNABLE_TO_GET_ISSUER_CERT_LOCALLY`.
+
+Queda abierto el fix de fondo —que el bundle del MCP lea el CA del archivo por su cuenta, como ya
+hacen los hooks— y que el `fetch failed` deje de ser mudo. Los dos son código de
+`integra-hub/mcp-server`, fuera de este paquete.
+
 ## 0.2.11 — 2026-07-31 (SPEC-0165 P3 — el MCP y el plugin viajan DENTRO del starter)
 
 **Esta versión no cambia ningún comportamiento del instalador: agrega carga.** El clon del starter

@@ -640,9 +640,18 @@ const env = {
 };
 if (role) env.INTEGRA_SDD_ROLE = role;
 if (caPath) env.NODE_EXTRA_CA_CERTS = caPath;
+// --use-system-ca: SEGUNDO camino al mismo CA, independiente del env (TKT-0261). El bundle
+// vendorizado NO arma canal de CA propio: su unica via era NODE_EXTRA_CA_CERTS, o sea que la
+// validacion TLS dependia de que el cliente propagara ese `env` al proceso hijo — y la sesion
+// de la extension de VSCode no lo propaga, con lo que toda tool del MCP devolvia `fetch failed`
+// mudo. El CA de Caddy ya esta en el trust del sistema (lo instala specoe-setup-host.sh en el
+// paso del UAC) y este flag hace que Node lo lea de ahi. SPEC-0164 lo habia descartado para los
+// hooks porque es flag de CLI e "inservible cuando el proceso lo spawnea otro"; aca el que
+// spawnea es el que escribe los args, asi que si sirve. El env se CONSERVA a proposito: el
+// objetivo son dos caminos independientes al mismo CA, no reemplazar uno por otro.
 doc.mcpServers['integra-hub'] = {
   command: 'node',
-  args: [bundle],
+  args: ['--use-system-ca', bundle],
   env,
 };
 console.log(`  [WRITE]   mcpServers.integra-hub (modo USER${role ? ', rol ' + role : ', SIN rol'})`);
@@ -650,7 +659,109 @@ console.log(`  [WRITE]   mcpServers.integra-hub (modo USER${role ? ', rol ' + ro
 fs.writeFileSync('.mcp.json', JSON.stringify(doc, null, 2) + '\n');
 EOF
 
-fi # cierra: if DO_ROOM (parte de carpeta — config + .mcp.json)
+# ----- 5.6. Instalar el plugin VSCode Integra Hub -----
+# ESTE PASO VA DESPUES DEL 5.5 A PROPOSITO (SPEC-0165 P5 / T5.2). El corte por falta del CLI
+# `code` de aca abajo mata la corrida, y el risk_flag de esta fase exige que ese corte NO deje
+# el room a medio configurar: su caso vinculante falla explicitamente "si el room queda sin
+# .mcp.json". Esa condicion solo se cumple si el .mcp.json YA se escribio, o sea con este paso
+# DESPUES del 5.5. Subirlo arriba hace fallar el caso por construccion.
+
+log "Instalando el plugin VSCode Integra Hub..."
+
+# El chequeo del CLI `code` es precondicion DURA de ESTE paso, no del bloque general de
+# prerrequisitos (SPEC-0165 P5 / T5.1): `--host-only` y `--login` tienen que seguir corriendo en
+# maquinas sin VSCode, y los dos saltan este bloque entero via DO_ROOM=0. Es `err` y no `warn`
+# —a diferencia del chequeo de `claude` de mas arriba— porque con warn el instalador anuncia
+# exito con el plugin sin instalar, que es el verde-falso que esta SPEC viene a cerrar (O8).
+command -v code >/dev/null 2>&1 || err "No encontre el CLI 'code' de VSCode en el PATH, y sin el no puedo instalar el plugin Integra Hub en esta maquina.
+  Si VSCode YA esta instalado, lo que falta es el CLI: abri VSCode, tocá Ctrl+Shift+P (paleta de comandos) y corré «Shell Command: Install 'code' command in PATH». Cerrá y volvé a abrir Git Bash para que tome el PATH nuevo.
+  Si VSCode NO esta instalado: bajalo de https://code.visualstudio.com y en el instalador de Windows tildá «Add to PATH».
+  Después, volvé a correr el MISMO comando: el .mcp.json de esta carpeta ya quedó escrito y este paso retoma desde acá."
+
+VSIX_PATH="vendor/integra-hub-vscode.vsix"
+VSIX_EXT_ID="integrasoftwareerp.integra-hub-vscode"
+
+# Mismo par de causas que el corte del bundle del MCP de mas arriba: o el starter es anterior al
+# release que vendoriza los artefactos, o esta carpeta es un room recortado sin '/vendor/' en la
+# lista INCLUSIVA de specoe-add-room.sh.
+[ -f "$VSIX_PATH" ] || err "Falta el plugin VSCode: no esta el artefacto '$VSIX_PATH' en esta carpeta.
+  Hay DOS causas posibles y hay que descartar las dos:
+    a) el starter de esta carpeta es anterior al release que vendoriza el plugin — actualizalo (git -C \"$SCRIPT_DIR\" pull --ff-only) y volvé a correr el MISMO comando;
+    b) esta carpeta es un room recortado y '/vendor/' no quedo en SPECOE_ROOM_KEEP (la lista INCLUSIVA de specoe-add-room.sh): entonces el clon del room NO lo trae aunque el starter lo tenga.
+  Para distinguirlas: git -C \"$SCRIPT_DIR\" sparse-checkout list   (si no devuelve nada, esta carpeta no es un room recortado y es (a); si devuelve la lista y '/vendor/' no figura, es (b))."
+
+code --install-extension "$VSIX_PATH" --force || err "Falló 'code --install-extension $VSIX_PATH --force' — el plugin Integra Hub no quedó instalado.
+  Revisá el mensaje del CLI de arriba. Si VSCode está abierto, cerralo y reintentá el MISMO comando."
+
+# Verificacion POSTERIOR, sobre el EFECTO y no sobre el exit code (T5.2): `--install-extension`
+# puede salir 0 sin dejar nada instalado, asi que el unico dato que vale es que la extension
+# figure en el listado. Se captura a variable en vez de encadenar un pipe a `grep -q`: con
+# `set -o pipefail`, el grep que corta temprano le manda SIGPIPE al productor y la pipeline
+# devolveria 141 aunque el match haya sido exitoso.
+#   - `tr -d '\r'`: en Git Bash la salida puede venir con CRLF y el match de linea completa
+#     fallaria por el \r.
+#   - `tr '[:upper:]' '[:lower:]'`: el id de una extension es case-insensitive para VSCode y el
+#     listado no garantiza el casing del manifiesto. La comparacion se hace en minusculas contra
+#     $VSIX_EXT_ID, que es minuscula por construccion (publisher + name del manifiesto).
+#     NO se usa `grep -i`: en el GNU grep 3.0 de Git Bash (MSYS2) la combinacion `-F -i` ABORTA
+#     con SIGABRT (rc=134) en vez de matchear — verificado en este banco, y daba un falso
+#     negativo con la extension REALMENTE instalada. Si alguien "arregla" esto agregando -i,
+#     vuelve el bug.
+#   - `grep -Fx`: literal y linea COMPLETA, no substring.
+VSIX_INSTALLED_LIST="$(code --list-extensions 2>/dev/null | tr -d '\r' | tr '[:upper:]' '[:lower:]' || true)"
+grep -Fxq "$VSIX_EXT_ID" <<<"$VSIX_INSTALLED_LIST" || err "El plugin NO quedó instalado: 'code --list-extensions' no lista '$VSIX_EXT_ID' después de instalar '$VSIX_PATH'.
+  El comando de instalación no reportó error, así que el efecto es lo único que vale acá.
+  Probá instalarlo a mano para ver el error completo: code --install-extension $VSIX_PATH --force
+  Si el problema persiste, reportalo a Integra Software (soporte@integrasoftware.biz) con esa salida."
+log "  [OK]      $VSIX_EXT_ID instalado (verificado con code --list-extensions)"
+
+# ----- 5.7. baseUrl del plugin en el settings de workspace del room -----
+# Decision del Operador sobre Q1 (2026-07-27, "Usable solo baseUrl"): el instalador puebla
+# integraHub.baseUrl —dato que ya resolvio arriba en MCP_HUB_URL— y NO toca integraHub.rooms,
+# que sigue siendo config del usuario (ADR-006 de SPEC-0158 queda intacto).
+# Va al settings de WORKSPACE de ESTA carpeta y no al global del usuario: el modelo del starter
+# es N rooms por maquina y cada uno puede apuntar a un Hub distinto; el plugin resuelve con la
+# precedencia estandar folder > workspace > user > default, asi que el nivel de workspace alcanza
+# sin pisar nada del dev. Ademas .vscode/settings.json ya esta en el .gitignore del starter (:8),
+# asi que la escritura no ensucia el git status del room ni viaja al espejo.
+
+log "Configurando integraHub.baseUrl en .vscode/settings.json..."
+mkdir -p .vscode
+
+"$NODE_BIN" - "$MCP_HUB_URL" <<'EOF'
+const fs = require('fs');
+const [hubUrl] = process.argv.slice(2);
+const FILE = '.vscode/settings.json';
+
+// MERGE de claves, NO reescritura del archivo (risk_flag de P5): este archivo es del dev y una
+// re-corrida no puede perderle la config. Si el archivo existe y NO parsea como JSON estricto
+// —settings.json admite comentarios y VSCode los tolera— NO lo tocamos: preferimos dejar el
+// baseUrl sin poblar y decirlo, antes que pisar configuracion ajena.
+let doc = {};
+let existing = null;
+try {
+  existing = fs.readFileSync(FILE, 'utf8');
+} catch {
+  /* no existe: se crea de cero */
+}
+if (existing !== null && existing.trim() !== '') {
+  try {
+    const parsed = JSON.parse(existing);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('el contenido no es un objeto JSON');
+    doc = parsed;
+  } catch (e) {
+    console.error(`  [SKIP]    .vscode/settings.json existe y no pude leerlo como JSON (${e.message}).`);
+    console.error(`            NO lo toco para no perderte configuracion. Agregale a mano esta clave: "integraHub.baseUrl": "${hubUrl}"`);
+    process.exit(0);
+  }
+}
+
+doc['integraHub.baseUrl'] = hubUrl;
+fs.writeFileSync(FILE, JSON.stringify(doc, null, 2) + '\n');
+console.log(`  [WRITE]   integraHub.baseUrl = ${hubUrl}`);
+EOF
+
+fi # cierra: if DO_ROOM (parte de carpeta — config + .mcp.json + plugin VSCode)
 
 # ----- 6. Next steps -----
 
