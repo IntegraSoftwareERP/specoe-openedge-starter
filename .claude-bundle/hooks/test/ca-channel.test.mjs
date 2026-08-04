@@ -146,7 +146,14 @@ test('3. CA que no parsea — negativo, sin excepcion', () => {
 
 // ---------- 4. CA valido pero de OTRO emisor: pasa el mecanismo, muere en el efecto ----------
 
-test('4. CA de otro emisor — aplica, pero el canal al Hub NO valida', async () => {
+// TKT-0263 — los codigos de TRANSPORTE, que significan "no llegue a hacer el experimento".
+// Un probe que muere en DNS o en la conexion tambien devuelve probeOk=false, asi que sin
+// separarlos este test daria "verde" sin haber medido nunca el rechazo por certificado —
+// justo lo que el encabezado de esta suite declara inaceptable.
+const CODIGOS_DE_TRANSPORTE =
+  /^(EAI_AGAIN|ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EHOSTUNREACH|ENETUNREACH|UND_ERR_CONNECT_TIMEOUT)$/i;
+
+test('4. CA de otro emisor — aplica, pero el canal al Hub NO valida', async (t) => {
   const r = runIsolated(
     `
     const fs = await import('node:fs');
@@ -157,6 +164,25 @@ test('4. CA de otro emisor — aplica, pero el canal al Hub NO valida', async ()
     const norm = (p) => String(p).replace(/-----(BEGIN|END) CERTIFICATE-----/g, '').replace(/\\s+/g, '');
     const caddyPath = pathm.join(os.homedir(), '.claude', 'caddy-local-root.crt');
     const caddy = fs.existsSync(caddyPath) ? norm(fs.readFileSync(caddyPath, 'utf8')) : '';
+    // TKT-0263 — el escenario entero se monta sobre dos APIs que NO existen antes de node
+    // 22.19. Sin este corte, \`getCACertificates\` revienta el subproceso y el test muere con
+    // un TypeError en vez de decir lo unico cierto en ese runtime. Se reporta y el test lo
+    // afirma del otro lado: el canal no puede operar aca, y lo dice.
+    if (
+      typeof tls.getCACertificates !== 'function' ||
+      typeof tls.setDefaultCACertificates !== 'function'
+    ) {
+      // El CA se saca de \`tls.rootCertificates\`, que existe desde node 12: hace falta un PEM
+      // que PARSEE para que la guarda que dispare sea la de la API y no la de 'ca-missing'
+      // (applyCaChannel lee el archivo ANTES de mirar las APIs).
+      const pem = (tls.rootCertificates || [])[0];
+      const pv = pathm.join(os.tmpdir(), 'viejo-node-ca-' + process.pid + '.crt');
+      fs.writeFileSync(pv, pem, 'utf8');
+      const sinApi = applyCaChannel({ caPath: pv });
+      fs.unlinkSync(pv);
+      console.log(JSON.stringify({ apiMissing: true, applied: sinApi.ok, reason: sinApi.reason }));
+      process.exit(0);
+    }
     // Un root REAL del bundle de Node: certificado valido, emisor equivocado.
     const foreign = tls.getCACertificates('bundled').find((c) => norm(c) !== caddy);
     const p = pathm.join(os.tmpdir(), 'foreign-ca-' + process.pid + '.crt');
@@ -172,7 +198,31 @@ test('4. CA de otro emisor — aplica, pero el canal al Hub NO valida', async ()
   );
   assert.equal(r.code, 0, r.stderr);
   const out = JSON.parse(r.stdout.trim().split('\n').pop());
+
+  // TKT-0263 — runtime sin las APIs de TLS (node < 22.19, y la matriz de CI corre node 20).
+  // NO es un skip: hay algo cierto y falsable que afirmar, y es que el canal NO finge. El
+  // modulo devuelve `api-missing` en vez de reportar un exito que no ocurrio — que es la
+  // propiedad que importa cuando el bundle cae en una maquina con node viejo.
+  if (out.apiMissing) {
+    assert.equal(out.applied, false, 'sin las APIs de TLS el canal no puede aplicar nada');
+    assert.equal(out.reason, 'api-missing', 'y tiene que decir POR QUE, no fallar mudo');
+    return;
+  }
+
+  // El MECANISMO se afirma siempre: no depende de la red.
   assert.equal(out.applied, true, 'un CA valido de otro emisor SI pasa el mecanismo');
+
+  // TKT-0263 — el EFECTO solo se puede afirmar si el probe LLEGO al handshake TLS. `HUB_URL`
+  // apunta por default a `hub.integra.local`, un host PRIVADO: en un runner de CI no resuelve y
+  // el probe muere en DNS (EAI_AGAIN). Ahi `probeOk` es false por el motivo equivocado, y
+  // aceptarlo seria cantar un verde sin haber medido el rechazo por certificado — la misma
+  // leccion que los escenarios 5 y 6 de esta suite ya tenian incorporada y que a este le
+  // faltaba, porque hasta este ticket ninguna de las ocho suites del bundle corria en CI.
+  if (out.code && CODIGOS_DE_TRANSPORTE.test(out.code)) {
+    t.skip(`sin alcance de red a ${HUB_URL} (${out.code}): el escenario no discrimina`);
+    return;
+  }
+
   assert.equal(out.probeOk, false, 'y tiene que morir en el efecto — este es el punto del test');
   if (out.code) assert.match(out.code, /CERT|SELF_SIGNED|SIGNATURE|ISSUER/i);
 });

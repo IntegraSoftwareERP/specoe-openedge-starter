@@ -599,8 +599,15 @@ MCP_BUNDLE="vendor/integra-hub-mcp.mjs"
 
 log "Generando/actualizando .mcp.json (specoe + integra-hub modo USER)..."
 
-ROOM_ROLE="$(grep -E "^\s*role:" project.config.yaml | head -1 | sed "s/.*role: *'\{0,1\}//;s/'.*//;s/ *#.*//" || true)"
-MCP_HUB_URL="${HUB_URL:-$(grep -E '^\s*api-url:' project.config.yaml | head -1 | sed 's/.*api-url: *//;s/"//g' || true)}"
+# TKT-0256: las dos lineas leian el MISMO archivo con criterios DISTINTOS — el sed de `role`
+# strippeaba comilla simple + comentario inline, el de `api-url` solo comillas dobles. Como el
+# template trae `api-url: 'https://...'` entre comillas SIMPLES, la URL viajaba con las comillas
+# adentro hasta INTEGRA_HUB_API_URL del .mcp.json y hasta integraHub.baseUrl del settings del room.
+# Ninguna de las dos se parchea suelta: las dos pasan por specoe_yaml_get, que ya resuelve comilla
+# simple, comilla doble, valor pelado y comentario inline, y ademas scopea por seccion (asi una
+# clave homonima de otro bloque no gana por estar antes en el archivo).
+ROOM_ROLE="$(specoe_yaml_get project.config.yaml specoe.role)"
+MCP_HUB_URL="${HUB_URL:-$(specoe_yaml_get project.config.yaml hub.api-url)}"
 MCP_HUB_URL="${MCP_HUB_URL:-https://hub.integra.local/api/v1}"
 [ -n "$ROOM_ROLE" ] || warn "  specoe.role está vacío en project.config.yaml — .mcp.json queda SIN INTEGRA_SDD_ROLE (el Hub va a responder SDD_SESSION_ROLE_CLAIM_MISSING). Fijalo con specoe-add-room.sh <ROL>."
 
@@ -783,7 +790,9 @@ else
   log "  3. Ver docs/QUICKSTART-VSCODE.md para el arranque en VSCode"
   log "  (project.config.yaml ya paso el check de config: campos obligatorios completos y editados)"
   log ""
-  HUB_SHOW=$(grep -E '^\s*api-url:' project.config.yaml | head -1 | sed 's/.*api-url: *//;s/"//g' || true)
+  # TKT-0256: mismo criterio que la lectura del paso 5.5 — el resumen final mostraba la URL con
+  # las comillas simples del template adentro, o sea distinta de la que decia haber configurado.
+  HUB_SHOW="$(specoe_yaml_get project.config.yaml hub.api-url)"
   log "Hub: ${HUB_SHOW:-<no configurado>}"
   log "(default piloto interno: hub.integra.local. Suite on-premise: contactar a Integra Software)"
 fi

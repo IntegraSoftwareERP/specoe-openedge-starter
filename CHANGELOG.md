@@ -2,6 +2,30 @@
 
 All notable changes to this project. Automatic — regenerado por `./scripts/changelog.sh`.
 
+## 0.2.14 — 2026-08-01 (TKT-0256 — la URL del Hub sale del yaml sin las comillas del template)
+
+**Arregla un room que queda apuntando a una URL inválida sin decirlo.** `setup.sh` leía
+`hub.api-url` del `project.config.yaml` con un `sed` que sacaba comillas **dobles**, y el template
+trae el valor entre comillas **simples**. Resultado: la URL viajaba con las comillas adentro hasta
+`INTEGRA_HUB_API_URL` del `.mcp.json` y hasta `integraHub.baseUrl` del `.vscode/settings.json`, y
+el síntoma aparecía lejos de la causa — como un fallo de conexión del MCP o del plugin.
+
+- **Las lecturas del yaml pasan todas por `specoe_yaml_get`.** El helper ya existía en el propio
+  `setup.sh` y resuelve comilla simple, comilla doble, valor pelado y comentario inline, además de
+  acotar la búsqueda a la sección correcta. No se parcheó la comilla suelta: la causa era que dos
+  líneas contiguas leían el mismo archivo con criterios distintos — la de `specoe.role` manejaba la
+  comilla simple y el comentario, la de `hub.api-url` no.
+- **Alcanza también al resumen final del instalador**, que mostraba la URL con las comillas adentro
+  — o sea, distinta de la que decía haber configurado.
+- **El camino normal de instalación no estaba afectado**: `specoe-add-room.sh` invoca siempre
+  `setup.sh --room-only --hub <url>`, y con `--hub` el valor no pasaba por ese `sed`. El defecto se
+  alcanzaba corriendo `./setup.sh --room-only` a mano, que es un camino que el propio
+  `QUICKSTART-VSCODE.md` documenta como válido.
+
+Cubierto por `scripts/test-yaml-scalar-read.sh`, que ejerce las líneas de resolución y los bloques
+de escritura extraídos del `setup.sh` real y afirma sobre los dos entregables — el `.mcp.json` y el
+settings—, no sobre el comando. Corre en CI.
+
 ## 0.2.13 — 2026-08-01 (TKT-0261 — el MCP resuelve el CA por el trust del sistema, no sólo por variable de entorno)
 
 **Arregla un room que arranca "Connected" y no puede hablar con el Hub.** En una VM limpia, toda

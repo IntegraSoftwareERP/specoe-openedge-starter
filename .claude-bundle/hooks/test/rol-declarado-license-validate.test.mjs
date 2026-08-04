@@ -47,6 +47,7 @@ import {
   buildRoleNotice,
   buildRoleResolutionLog,
   ROLE_REJECTED_PREFIX,
+  ROLE_DENIED_CONSEQUENCE,
   OUTCOME_ROLE_NOT_GRANTED,
   DIAG_PREFIX,
 } from '../specoe-license-check.mjs';
@@ -538,6 +539,83 @@ test('6b. `reason` es para leer, no para ramificar: el aviso no lo matchea', () 
   });
 
   assert.match(notice, /pedi a un ADMIN/i, 'ramifica por el boolean, no por la prosa del reason');
+});
+
+// ---------- 6c. TKT-0263: el aviso describe la consecuencia que el canal APLICA ----------
+//
+// P2 escribio este aviso contra el comportamiento vigente en ese momento: sin claim `sddRole`
+// los tools MCP servian el bundle producto. P3 —de la MISMA SPEC— cambio ese comportamiento
+// (el guard del skill-server corta las siete tools cuando el rol viene rechazado) y nadie
+// volvio sobre el texto que lo describia. El hook prometia producto y el canal no daba nada.
+//
+// No es cosmetico: el dev leia "voy a tener producto", ninguna tool respondia, y concluia que
+// el skill-server estaba caido — el mismo sintoma que SPEC-0176 vino a volver legible.
+//
+// La consistencia CRUZADA entre este literal y el del skill-server la fija
+// `packages/skill-server/test/role-denied-notice-consistency.test.ts`, que lee los dos
+// archivos. Aca se fija la mitad que se puede afirmar sin salir del bundle vendorizado.
+
+test('6c. el aviso NUNCA promete bundle producto — en ninguno de los tres caminos', () => {
+  for (const seatUserResolved of [true, false, undefined]) {
+    const notice = buildRoleNotice({
+      outcome: OUTCOME_ROLE_NOT_GRANTED,
+      declaredRole: 'ENGINEERING',
+      servedRole: null,
+      seatUserResolved,
+    });
+
+    assert.ok(
+      !/servir el bundle PRODUCTO/i.test(notice),
+      `volvio la promesa de P2 (seatUserResolved=${String(seatUserResolved)})`,
+    );
+    assert.ok(
+      !/van a servir .*producto/i.test(notice),
+      `el aviso afirma que se sirve producto (seatUserResolved=${String(seatUserResolved)})`,
+    );
+  }
+});
+
+test('6c. el aviso nombra la consecuencia real: el canal no sirve NADA', () => {
+  for (const seatUserResolved of [true, false, undefined]) {
+    const notice = buildRoleNotice({
+      outcome: OUTCOME_ROLE_NOT_GRANTED,
+      declaredRole: 'ENGINEERING',
+      servedRole: null,
+      seatUserResolved,
+    });
+
+    assert.ok(
+      notice.includes(ROLE_DENIED_CONSEQUENCE),
+      `falta la consecuencia real (seatUserResolved=${String(seatUserResolved)})`,
+    );
+    // El otro dato accionable: cuanto tarda en volver a servir una vez concedido el rol.
+    assert.match(notice, /1 h/, 'el aviso tiene que decir cuanto hay que esperar');
+  }
+});
+
+test('6c. el aviso descarta de frente el diagnostico errado (skill-server caido)', () => {
+  const notice = buildRoleNotice({
+    outcome: OUTCOME_ROLE_NOT_GRANTED,
+    declaredRole: 'CC_DEV',
+    servedRole: null,
+    seatUserResolved: true,
+  });
+
+  assert.match(notice, /no es que el skill-server este caido/i);
+});
+
+test('6c. el diagnostico por camino sigue intacto: la cabecera cambio, la causa no', () => {
+  // Control de no-regresion del cambio de TKT-0263 sobre lo que fijo TKT-0248: la cabecera es
+  // COMUN a los tres caminos, asi que reescribirla no puede haber borrado la parte que los
+  // distingue.
+  const base = { outcome: OUTCOME_ROLE_NOT_GRANTED, declaredRole: 'CC_DEV', servedRole: null };
+  const sinSeat = buildRoleNotice({ ...base, seatUserResolved: false });
+  const conSeat = buildRoleNotice({ ...base, seatUserResolved: true });
+
+  assert.notEqual(sinSeat, conSeat);
+  assert.match(conSeat, /pedi a un ADMIN/i);
+  assert.ok(!/pedi a un ADMIN/i.test(sinSeat));
+  assert.match(sinSeat, /login SDD/i);
 });
 
 // ---------- 7. la linea de log lleva los tres datos, tambien sin veredicto ----------

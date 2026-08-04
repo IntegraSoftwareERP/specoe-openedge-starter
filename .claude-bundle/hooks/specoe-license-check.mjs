@@ -667,6 +667,29 @@ export const OUTCOME_ROLE_NOT_GRANTED = 'ROLE_NOT_GRANTED';
 export const ROLE_REJECTED_PREFIX = 'SPECOE-ROL-RECHAZADO';
 
 /**
+ * TKT-0263 — LA consecuencia del rechazo, en las mismas palabras que la sirve el otro lado.
+ *
+ * P2 escribio este aviso contra el comportamiento vigente en ese momento: sin claim `sddRole`
+ * los tools MCP servian el bundle producto, y eso era lo que el aviso prometia. P3 —de la
+ * MISMA SPEC— cambio el comportamiento: el guard de `packages/skill-server/src/tools/index.ts`
+ * corta las siete tools al tope del dispatcher cuando `authContext.roleDenied`, con un mensaje
+ * que dice lo contrario ("este canal no sirve catalogo — ni el del room ni el de producto").
+ * El texto de aca quedo describiendo un comportamiento que ya no existia.
+ *
+ * El costo no era cosmetico: el dev leia "voy a tener producto", invocaba una tool, no recibia
+ * nada, y concluia que el skill-server estaba caido — el mismo sintoma que SPEC-0176 vino a
+ * volver legible, reintroducido por la otra punta.
+ *
+ * POR QUE UN LITERAL COMPARTIDO Y NO UN MODULO COMPARTIDO: este hook es un artefacto
+ * VENDORIZADO — se copia tal cual dentro del proyecto del cliente y corre sin build ni
+ * dependencias, asi que no puede importar del paquete `skill-server`. Lo que SI se puede es
+ * fijar la coincidencia con un test que lee los DOS archivos y falla si divergen (suite
+ * `rol-declarado-license-validate.test.mjs`, seccion 6c). Nada obliga a que dos literales en
+ * dos paquetes digan lo mismo; el test es lo que lo obliga.
+ */
+export const ROLE_DENIED_CONSEQUENCE = 'no sirve catalogo — ni el del room ni el de producto';
+
+/**
  * El aviso de autorizacion rechazada, o null cuando no hay nada que avisar.
  *
  * Solo `ROLE_NOT_GRANTED` produce texto. Los otros cuatro outcomes son estados legitimos y
@@ -683,11 +706,17 @@ export function buildRoleNotice(roleResolution) {
   if (roleResolution?.outcome !== OUTCOME_ROLE_NOT_GRANTED) return null;
   const declarado = roleResolution.declaredRole ?? 'sin rol declarado';
 
+  // TKT-0263 — la consecuencia se NOMBRA como la aplica el skill-server: el canal no sirve
+  // NADA hasta que el rol este concedido y el token de licencia se renueve. Decir "vas a
+  // tener producto" era falso desde P3 y mandaba al dev a diagnosticar una caida del
+  // servicio. El plazo (TTL del token) es el mismo que nombra el mensaje del otro lado.
   const cabecera =
     `\n\n[[${ROLE_REJECTED_PREFIX}]] ATENCION: la licencia es valida, pero la AUTORIZACION ` +
     `DE ROL fallo. Este room declaro el rol ${declarado} (env INTEGRA_SDD_ROLE) y el Hub NO ` +
-    `firmo el claim sddRole: los tools MCP de esta sesion van a servir el bundle PRODUCTO, ` +
-    `no el de ${declarado}. La sesion arranca igual — esto no corta el arranque.`;
+    `firmo el claim sddRole: los tools MCP de esta sesion ${ROLE_DENIED_CONSEQUENCE}. NO es ` +
+    `que el skill-server este caido: es este rechazo. Una vez concedido el rol, el canal ` +
+    `vuelve a servir cuando se renueve el token de licencia (plazo maximo 1 h). La sesion ` +
+    `arranca igual — esto no corta el arranque.`;
 
   // TKT-0248 — el Hub llega a ROLE_NOT_GRANTED por DOS caminos con diagnosticos OPUESTOS, y
   // hasta ahora este aviso mostraba siempre el de uno solo. Cuando el rechazo venia de no
