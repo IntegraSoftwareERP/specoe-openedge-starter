@@ -376,13 +376,23 @@ test('6. el login SDD guarda el userId del seat en el canal', async () => {
     assert.equal(out.ok, true, `el login tenia que salir bien: ${stdout}`);
     assert.equal(out.userIdStored, true, 'el login tiene que dejar el userId en el canal');
     assert.equal(hub.recibido.session.length, 1, 'lo deriva canjeando el token por una sesion');
-    // El material principal sigue guardandose igual (no se rompe lo de SPEC-0157 P6).
-    assert.equal(await readSecret(home, SDD_IDENTITY_SERVICE, SDD_IDENTITY_TOKEN_NAME), SDD_TOKEN);
+    // El material principal sigue guardandose igual (no se rompe lo de SPEC-0157 P6), pero
+    // desde SPEC-0187 P7 bajo las claves del tenant que devolvio el Hub ('tenant' en este
+    // fake): el login ya no escribe ninguna clave sin dimension tenant. La resolucion por
+    // tenant y el fallback legacy acotado tienen su propia suite (tenant-scoped-identity).
+    const slug = 'tenant';
     assert.equal(
-      await readSecret(home, SDD_IDENTITY_SERVICE, SDD_IDENTITY_MACHINE_NAME),
+      await readSecret(home, SDD_IDENTITY_SERVICE, `${slug}:${SDD_IDENTITY_TOKEN_NAME}`),
+      SDD_TOKEN,
+    );
+    assert.equal(
+      await readSecret(home, SDD_IDENTITY_SERVICE, `${slug}:${SDD_IDENTITY_MACHINE_NAME}`),
       MACHINE_ID,
     );
-    assert.equal(await readSecret(home, SDD_IDENTITY_SERVICE, SDD_IDENTITY_USER_NAME), USER_ID);
+    assert.equal(
+      await readSecret(home, SDD_IDENTITY_SERVICE, `${slug}:${SDD_IDENTITY_USER_NAME}`),
+      USER_ID,
+    );
     // Y NUNCA a stdout: el userId no es secreto, pero el token si — el contrato de la
     // salida del login es que no lleva material.
     assert.ok(!stdout.includes(SDD_TOKEN), 'el UserSddToken no puede salir por stdout');

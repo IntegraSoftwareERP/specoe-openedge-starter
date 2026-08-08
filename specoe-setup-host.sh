@@ -8,20 +8,31 @@
 #   4. Copia el CA a ~/.claude (de ahi lo lee ca-channel.mjs, el canal unico de los hooks).
 #   5. Verificación del host: ping al server + fetch de prueba al Hub con el CA → confirma
 #      que la máquina quedó lista antes de instanciar rooms.
-#   6. Login SDD (SPEC-0157): pide tu email + clave del Hub, enrola el equipo y guarda
-#      el token de usuario en el keyring. El único paso humano posterior legítimo es que
-#      un admin del tenant apruebe el equipo si quedó PENDING.
+#   6. Plugin VSCode Integra Hub (vendor/integra-hub-vscode.vsix). Frecuencia real: POR MÁQUINA
+#      —el .vsix se instala en el VSCode del usuario, no en la carpeta del room—, por eso vive
+#      acá y ya no en el flujo por-room de setup.sh (SPEC-0187 P9). Sin VSCode se salta.
+#   7. Login SDD (SPEC-0157): pide tu email + clave del Hub, enrola el equipo y guarda
+#      el token de usuario en el keyring. OPCIONAL acá si usás VSCode: el plugin hace el
+#      mismo login unificado («Integra Hub: Login»). En una máquina solo-CLI este es el
+#      ÚNICO canal. El único paso humano posterior legítimo es que un admin del tenant
+#      apruebe el equipo si quedó PENDING.
 #
 # Después de esto, instanciá cada room con specoe-room-<rol>.sh (o specoe-add-room.sh).
 #
 # Uso:
 #   ./specoe-setup-host.sh [--ip <ip>] [--hub <url>] [--repo <url>] [--skip-elevation] [--skip-login]
 #
-# Windows es el target del piloto. En Linux/Mac hace 1-2, 5 y 6; hosts + CA (3) se avisan manuales.
+# Windows es el target del piloto. En Linux/Mac hace 1-2, 5, 6 y 7; hosts + CA (3) se avisan manuales.
 
 set -euo pipefail
 
 PILOT_IP="10.0.10.198"
+# Archivo hosts que toca el paso elevado. Es variable —y no el literal incrustado en el .ps1—
+# para que scripts/test-host-idempotence.sh pueda ejercer la idempotencia del bloque contra un
+# archivo sintético: sin esta costura, la única forma de probarla es contra el hosts REAL de una
+# máquina, o sea a mano y una sola vez (SPEC-0187 P9 / T9.2).
+SPECOE_HOSTS_FILE_DEFAULT='C:\Windows\System32\drivers\etc\hosts'
+SPECOE_HOSTS_FILE="${SPECOE_HOSTS_FILE:-$SPECOE_HOSTS_FILE_DEFAULT}"
 STARTER_REPO="https://github.com/IntegraSoftwareERP/specoe-openedge-starter.git"
 SKIP_ELEVATION=0
 SKIP_LOGIN=0
@@ -38,7 +49,7 @@ while [[ $# -gt 0 ]]; do
     --repo) STARTER_REPO="$2"; shift 2 ;;
     --skip-elevation) SKIP_ELEVATION=1; shift ;;
     --skip-login) SKIP_LOGIN=1; shift ;;
-    -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,29p' "$0"; exit 0 ;;
     *) err "Opción desconocida: $1 (ver --help)" ;;
   esac
 done
@@ -48,6 +59,109 @@ case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) IS_WINDOWS=1 ;; esac
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SELF="$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")" # ruta absoluta estable (para el comando de retomada)
+
+# Comando de retomada, compartido por TODOS los cortes que ocurren despues del paso 3: una vez que
+# la elevacion ya corrio, mandar al dev a repetir el script sin --skip-elevation le dispara una
+# segunda ventana de UAC para rehacer algo que ya esta hecho.
+RESUME_CMD="$SELF --skip-elevation --ip $PILOT_IP"
+[ -n "$HUB_URL" ] && RESUME_CMD="$RESUME_CMD --hub $HUB_URL"
+
+# Lo que YA quedo aplicado en la maquina cuando se corta despues del UAC. Es funcion y no constante
+# porque depende de por donde vino la corrida: declarar de mas seria el mismo verde-falso en otra
+# forma (el dev daria por hecho el trust del SO que nunca se toco). La usan los cortes del paso 5
+# (canal) y del paso 6 (plugin).
+specoe_applied_summary() {
+  local applied="bundle de hooks en ~/.claude y CA en ~/.claude/caddy-local-root.crt"
+  if [ "$SKIP_ELEVATION" -eq 1 ]; then
+    applied="$applied. NO se tocaron hosts ni el trust del SO (corriste --skip-elevation)"
+  elif [ "$IS_WINDOWS" -eq 1 ]; then
+    applied="$applied, entradas de hosts para hub/mcp.integra.local y CA de Caddy en el trust de Windows"
+  else
+    applied="$applied. hosts + CA en el trust del SO quedaron a tu cargo (no-Windows)"
+  fi
+  printf '%s' "$applied"
+}
+
+# ----- Deteccion de VSCode, independiente del CLI `code` (SPEC-0187 P9 / T9.1) -----
+# El paso del .vsix tiene TRES desenlaces y el discriminador NO puede ser el CLI:
+#   (a) VSCode + CLI `code`  → instala y verifica
+#   (b) VSCode SIN el CLI    → CORTA. Saltearlo dejaria al instalador anunciando "host listo" con
+#                              el plugin sin instalar: exactamente el verde-falso que cerro
+#                              SPEC-0165 P5, que se preserva al mudar el paso hasta aca.
+#   (c) sin VSCode           → SALTA con aviso y el host-flow termina OK: el camino solo-CLI
+#                              (Claude Code en terminal + launcher) es soportado y no puede morir
+#                              por un paso de VSCode.
+# (b) y (c) se ven IGUAL desde el PATH, asi que la pregunta "¿hay VSCode en esta maquina?" se
+# responde por artefactos de instalacion. La funcion deja dicho QUE la respondio en
+# SPECOE_VSCODE_EVIDENCE: el mensaje del caso (b) nombra la evidencia, y el del caso (c) nombra
+# que la deteccion pudo dar falso negativo y da el remedio — un skip mudo seria el mismo
+# verde-falso disfrazado de aviso.
+# La matriz completa la ejerce scripts/test-vsix-matrix.sh (corre en CI).
+
+# Ruta de entorno de Windows ('C:\Users\...') a ruta POSIX. Sin cygpath —o si falla— devuelve el
+# valor crudo en vez de vacio: quedarse ciego es peor que testear una ruta que quiza no matchee, y
+# ademas hace que la rama de Windows sea ejercitable desde un runner Linux.
+specoe_to_unix_path() {
+  local raw="$1" conv=""
+  [ -n "$raw" ] || return 0
+  if command -v cygpath >/dev/null 2>&1; then
+    conv="$(cygpath -u "$raw" 2>/dev/null || true)"
+  fi
+  printf '%s' "${conv:-$raw}"
+}
+
+SPECOE_VSCODE_EVIDENCE=""
+specoe_vscode_present() {
+  SPECOE_VSCODE_EVIDENCE=""
+  local p
+
+  # El CLI en el PATH es evidencia suficiente por si mismo (y es el caso (a)).
+  if command -v code >/dev/null 2>&1; then
+    SPECOE_VSCODE_EVIDENCE="el CLI 'code' resuelve en el PATH"
+    return 0
+  fi
+
+  local candidates=()
+  if [ "$IS_WINDOWS" -eq 1 ]; then
+    # Las variables de entorno de Windows llegan a Git Bash con rutas 'C:\...': se convierten con
+    # cygpath antes de testearlas. ProgramFiles viaja con ese casing exacto y bash es
+    # case-sensitive, por eso se consultan las dos formas.
+    local localapp appdata progfiles
+    localapp="$(specoe_to_unix_path "${LOCALAPPDATA:-}")"
+    appdata="$(specoe_to_unix_path "${APPDATA:-}")"
+    progfiles="$(specoe_to_unix_path "${ProgramFiles:-${PROGRAMFILES:-}}")"
+    [ -n "$localapp" ] && candidates+=(
+      "$localapp/Programs/Microsoft VS Code/Code.exe"
+      "$localapp/Programs/Microsoft VS Code Insiders/Code - Insiders.exe"
+    )
+    [ -n "$progfiles" ] && candidates+=(
+      "$progfiles/Microsoft VS Code/Code.exe"
+      "$progfiles/Microsoft VS Code Insiders/Code - Insiders.exe"
+    )
+    # Directorio de datos del usuario: lo crea VSCode en su primer arranque.
+    [ -n "$appdata" ] && candidates+=("$appdata/Code" "$appdata/Code - Insiders")
+  else
+    candidates+=(
+      "/Applications/Visual Studio Code.app"
+      "/usr/share/code"
+      "/snap/code"
+      "$HOME/Library/Application Support/Code"
+      "$HOME/.config/Code"
+    )
+  fi
+  # Comun a los tres SO y ULTIMA a proposito: es la evidencia mas debil de la lista (la crea
+  # cualquier instalacion de extension y sobrevive a la desinstalacion del binario), asi que solo
+  # decide cuando ninguna de las anteriores dijo nada.
+  candidates+=("$HOME/.vscode/extensions")
+
+  for p in "${candidates[@]}"; do
+    if [ -e "$p" ]; then
+      SPECOE_VSCODE_EVIDENCE="existe '$p'"
+      return 0
+    fi
+  done
+  return 1
+}
 
 # ----- Rango de Node certificado (SPEC-0164 P3 / ADR-004) -----
 # MEDIDO, no elegido. El canal unico del starter (.claude-bundle/hooks/ca-channel.mjs) se apoya
@@ -256,7 +370,7 @@ elif [ "$IS_WINDOWS" -eq 1 ]; then
   cat > "$ELEV_PS1" <<PS1
 \$ErrorActionPreference = 'Stop'
 \$ip = '$PILOT_IP'
-\$hostsFile = 'C:\Windows\System32\drivers\etc\hosts'
+\$hostsFile = '$SPECOE_HOSTS_FILE'
 \$names = @('hub.integra.local','mcp.integra.local')
 \$content = ''
 if (Test-Path \$hostsFile) { \$content = Get-Content \$hostsFile -Raw }
@@ -268,8 +382,20 @@ if (\$content -and \$content -notmatch '\n\z') {
   \$content = \$content + [Environment]::NewLine
   Write-Host "[hosts] el archivo no terminaba en salto de linea: normalizado antes de agregar"
 }
+# El match reconoce el nombre como TOKEN de una linea viva, no como final de linea (SPEC-0187 P9
+# / T9.2). El ancla vieja ('...\s*\$') exigia que la entrada fuera lo ultimo de la linea, asi que
+# NO reconocia dos formas legitimas y frecuentes de escribir el hosts a mano:
+#   10.0.10.198 hub.integra.local mcp.integra.local      (los dos nombres en una linea)
+#   10.0.10.198 hub.integra.local   # piloto Integra     (comentario al final)
+# En las dos, cada corrida volvia a agregar la entrada: el instalador NO era idempotente y el
+# hosts acumulaba una linea por corrida. Medido con scripts/test-host-idempotence.sh.
+#   ^\s*[0-9.]+\s  -> linea viva: arranca con IP. Una linea comentada empieza con '#' y no matchea,
+#                     asi que una entrada COMENTADA sigue contando como ausente (esta inerte).
+#   [^#\r\n]*      -> el resto de los nombres de la linea, sin cruzar al comentario.
+#   (?<![\w.-]) / (?![\w.-]) -> el nombre completo y no un pedazo: 'notahub.integra.local' y
+#                     'hub.integra.local.ar' NO cuentan como la entrada.
 foreach (\$n in \$names) {
-  if (\$content -match ('(?m)^\s*[0-9.]+\s+' + [regex]::Escape(\$n) + '\s*\$')) {
+  if (\$content -match ('(?m)^\s*[0-9.]+\s[^#\r\n]*(?<![\w.-])' + [regex]::Escape(\$n) + '(?![\w.-])')) {
     Write-Host "[hosts] ya existe: \$n"
   } else {
     Add-Content -Path \$hostsFile -Value ("\$ip \$n")
@@ -339,44 +465,143 @@ else
   # Aborto, NO warn: acá es donde la VM del incidente siguió de largo y terminó imprimiendo
   # "Host listo" con el canal roto. Nombra el paso, declara lo que YA quedó aplicado, y da el
   # comando de retomada que no vuelve a disparar la elevación UAC (--skip-elevation).
-  RESUME_CMD="$SELF --skip-elevation --ip $PILOT_IP"
-  [ -n "$HUB_URL" ] && RESUME_CMD="$RESUME_CMD --hub $HUB_URL"
   case "$CHANNEL_RC" in
     2) CHANNEL_WHY="el CA no quedó en el store del proceso (mecanismo)" ;;
     3) CHANNEL_WHY="el CA quedó aplicado pero el request al Hub no llegó (efecto — el código está arriba)" ;;
     *) CHANNEL_WHY="la verificación del canal no pudo ejecutarse (¿falta ~/.claude/hooks/ca-channel.mjs?)" ;;
   esac
-  # Lo aplicado depende de por dónde vino la corrida: declararlo de más sería el mismo verde
-  # falso en otra forma (el dev daría por hecho el trust del SO que nunca se tocó).
-  APPLIED="bundle de hooks en ~/.claude y CA en ~/.claude/caddy-local-root.crt"
-  if [ "$SKIP_ELEVATION" -eq 1 ]; then
-    APPLIED="$APPLIED. NO se tocaron hosts ni el trust del SO (corriste --skip-elevation)"
-  elif [ "$IS_WINDOWS" -eq 1 ]; then
-    APPLIED="$APPLIED, entradas de hosts para hub/mcp.integra.local y CA de Caddy en el trust de Windows"
-  else
-    APPLIED="$APPLIED. hosts + CA en el trust del SO quedaron a tu cargo (no-Windows)"
-  fi
   err "PASO 5 (verificación del canal) FALLÓ: $CHANNEL_WHY. El host NO está listo — el room arrancaría con TLS/401 en VSCode.
-  Lo que YA quedó aplicado en esta máquina (no hay que rehacerlo): $APPLIED.
-  Lo que FALTA: el login SDD (paso 6).
+  Lo que YA quedó aplicado en esta máquina (no hay que rehacerlo): $(specoe_applied_summary).
+  Lo que FALTA: el plugin VSCode (paso 6) y el login SDD (paso 7).
   Revisá VPN/red del piloto y que hub.integra.local resuelva a $PILOT_IP; después retomá SIN volver a pedir elevación con:
     $RESUME_CMD"
 fi
 
-# ----- 6. Login SDD (SPEC-0157 — identidad por usuario) -----
+# ----- 6. Plugin VSCode Integra Hub (.vsix) -----
+# MOVIDO desde el flujo por-room de setup.sh (paso 5.6) — SPEC-0187 P9 / T9.1. La frecuencia real
+# del paso es POR MAQUINA y no por room: el .vsix se instala en el VSCode del usuario, no en la
+# carpeta. Viviendo en el room-flow, cada room nuevo repetia la instalacion y —peor— su corte duro
+# por falta del CLI `code` mataba corridas de room en maquinas que ya tenian el plugin puesto.
+# Va DESPUES del paso 5 por el mismo criterio con el que en setup.sh iba despues del 5.5
+# (SPEC-0165 P5 / T5.2): el corte del caso (b) mata la corrida, asi que todo lo que se pueda dejar
+# aplicado —bundle, hosts, CA, canal verificado— tiene que estar hecho ANTES de llegar aca.
+VSIX_PATH="$STARTER_DIR/vendor/integra-hub-vscode.vsix"
+VSIX_EXT_ID="integrasoftwareerp.integra-hub-vscode"
+VSIX_OUTCOME="" # lo lee el resumen final: el banner no puede afirmar mas de lo que se hizo
+
+if specoe_vscode_present; then
+  VSCODE_EVIDENCE="$SPECOE_VSCODE_EVIDENCE"
+
+  if command -v code >/dev/null 2>&1; then
+    # ----- Caso (a): VSCode con el CLI `code` → instalar y VERIFICAR -----
+    log "Instalando el plugin VSCode Integra Hub..."
+
+    # Mismo par de causas que el corte del bundle del MCP: o el starter es anterior al release que
+    # vendoriza los artefactos, o desde el que se corre este script es una carpeta recortada sin
+    # '/vendor/' en la lista INCLUSIVA de specoe-add-room.sh.
+    [ -f "$VSIX_PATH" ] || err "Falta el plugin VSCode: no esta el artefacto '$VSIX_PATH'.
+  Hay DOS causas posibles y hay que descartar las dos:
+    a) el starter de '$STARTER_DIR' es anterior al release que vendoriza el plugin — actualizalo (git -C \"$STARTER_DIR\" pull --ff-only) y volvé a correr: $RESUME_CMD
+    b) '$STARTER_DIR' es una carpeta recortada y '/vendor/' no quedo en SPECOE_ROOM_KEEP (la lista INCLUSIVA de specoe-add-room.sh): entonces NO trae el artefacto aunque el starter lo tenga.
+  Para distinguirlas: git -C \"$STARTER_DIR\" sparse-checkout list   (si no devuelve nada, no es una carpeta recortada y es (a); si devuelve la lista y '/vendor/' no figura, es (b))."
+
+    code --install-extension "$VSIX_PATH" --force || err "Falló 'code --install-extension $VSIX_PATH --force' — el plugin Integra Hub no quedó instalado.
+  Revisá el mensaje del CLI de arriba. Si VSCode está abierto, cerralo y retomá con: $RESUME_CMD"
+
+    # Verificacion POSTERIOR, sobre el EFECTO y no sobre el exit code (SPEC-0165 P5 / T5.2):
+    # `--install-extension` puede salir 0 sin dejar nada instalado, asi que el unico dato que vale
+    # es que la extension figure en el listado. Se captura a variable en vez de encadenar un pipe a
+    # `grep -q`: con `set -o pipefail`, el grep que corta temprano le manda SIGPIPE al productor y
+    # la pipeline devolveria 141 aunque el match haya sido exitoso.
+    #   - `tr -d '\r'`: en Git Bash la salida puede venir con CRLF y el match de linea completa
+    #     fallaria por el \r.
+    #   - `tr '[:upper:]' '[:lower:]'`: el id de una extension es case-insensitive para VSCode y el
+    #     listado no garantiza el casing del manifiesto. La comparacion se hace en minusculas contra
+    #     $VSIX_EXT_ID, que es minuscula por construccion (publisher + name del manifiesto).
+    #     NO se usa `grep -i`: en el GNU grep 3.0 de Git Bash (MSYS2) la combinacion `-F -i` ABORTA
+    #     con SIGABRT (rc=134) en vez de matchear — verificado en banco, y daba un falso negativo
+    #     con la extension REALMENTE instalada. Si alguien "arregla" esto agregando -i, vuelve el bug.
+    #   - `grep -Fx`: literal y linea COMPLETA, no substring.
+    VSIX_INSTALLED_LIST="$(code --list-extensions 2>/dev/null | tr -d '\r' | tr '[:upper:]' '[:lower:]' || true)"
+    grep -Fxq "$VSIX_EXT_ID" <<<"$VSIX_INSTALLED_LIST" || err "El plugin NO quedó instalado: 'code --list-extensions' no lista '$VSIX_EXT_ID' después de instalar '$VSIX_PATH'.
+  El comando de instalación no reportó error, así que el efecto es lo único que vale acá.
+  Probá instalarlo a mano para ver el error completo: code --install-extension $VSIX_PATH --force
+  Si el problema persiste, reportalo a Integra Software (soporte@integrasoftware.biz) con esa salida."
+    log "  [OK]      $VSIX_EXT_ID instalado (verificado con code --list-extensions)"
+    VSIX_OUTCOME="instalado y verificado ($VSIX_EXT_ID)"
+
+  else
+    # ----- Caso (b): VSCode SIN el CLI `code` → CORTAR -----
+    # Es `err` y no `warn` a proposito: con warn el instalador termina anunciando "host listo" con
+    # el plugin sin instalar en una maquina que SI usa VSCode. Ese es el verde-falso que cerro
+    # SPEC-0165 P5 y que este traslado tiene que preservar cerrado.
+    err "PASO 6 (plugin VSCode): encontré VSCode en esta máquina ($VSCODE_EVIDENCE) pero NO el CLI 'code' en el PATH, y sin él no puedo instalar el plugin Integra Hub.
+  Lo que falta es el CLI, no VSCode: abrí VSCode, tocá Ctrl+Shift+P (paleta de comandos) y corré «Shell Command: Install 'code' command in PATH». Cerrá y volvé a abrir Git Bash para que tome el PATH nuevo.
+  Si en realidad NO usás VSCode en esta máquina y querés seguir por el camino solo-CLI, desinstalá/limpiá lo que quedó de VSCode o pedí soporte: esta detección lo encontró y por eso no salteo el paso.
+  Lo que YA quedó aplicado en esta máquina (no hay que rehacerlo): $(specoe_applied_summary), y el canal del host verificado OK.
+  Lo que FALTA: el plugin VSCode (este paso) y el login SDD (paso 7).
+  Retomá SIN volver a pedir elevación con:
+    $RESUME_CMD"
+  fi
+
+else
+  # ----- Caso (c): sin VSCode → SALTAR, el host-flow sigue -----
+  # El camino solo-CLI (Claude Code en terminal + specoe-launch-thinclient.sh) es soportado: cortar
+  # acá lo mataría por un paso que esa máquina no necesita. El aviso nombra el falso negativo
+  # posible y su remedio — un skip mudo sería el mismo verde-falso disfrazado.
+  warn "  PASO 6 (plugin VSCode): NO detecté VSCode en esta máquina, así que SALTO la instalación del plugin Integra Hub y el host-flow sigue.
+  El camino solo-CLI (Claude Code en terminal + specoe-launch-thinclient.sh) está soportado y no necesita el plugin.
+  Si SÍ tenés VSCode instalado, esto es un falso negativo de la detección (busqué el CLI 'code' en el PATH y las rutas de instalación estándar): instalá el CLI con «Shell Command: Install 'code' command in PATH» desde la paleta de comandos y retomá con:
+    $RESUME_CMD"
+  VSIX_OUTCOME="SALTADO (no detecté VSCode en esta máquina)"
+fi
+
+# ----- 7. Login SDD (SPEC-0157 — identidad por usuario) — OPCIONAL DECLARADO -----
+# SPEC-0187 P9 / T9.2. Este paso dejó de ser el único canal de identidad: con P6 desplegada, el
+# plugin VSCode hace el MISMO login unificado contra el canal del bundle (comando «Integra Hub:
+# Login»). Sigue viviendo acá —y sigue habiendo --skip-login— porque el camino solo-CLI es
+# soportado: en una máquina sin VSCode este es el ÚNICO canal, y ahí no hay nada opcional.
+# Por eso la opcionalidad se DECLARA en función de lo que pasó en el paso 6, en vez de anunciarse
+# a ciegas: ofrecer "hacelo desde el plugin" a una máquina donde el plugin se saltó sería mandar
+# al dev a una puerta que no existe.
+LOGIN_OUTCOME=""
+if [ -n "$VSIX_OUTCOME" ] && [ "${VSIX_OUTCOME#SALTADO}" != "$VSIX_OUTCOME" ]; then
+  LOGIN_ALT="" # el paso 6 se saltó: en esta máquina no hay plugin, este es el único canal
+else
+  LOGIN_ALT="Es OPCIONAL acá: el plugin VSCode hace el mismo login unificado (paleta de comandos → «Integra Hub: Login»)."
+fi
+
 if [ "$SKIP_LOGIN" -eq 1 ]; then
-  warn "--skip-login: NO hago el login SDD. Sin él, el MCP integra-hub no opera — corré ./setup.sh --login cuando puedas."
+  if [ -n "$LOGIN_ALT" ]; then
+    warn "--skip-login: NO hago el login SDD acá. Sin identidad el MCP integra-hub no opera, pero NO hace falta rehacer el host-flow: hacelo desde el plugin VSCode (paleta de comandos → «Integra Hub: Login»), o por CLI con (cd $STARTER_DIR && ./setup.sh --login)."
+    LOGIN_OUTCOME="salteado por --skip-login (pendiente: hacelo desde el plugin o con ./setup.sh --login)"
+  else
+    warn "--skip-login: NO hago el login SDD. En esta máquina el paso 6 se salteó (sin VSCode), así que el plugin NO es alternativa: el único canal es el CLI. Sin identidad el MCP integra-hub no opera — corré (cd $STARTER_DIR && ./setup.sh --login) cuando puedas."
+    LOGIN_OUTCOME="salteado por --skip-login (pendiente: ./setup.sh --login — sin VSCode, no hay canal por plugin)"
+  fi
 else
   log "Login SDD (identidad por usuario contra el Hub)..."
+  [ -n "$LOGIN_ALT" ] && log "  $LOGIN_ALT Si preferís hacerlo desde ahí, cortá con Ctrl+C y volvé a correr con --skip-login."
   LOGIN_ARGS=(--login)
   [ -n "$HUB_URL" ] && LOGIN_ARGS+=(--hub "$HUB_URL")
+  # Sigue siendo `err` y no `warn`: que el paso sea opcional NO convierte un fallo en un éxito.
+  # Lo que cambia es la salida que se ofrece — con el plugin disponible, el dev no queda trabado
+  # en el host-flow.
   ( cd "$STARTER_DIR" && bash setup.sh "${LOGIN_ARGS[@]}" ) \
-    || err "El login SDD falló. Corregí lo indicado arriba y reintentá con: (cd $STARTER_DIR && ./setup.sh --login)"
+    || err "El login SDD FALLÓ. Todo lo demás de esta máquina quedó aplicado; lo único que falta es la identidad.
+  Corregí lo indicado arriba y reintentá SOLO el login con: (cd $STARTER_DIR && ./setup.sh --login)${LOGIN_ALT:+
+  O hacelo desde el plugin VSCode: paleta de comandos → «Integra Hub: Login» (mismo canal, misma credencial).}"
+  LOGIN_OUTCOME="hecho (identidad de usuario en el keyring de la máquina)"
 fi
 
 log ""
 log "==================================================================="
-log " Host listo (bundle + CA + login SDD). Instanciá cada room (1 vez por rol):"
+log " Host listo: bundle + CA + canal verificado."
+# Los dos pasos que pueden NO haber corrido se reportan por su resultado real. El banner viejo
+# afirmaba "+ login SDD" siempre, incluso con --skip-login: un verde-falso de una línea.
+log " Plugin VSCode Integra Hub: $VSIX_OUTCOME"
+log " Login SDD: $LOGIN_OUTCOME"
+log " Instanciá cada room (1 vez por rol):"
 log "   ./specoe-room-discovery.sh   <license-key-discovery>"
 log "   ./specoe-room-engineering.sh <license-key-engineering>"
 log "   ./specoe-room-adversarial.sh <license-key-adversarial>"

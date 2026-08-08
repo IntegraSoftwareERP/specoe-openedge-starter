@@ -3,15 +3,21 @@
 #
 # Núcleo de la parte por-rol. NO toca hosts / CA / pre-req / bundle — eso lo hace
 # specoe-setup-host.sh (1 vez por máquina). Acá solo lo específico del room, EN ESTE ORDEN:
-#   1. Clona/actualiza el starter en la carpeta del room.  2. Fija specoe.role en su yaml.
-#   3. Guarda la licencia en el keyring bajo account=<ROL> (aislada por rol → multi-rol).
+#   1. Clona/actualiza el starter en la carpeta del room.  2. Fija specoe.role (y specoe.tenant
+#      si se declaro) en su yaml.
+#   3. Guarda la licencia en el keyring bajo account=<ROL> — o '<tenantSlug>:<ROL>' cuando el
+#      room declara tenant (aislada por rol → multi-rol; por tenant → multi-tenant).
 #   4. Chequea la identidad SDD de la máquina (token + machineId en el keyring).
 #   5. setup.sh --room-only (config + .mcp.json) — ÚLTIMO: su check de config puede cortar.
 #
 # Uso:
-#   ./specoe-add-room.sh <ROL> <LICENSE_KEY> [--dir <carpeta>] [--hub <url>] [--repo <url>]
+#   ./specoe-add-room.sh <ROL> <LICENSE_KEY> [--tenant <slug>] [--dir <carpeta>] [--hub <url>] [--repo <url>]
 #     <ROL> = DISCOVERY | ENGINEERING | ADVERSARIAL | CC_DEV
 #   Los wrappers specoe-room-<rol>.sh llaman a este núcleo con el rol y el --dir por defecto.
+#
+# SPEC-0187 P7 — `--tenant <slug>` es el slug del tenant del Hub (el `tenantSlug` que devuelve
+# el login SDD, NO el Tenant.id del contrato scoped). Sin el flag, la carpeta queda en modo
+# single-tenant y la licencia va bajo el rol pelado: el piloto instalado no cambia.
 
 set -euo pipefail
 
@@ -20,6 +26,7 @@ STARTER_REPO="https://github.com/IntegraSoftwareERP/specoe-openedge-starter.git"
 DEST_DIR=""
 ROLE=""
 LICENSE_KEY=""
+TENANT_SLUG=""
 
 log()  { echo -e "\033[1;34m[specoe-room]\033[0m $*"; }
 warn() { echo -e "\033[1;33m[specoe-room]\033[0m $*" >&2; }
@@ -41,6 +48,7 @@ specoe_node_bin() {
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dir)  DEST_DIR="$2"; shift 2 ;;
+    --tenant) TENANT_SLUG="$2"; shift 2 ;;
     --hub)  HUB_URL="$2";  shift 2 ;;
     --repo) STARTER_REPO="$2"; shift 2 ;;
     -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
@@ -80,7 +88,7 @@ specoe_host_hint() {
 # por rol, certs/, docker/, examples/) y el bundle de hooks (.claude-bundle/, material de host
 # que vive en ~/.claude despues del setup-host) NO entran.
 #
-# CONSERVA (13). Lista INCLUSIVA: se enumera lo que se conserva, una entrada por linea con
+# CONSERVA (14). Lista INCLUSIVA: se enumera lo que se conserva, una entrada por linea con
 # barra inicial. No son negaciones sobre '/*' — asi una entrada NUEVA del starter no llega al
 # room por omision, que es el default seguro (y la contrapartida: cuando el starter suma algo
 # que el room necesita, se agrega ACA a proposito).
@@ -98,6 +106,7 @@ SPECOE_ROOM_KEEP='/.claude/
 /specoe-gate-messages.sh
 /specoe-launch-thinclient.sh
 /specoe-verify-room.sh
+/specoe-yaml.sh
 /README.md
 /VERSION
 /vendor/
@@ -230,11 +239,29 @@ specoe_sparse_verify "$DEST_DIR"
   Para distinguirlas: git -C \"$DEST_DIR\" sparse-checkout list   (si '/vendor/' no figura, es (b))."
 
 # ----- 2. Fijar el rol en el yaml de la carpeta -----
-# ANTES del --room-only: el .mcp.json que genera setup.sh lee specoe.role para
-# cablear INTEGRA_SDD_ROLE (el rol es config del room — claim x-sdd-role sin
-# firma que el Hub autoriza server-side, SPEC-0157).
+# specoe.role es la DECLARACIÓN del room: la consumen los launchers/UI para saber
+# qué rol abrir acá. NO la leen los hooks ni termina en el .mcp.json (SPEC-0187 P2):
+# el rol efectivo lo declara cada SESIÓN exportando INTEGRA_SDD_ROLE en su entorno,
+# y el Hub lo autoriza server-side (claim x-sdd-role sin firma, SPEC-0157).
 log "Fijando specoe.role='$ROLE' en project.config.yaml..."
 sed -i.bak "s|role: '[^']*'|role: '$ROLE'|" "$DEST_DIR/project.config.yaml" && rm -f "$DEST_DIR/project.config.yaml.bak"
+
+# SPEC-0187 P7 — specoe.tenant: la DECLARACION del tenant de este room. La consume el launcher
+# (la exporta como INTEGRA_SDD_TENANT) y el hook de licencia la lee del yaml cuando la carpeta
+# se abre a mano. La escritura va por specoe_yaml_set y no por un sed: el yaml de un room ya
+# instalado es anterior a la clave, y un sed de reemplazo no tendria sobre que actuar — la
+# corrida terminaria en verde con el tenant sin declarar, que es justo el estado que hace caer
+# la sesion al fallback legacy sin que nadie lo note.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -n "$TENANT_SLUG" ]; then
+  [ -f "$SCRIPT_DIR/specoe-yaml.sh" ] || err "Falta $SCRIPT_DIR/specoe-yaml.sh: no puedo declarar specoe.tenant='$TENANT_SLUG' en la carpeta.
+  Corto en vez de seguir: el room quedaria con la licencia guardada bajo el tenant y sin declararlo, o sea sin poder encontrarla.
+  Actualizá el starter (git -C \"$SCRIPT_DIR\" pull --ff-only) y volvé a correr el MISMO comando."
+  # shellcheck source=specoe-yaml.sh
+  source "$SCRIPT_DIR/specoe-yaml.sh"
+  log "Fijando specoe.tenant='$TENANT_SLUG' en project.config.yaml..."
+  specoe_yaml_set "$DEST_DIR/project.config.yaml" specoe.tenant "$TENANT_SLUG"
+fi
 
 # ----- 3. Licencia en el keyring, account = rol (aislada → multi-rol) -----
 # ANTES del --room-only (SPEC-0167 P2 / T2.4, ADR-005): el check de config de setup.sh CORTA
@@ -246,26 +273,32 @@ sed -i.bak "s|role: '[^']*'|role: '$ROLE'|" "$DEST_DIR/project.config.yaml" && r
 # — el estado parcial peor de los dos, porque el sintoma que ve despues es un 401 del MCP.
 # Este bloque no depende de nada que produzca el --room-only: corre desde $HOME/.claude/hooks y
 # consume solo $LICENSE_KEY y $ROLE, parseados de argv. No lee project.config.yaml ni .mcp.json.
-log "Guardando la license key en el keyring (account=$ROLE)..."
+#
+# SPEC-0187 P7 — con tenant declarado el account es '<tenantSlug>:<ROL>': dos tenants en la
+# misma maquina tienen licencias distintas para el MISMO rol, y con el account pelado la segunda
+# pisaba a la primera. Sin --tenant el account sigue siendo el rol pelado (piloto intacto).
+LICENSE_ACCOUNT="$ROLE"
+[ -z "$TENANT_SLUG" ] || LICENSE_ACCOUNT="$TENANT_SLUG:$ROLE"
+log "Guardando la license key en el keyring (account=$LICENSE_ACCOUNT)..."
 KEYRING_OK=0
 NODE_BIN="$(specoe_node_bin)"
 # Capturamos stdout+stderr del proceso: NO silenciamos el error (el fallo mudo era el bug).
 # Verificamos post-escritura con getPassword() para no reportar éxito falso.
 if keyring_out="$( ( cd "$HOME/.claude/hooks" && "$NODE_BIN" -e "
 const { Entry } = require('@napi-rs/keyring');
-const [key, role] = [process.argv[1], process.argv[2]];
-const entry = new Entry('specoe-license', role);
+const [key, account] = [process.argv[1], process.argv[2]];
+const entry = new Entry('specoe-license', account);
 entry.setPassword(key);
 if (entry.getPassword() !== key) throw new Error('verificacion post-escritura fallo: la key no quedo persistida');
-" "$LICENSE_KEY" "$ROLE" ) 2>&1 )"; then
-  log "  License key guardada y verificada en el keyring (account=$ROLE)."
+" "$LICENSE_KEY" "$LICENSE_ACCOUNT" ) 2>&1 )"; then
+  log "  License key guardada y verificada en el keyring (account=$LICENSE_ACCOUNT)."
   KEYRING_OK=1
 else
-  warn "  ⚠ NO se pudo persistir la license key en el keyring (account=$ROLE) usando '$NODE_BIN'."
+  warn "  ⚠ NO se pudo persistir la license key en el keyring (account=$LICENSE_ACCOUNT) usando '$NODE_BIN'."
   warn "    Detalle real del error: ${keyring_out:-<el proceso no devolvió salida>}"
   warn "    → Sin la key en el keyring, el hook specoe-license-check NO valida y el MCP 'specoe' dará 401."
   warn "    Recuperá con UNA de estas opciones:"
-  warn "      a) A mano con el mismo binario:  cd ~/.claude/hooks && $NODE_BIN -e \"const {Entry}=require('@napi-rs/keyring'); new Entry('specoe-license','$ROLE').setPassword('$LICENSE_KEY')\"  → luego Reload Window en VSCode."
+  warn "      a) A mano con el mismo binario:  cd ~/.claude/hooks && $NODE_BIN -e \"const {Entry}=require('@napi-rs/keyring'); new Entry('specoe-license','$LICENSE_ACCOUNT').setPassword('$LICENSE_KEY')\"  → luego Reload Window en VSCode."
   warn "      b) Fallback env var:   exportá SPECOE_LICENSE_KEY antes de abrir el room."
 fi
 
@@ -276,9 +309,12 @@ fi
 # El room declara el rol; la identidad (token de usuario + machineId) es de la
 # MÁQUINA y la deja el login de specoe-setup-host.sh. Chequeo accionable acá:
 # sin ese material, la sesión del room no va a poder operar contra el Hub.
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# ($SCRIPT_DIR ya quedo resuelto en el bloque 2, con el mismo criterio.)
+# SPEC-0187 P7 — con tenant declarado el status se pregunta POR ESE tenant: una maquina con
+# identidad de otro tenant no es una maquina lista para ESTE room, y decir que si seria el
+# verde falso que la fase cierra.
 if [ -f "$HOME/.claude/scripts/sdd-login.mjs" ]; then
-  if ( cd "$HOME/.claude/scripts" && "$NODE_BIN" sdd-login.mjs status >/dev/null 2>&1 ); then
+  if ( cd "$HOME/.claude/scripts" && INTEGRA_SDD_TENANT="$TENANT_SLUG" "$NODE_BIN" sdd-login.mjs status >/dev/null 2>&1 ); then
     log "Identidad SDD: token de usuario + machineId presentes en el keyring."
   else
     warn "Identidad SDD INCOMPLETA: falta el token de usuario o el machineId en el keyring."
@@ -303,7 +339,7 @@ if ! ( cd "$DEST_DIR" && bash setup.sh --room-only --hub "$HUB_URL" ); then
   warn "La configuracion de la carpeta corto (el detalle esta arriba). Esta primera pasada YA dejo:"
   warn "  - '$DEST_DIR' clonado, con specoe.role='$ROLE' fijado."
   if [ "$KEYRING_OK" = 1 ]; then
-    warn "  - la license key guardada y verificada en el keyring (account=$ROLE)."
+    warn "  - la license key guardada y verificada en el keyring (account=$LICENSE_ACCOUNT)."
   else
     warn "  - la license key NO quedo en el keyring (ver el detalle mas arriba y recuperala antes de seguir)."
   fi

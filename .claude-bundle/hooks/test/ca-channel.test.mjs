@@ -10,6 +10,10 @@
 //
 // Los que necesitan red se saltean solos si no hay (SPECOE_TEST_HUB_URL / red publica
 // caida): un skip declarado es honesto, un verde sin haber medido no.
+//
+// TKT-0303 — y el que ademas podia dar ROJO por falta de red (el 6) dejo de salir a la red:
+// su propiedad se mide offline contra el store. El chequeo contra una CA comercial REAL vive
+// en `test/diag/ca-comercial.diag.mjs`, invocable a mano y fuera del `node --test` del CI.
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -255,28 +259,97 @@ test('5. control negativo — store reemplazado por el CA de Caddy: un host publ
 
 // ---------- 6. el store se AMPLIA, no se reemplaza ----------
 
-test('6. store ampliado — tras aplicar el canal, un host publico con CA comercial SIGUE validando', async (t) => {
+// TKT-0303 — ESTE CASO YA NO SALE A LA RED, y el motivo importa.
+//
+// La version anterior media la propiedad probando https://example.com antes y despues de
+// aplicar el canal. En tres corridas locales del MISMO arbol dio TRES desenlaces: `pass`,
+// `SKIP` (control positivo caido) y `fail` con `code=23`. Se reprodujo igual en `main` sin
+// tocar, o sea era preexistente. El problema no era el skip: era el ROJO INTERMITENTE, que
+// no estaba declarado como flake en ningun lado. Un rojo que a veces miente entrena al
+// equipo a ignorar el rojo — y el dia que ese mismo caso de rojo por un defecto real, se
+// lee como "el flake de siempre".
+//
+// La propiedad se mide ahora contra el STORE, que es donde vive: `applyCaChannel` arma el
+// store efectivo como `system` + `bundled` + el CA del archivo, asi que "amplia y no
+// reemplaza" es, literal, que el store de despues CONTENGA a todo el de antes. La asercion
+// es ademas ESTRICTAMENTE MAS FUERTE que el probe que reemplaza: el handshake contra un
+// host publico muestreaba UNA CA comercial, mientras que esto verifica los ~142 roots, el
+// del antivirus corporativo incluido — que es justo el caso testigo que motivo armar el
+// store desde 'system' (root `CN=Norton Web/Mail Shield Root`, presente en 'system' y
+// ausente de 'bundled'), y que el probe a example.com no podia ver.
+//
+// El chequeo contra una CA comercial REAL no se tira: se muda a
+// `test/diag/ca-comercial.diag.mjs`, invocable a mano, fuera del `node --test` que gatea
+// el CI. Ejercitar el trust store del SO contra internet es un diagnostico de maquina, no
+// un caso de suite.
+
+test('6. store ampliado — tras aplicar el canal, el store efectivo CONTIENE todo el trust previo', (t) => {
   if (!fs.existsSync(DEFAULT_CA_PATH)) {
-    t.skip(`sin CA en ${DEFAULT_CA_PATH}`);
+    t.skip(`sin CA en ${DEFAULT_CA_PATH} — nada que aplicar`);
     return;
   }
-  const before = probeInFreshProcess('', PUBLIC_URL);
-  if (!before.ok) {
-    t.skip('control positivo caido (sin red o interceptor TLS): el escenario no discrimina');
-    return;
-  }
-  const after = probeInFreshProcess(
+  const r = runIsolated(
     `
-    const { applyCaChannel } = await import(CA_CHANNEL);
+    const fs = await import('node:fs');
+    const tls = await import('node:tls');
+    const { applyCaChannel, DEFAULT_CA_PATH } = await import(CA_CHANNEL);
+
+    // Mismo corte que el escenario 4: sin las APIs de TLS (node < 22.19) no hay experimento
+    // que hacer, y se lo dice en vez de fingir.
+    if (
+      typeof tls.getCACertificates !== 'function' ||
+      typeof tls.setDefaultCACertificates !== 'function'
+    ) {
+      console.log(JSON.stringify({ apiMissing: true }));
+      process.exit(0);
+    }
+
+    const cuerpo = (pem) =>
+      String(pem).replace(/-----(BEGIN|END) CERTIFICATE-----/g, '').replace(/\\s+/g, '');
+
+    // El trust PREEXISTENTE es la union de lo que el canal promete preservar: el del sistema
+    // (donde vive el root del antivirus) y el que Node trae adentro.
+    const previo = new Set([
+      ...tls.getCACertificates('system').map(cuerpo),
+      ...tls.getCACertificates('bundled').map(cuerpo),
+    ]);
+    const caddy = cuerpo(fs.readFileSync(DEFAULT_CA_PATH, 'utf8'));
+
     const applied = applyCaChannel();
-    if (!applied.ok) { console.error('el canal no se aplico: ' + applied.reason); process.exit(4); }
+    const efectivo = new Set(tls.getCACertificates('default').map(cuerpo));
+
+    const perdidos = [...previo].filter((c) => !efectivo.has(c));
+    console.log(JSON.stringify({
+      applied: applied.ok,
+      reason: applied.reason,
+      previos: previo.size,
+      efectivos: efectivo.size,
+      perdidos: perdidos.length,
+      caddyPresente: efectivo.has(caddy),
+    }));
   `,
-    PUBLIC_URL,
+    { NODE_EXTRA_CA_CERTS: null },
   );
-  // Este es el escenario que caza la clase de defecto "el fix rompe todo lo demas":
-  // un store armado sin el trust del sistema se lleva puesto el trafico interceptado por
-  // un antivirus corporativo, y con el la conexion al Hub.
-  assert.equal(after.ok, true, `el canal rompio el trust preexistente (code=${after.code})`);
+  assert.equal(r.code, 0, r.stderr);
+  const out = JSON.parse(r.stdout.trim().split('\n').pop());
+
+  if (out.apiMissing) {
+    t.skip(`sin tls.get/setDefaultCACertificates en ${process.version}: el canal no puede operar`);
+    return;
+  }
+
+  assert.equal(out.applied, true, `el canal no se aplico (reason=${out.reason})`);
+  // Este es el escenario que caza la clase de defecto "el fix rompe todo lo demas": un store
+  // armado sin el trust del sistema se lleva puesto el trafico interceptado por un antivirus
+  // corporativo, y con el la conexion al Hub.
+  assert.equal(
+    out.perdidos,
+    0,
+    `el canal perdio ${out.perdidos} de los ${out.previos} certificados del trust preexistente`,
+  );
+  // Y ademas AGREGO el suyo: sin esto, un canal que no hiciera nada pasaria la asercion de
+  // arriba con honores.
+  assert.equal(out.caddyPresente, true, 'el CA de Caddy no quedo en el store efectivo');
 });
 
 // ---------- 7. IMPORT-SAFETY ----------

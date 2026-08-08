@@ -31,12 +31,19 @@ Estos tres los instalás vos; el resto lo hace el script.
    - Arrancá Claude Code **una vez** (para que cree `~/.claude/`): abrí la extensión o corré `claude --help` en Git Bash.
    - **El CLI `code`**: verificá con `code --version` en Git Bash. Si no lo encuentra, abrí VSCode →
      Ctrl+Shift+P → **"Shell Command: Install 'code' command in PATH"**, cerrá y volvé a abrir Git Bash.
-     (En el instalador de Windows es la opción **"Add to PATH"**.) El instalador del room lo necesita
-     para instalarte el **plugin Integra Hub**, y si no está **aborta**.
+     (En el instalador de Windows es la opción **"Add to PATH"**.) El instalador **de máquina** lo
+     necesita para instalarte el **plugin Integra Hub**: si tenés VSCode y falta el CLI, **aborta**
+     (no te anuncia éxito con el plugin sin instalar).
+
+> **¿No usás VSCode?** El punto 3 no es obligatorio. El camino **solo-CLI** (Claude Code en terminal
+>
+> - `specoe-launch-thinclient.sh`) está soportado: el instalador de máquina detecta que no hay VSCode,
+>   **saltea** el paso del plugin con un aviso y termina OK.
 
 > **El plugin Integra Hub NO lo instalás vos.** Viene dentro del starter (`vendor/integra-hub-vscode.vsix`)
-> y lo instala el instalador del room, que además le deja apuntada la URL del Hub. Si querés instalarlo
-> a mano igual —porque algo falló—, mirá "Si algo falla" al final.
+> y lo instala el **instalador de máquina** (`specoe-setup-host.sh`, paso 6) — **una vez por máquina**,
+> no una por room. El instalador del room le deja apuntada la URL del Hub. Si querés instalarlo a mano
+> igual —porque algo falló—, mirá "Si algo falla" al final.
 
 > Windows: los comandos van en **Git Bash**, no en PowerShell/CMD.
 
@@ -87,15 +94,28 @@ Hace lo que se comparte entre todos tus rooms:
    mecanismo único de CA): `ping` al server + un `fetch` de prueba al Hub. Si el canal no da,
    **aborta** — no imprime "Host listo". El mensaje te dice qué quedó aplicado (bundle, hosts, CA)
    y con qué comando retomar sin volver a pedir elevación: `./specoe-setup-host.sh --skip-elevation`.
-6. **Login SDD — es interactivo y te va a pedir tres cosas por pantalla.** El script llama a
+6. **Instala el plugin Integra Hub** (`vendor/integra-hub-vscode.vsix`) en tu VSCode. Es un paso
+   **por máquina**, no por room, y por eso vive acá y no en el instalador del room. Tres desenlaces:
+   - **Tenés VSCode y el CLI `code`** → lo instala y lo **verifica** con `code --list-extensions`.
+     No alcanza con que el comando salga bien: si la extensión no figura en el listado, **aborta**.
+   - **Tenés VSCode pero falta el CLI `code`** → **aborta** con la instrucción para instalarlo.
+     Retomás con `./specoe-setup-host.sh --skip-elevation`, sin volver a pedir elevación.
+   - **No tenés VSCode** → **saltea** el paso con un aviso y **sigue**: el camino solo-CLI está
+     soportado y no necesita el plugin.
+7. **Login SDD — es interactivo y te va a pedir tres cosas por pantalla.** El script llama a
    `./setup.sh --login`, que enrola esta máquina contra el Hub y guarda tu token de usuario + el
    `machineId` en el keyring del sistema. Te pregunta, en este orden:
    - **URL del Hub** — con default entre corchetes; en el piloto alcanza con **Enter**.
    - **Email de tu usuario del Hub** — el mismo de "Lo que te da Integra".
    - **Clave** — no se ve mientras la tipeás y nunca viaja por la línea de comandos.
 
-   Si el login falla, el host **no queda listo**. Se retoma solo con `./setup.sh --login`, sin
-   volver a pedir elevación.
+   **Es opcional acá si usás VSCode**: el plugin hace el **mismo** login unificado (paleta de
+   comandos → **"Integra Hub: Login"**, una credencial y una identidad). Si preferís hacerlo desde
+   ahí, corré el host con `--skip-login`. En una máquina **solo-CLI** este es el **único** canal.
+
+   Que sea opcional no lo vuelve inofensivo: si el login **falla**, falla — el instalador te lo dice
+   y no da el host por listo en ese punto. Se retoma solo con `./setup.sh --login` (o desde el
+   plugin), sin volver a pedir elevación.
 
 > **Después del host quedan uno o dos pasos que NO los hace el script.**
 > Los hace **un admin del tenant** en el Hub, y el instalador te dice en pantalla cuál te toca:
@@ -222,26 +242,73 @@ Verificación manual equivalente, si querés mirarlo vos mismo en la sesión de 
 
 ---
 
+## Quién hace cada paso
+
+Esta tabla es el inventario completo de pasos operativos del thin-client con su **dueño ejecutable**.
+Sirve para dos cosas: saber a qué herramienta ir cuando algo falta, y ver de un vistazo qué quedó
+irreducible y por qué. Ningún paso queda sin dueño.
+
+Los dueños posibles son cuatro:
+
+- **PLUGIN** — se ejecuta desde el plugin VSCode Integra Hub.
+- **INSTALADOR_MAQUINA** — lo hace `specoe-setup-host.sh`, una vez por máquina.
+- **IRREDUCIBLE_UAC** — paso elevado dentro del instalador de máquina. **No puede vivir en el
+  plugin**: una extensión de VSCode no escala privilegios de administrador. Son exactamente dos, y
+  están en la tabla con esa restricción nombrada.
+- **CLI_PRESERVADO** — equivalente por scripts, que se mantiene como camino soportado (máquinas
+  solo-CLI, automatización).
+
+| #   | Paso                                                             | Frecuencia                      | Dueño                                                                                                       |
+| --- | ---------------------------------------------------------------- | ------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| 1   | Exportar `INTEGRA_SDD_ROLE` en cada arranque de room             | cada arranque                   | PLUGIN (env en `createTerminal`) + CLI_PRESERVADO (`specoe-launch-thinclient.sh`)                           |
+| 2   | Exportar `INTEGRA_SDD_IDENTITY_MODE` en cada arranque            | cada arranque                   | PLUGIN + CLI_PRESERVADO (launcher); además persiste en `.mcp.json` como config estable del room             |
+| 3   | Exportar el tenant de la sesión (`INTEGRA_ACT_AS_TENANT`)        | cada arranque                   | PLUGIN + CLI_PRESERVADO (launcher)                                                                          |
+| 4   | Clonar/actualizar la carpeta del room (starter sparse)           | una vez por room                | PLUGIN (orquesta `specoe-add-room.sh`) + CLI_PRESERVADO                                                     |
+| 5   | Fijar `specoe.role` (y `specoe.tenant`) en `project.config.yaml` | una vez por room                | PLUGIN (via script orquestado) + CLI_PRESERVADO                                                             |
+| 6   | Guardar la licencia del rol en el keyring                        | una vez por room                | PLUGIN (via script orquestado; claves tenant-scoped) + CLI_PRESERVADO                                       |
+| 7   | Generar el `.mcp.json` del room                                  | una vez por room                | PLUGIN (via `setup.sh --room-only` orquestado; sin rol hardcodeado) + CLI_PRESERVADO                        |
+| 8   | Escribir `integraHub.baseUrl` en settings del room               | una vez por room                | PLUGIN (via script orquestado) + CLI_PRESERVADO                                                             |
+| 9   | Registrar el room en el roster del plugin                        | una vez por room                | PLUGIN — **paso ELIMINADO por autodetección**: la carpeta es el roster                                      |
+| 10  | Verificar la identidad SDD / el room servido                     | una vez por room (y ante dudas) | PLUGIN (muestra el resultado) + CLI_PRESERVADO (`specoe-verify-room.sh`)                                    |
+| 11  | Preflight de prerequisitos (Node, Claude Code, Git)              | una vez por máquina             | INSTALADOR_MAQUINA                                                                                          |
+| 12  | Instalar el bundle de hooks + `npm install`                      | una vez por máquina             | INSTALADOR_MAQUINA                                                                                          |
+| 13  | Copiar el CA a `~/.claude` (canal de los hooks)                  | una vez por máquina             | INSTALADOR_MAQUINA                                                                                          |
+| 14  | Verificación del canal del host (ping + fetch con CA)            | una vez por máquina             | INSTALADOR_MAQUINA                                                                                          |
+| 15  | Login SDD (una credencial, una identidad)                        | una vez por máquina y tenant    | PLUGIN (login unificado, «Integra Hub: Login») + CLI_PRESERVADO (`setup.sh --login` / paso 7 del host-flow) |
+| 16  | Instalar el `.vsix` del plugin                                   | una vez por máquina             | INSTALADOR_MAQUINA — **bootstrap**: el plugin no puede instalarse a sí mismo                                |
+| 17  | Entradas en `hosts` (`hub`/`mcp.integra.local`)                  | una vez por máquina             | **IRREDUCIBLE_UAC** — dentro del instalador de máquina; **una extensión no escala privilegios**             |
+| 18  | CA de Caddy al trust del sistema                                 | una vez por máquina             | **IRREDUCIBLE_UAC** — ídem: escribir en el trust del sistema exige elevación, y una extensión no la tiene   |
+
+> Los pasos 1–10 son por-room o por-arranque y los cubre el plugin (con su equivalente CLI siempre
+> disponible). Los 11–18 son por-máquina y los cubre `specoe-setup-host.sh` en **una sola corrida**.
+> Los únicos dos que no pueden mudarse al plugin son el 17 y el 18, y es por la elevación.
+
+<!-- Esta tabla está publicada DOS veces a propósito (README.md y docs/QUICKSTART-VSCODE.md).
+     Si cambia el modelo de dueños, se actualizan las dos. -->
+
+---
+
 ## Si algo falla
 
-| Síntoma                                                                                                                                                                                   | Causa probable                                                                                                                            | Fix                                                                                                                                                                                                                                                   |
-| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| MCP `specoe` no conecta                                                                                                                                                                   | JWT no poblado                                                                                                                            | Reabrí VSCode (el hook lo puebla al arrancar). Revisá el log de licencia.                                                                                                                                                                             |
-| Warning de TLS en el navegador                                                                                                                                                            | CA no instalado                                                                                                                           | Re-corré el install (acepta el UAC) o importá `certs/caddy-root-ca.crt` a "Entidades de certificación raíz de confianza".                                                                                                                             |
-| `unable to verify the first certificate` (Node)                                                                                                                                           | El CA del piloto no está en `~/.claude/caddy-local-root.crt`, o el que hay es de otro emisor                                              | Re-corré `./specoe-setup-host.sh --skip-elevation`: reemplaza el `.crt` local por el del starter y verifica el canal. **No** exportes `NODE_EXTRA_CA_CERTS`: bajo la extensión de VSCode esa variable no le llega al hook — el CA se lee del archivo. |
-| El hook no habla con el Hub y el instalador aborta por versión de Node                                                                                                                    | Node fuera del rango certificado (20.x, 22.18 o anterior, 23.x): no expone `tls.setDefaultCACertificates` y el canal TLS no puede armarse | Instalá una versión del rango: **22.19.0 a 26.x, Node 23 afuera**. Verificá con `node -v` y volvé a correr `./specoe-setup-host.sh --skip-elevation`.                                                                                                 |
-| `hub.integra.local` no resuelve                                                                                                                                                           | hosts sin entrada                                                                                                                         | Re-corré el install, o agregá `<IP> hub.integra.local` al hosts (admin).                                                                                                                                                                              |
-| `hub.integra.local` no resuelve y en el hosts la entrada aparece pegada al final de otra línea (típico con Norton / Avast / AVG: `... # gen digital helper server<IP> hub.integra.local`) | La instaló un starter viejo: el `hosts` no terminaba en salto de línea, así que la entrada quedó **después del `#` → comentada e inerte** | Re-corré el install con este starter: normaliza el archivo y vuelve a agregar la entrada sana. La línea pegada queda inerte, se puede borrar a mano (admin).                                                                                          |
-| `license expired` / `invalid signature`                                                                                                                                                   | licencia vencida/mal firmada                                                                                                              | Pedí license nueva a Integra.                                                                                                                                                                                                                         |
-| El instalador aborta con **`No encontre el CLI 'code' de VSCode en el PATH`**                                                                                                             | VSCode está instalado pero sin el CLI en el PATH (típico en Windows: en el instalador no se tildó "Add to PATH")                          | VSCode → Ctrl+Shift+P → **"Shell Command: Install 'code' command in PATH"**. Cerrá y volvé a abrir Git Bash y corré **el mismo comando**: el `.mcp.json` de la carpeta ya quedó escrito y la corrida retoma desde ahí.                                |
-| El instalador aborta con **`Falta el plugin VSCode: no esta el artefacto 'vendor/integra-hub-vscode.vsix'`**                                                                              | O el starter es anterior al release que vendoriza el plugin, o esta carpeta es un room recortado que no conserva `vendor/`                | Actualizá el starter (`git pull --ff-only`) y reintentá. Para distinguir las dos causas, el propio mensaje del instalador trae el comando (`git sparse-checkout list`).                                                                               |
-| El instalador aborta con **`El plugin NO quedó instalado`**                                                                                                                               | `code --install-extension` salió 0 pero la extensión no quedó — el instalador verifica el **efecto**, no el código de salida              | Corré a mano `code --install-extension vendor/integra-hub-vscode.vsix --force` para ver el error completo (ver abajo) y reportalo.                                                                                                                    |
-| El instalador dice **`[SKIP] .vscode/settings.json existe y no pude leerlo como JSON`**                                                                                                   | Tu `settings.json` de la carpeta tiene comentarios o una coma de más: no es JSON estricto y el instalador **no lo pisa** a propósito      | Agregale la clave a mano: `"integraHub.baseUrl": "<url del Hub>"`. El resto de tu config queda intacta.                                                                                                                                               |
-| El ícono de **Integra Hub** no aparece en la Activity Bar                                                                                                                                 | La extensión no quedó instalada, o VSCode venía abierto de antes                                                                          | Verificá con `code --list-extensions \| grep integrasoftwareerp`. Si figura, reabrí VSCode. Si no figura, corré `./setup.sh --room-only` en la carpeta del room.                                                                                      |
+| Síntoma                                                                                                                                                                                   | Causa probable                                                                                                                            | Fix                                                                                                                                                                                                                                                         |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| MCP `specoe` no conecta                                                                                                                                                                   | JWT no poblado                                                                                                                            | Reabrí VSCode (el hook lo puebla al arrancar). Revisá el log de licencia.                                                                                                                                                                                   |
+| Warning de TLS en el navegador                                                                                                                                                            | CA no instalado                                                                                                                           | Re-corré el install (acepta el UAC) o importá `certs/caddy-root-ca.crt` a "Entidades de certificación raíz de confianza".                                                                                                                                   |
+| `unable to verify the first certificate` (Node)                                                                                                                                           | El CA del piloto no está en `~/.claude/caddy-local-root.crt`, o el que hay es de otro emisor                                              | Re-corré `./specoe-setup-host.sh --skip-elevation`: reemplaza el `.crt` local por el del starter y verifica el canal. **No** exportes `NODE_EXTRA_CA_CERTS`: bajo la extensión de VSCode esa variable no le llega al hook — el CA se lee del archivo.       |
+| El hook no habla con el Hub y el instalador aborta por versión de Node                                                                                                                    | Node fuera del rango certificado (20.x, 22.18 o anterior, 23.x): no expone `tls.setDefaultCACertificates` y el canal TLS no puede armarse | Instalá una versión del rango: **22.19.0 a 26.x, Node 23 afuera**. Verificá con `node -v` y volvé a correr `./specoe-setup-host.sh --skip-elevation`.                                                                                                       |
+| `hub.integra.local` no resuelve                                                                                                                                                           | hosts sin entrada                                                                                                                         | Re-corré el install, o agregá `<IP> hub.integra.local` al hosts (admin).                                                                                                                                                                                    |
+| `hub.integra.local` no resuelve y en el hosts la entrada aparece pegada al final de otra línea (típico con Norton / Avast / AVG: `... # gen digital helper server<IP> hub.integra.local`) | La instaló un starter viejo: el `hosts` no terminaba en salto de línea, así que la entrada quedó **después del `#` → comentada e inerte** | Re-corré el install con este starter: normaliza el archivo y vuelve a agregar la entrada sana. La línea pegada queda inerte, se puede borrar a mano (admin).                                                                                                |
+| `license expired` / `invalid signature`                                                                                                                                                   | licencia vencida/mal firmada                                                                                                              | Pedí license nueva a Integra.                                                                                                                                                                                                                               |
+| El instalador de máquina aborta con **`PASO 6 (plugin VSCode): encontré VSCode en esta máquina ... pero NO el CLI 'code' en el PATH`**                                                    | VSCode está instalado pero sin el CLI en el PATH (típico en Windows: en el instalador no se tildó "Add to PATH")                          | VSCode → Ctrl+Shift+P → **"Shell Command: Install 'code' command in PATH"**. Cerrá y volvé a abrir Git Bash y retomá con `./specoe-setup-host.sh --skip-elevation` — el `--skip-elevation` evita una segunda ventana de UAC por algo que ya quedó aplicado. |
+| El instalador de máquina avisa **`NO detecté VSCode en esta máquina`** y saltea el plugin, pero vos SÍ tenés VSCode                                                                       | Falso negativo de la detección: no está el CLI `code` ni VSCode en las rutas de instalación estándar (p. ej. una instalación portable)    | Instalá el CLI (**"Shell Command: Install 'code' command in PATH"**) y retomá con `./specoe-setup-host.sh --skip-elevation`. Con el CLI en el PATH la detección da positivo y el paso corre.                                                                |
+| El instalador aborta con **`Falta el plugin VSCode: no esta el artefacto '<starter>/vendor/integra-hub-vscode.vsix'`**                                                                    | O el starter es anterior al release que vendoriza el plugin, o esa carpeta es un checkout recortado que no conserva `vendor/`             | Actualizá el starter (`git pull --ff-only`) y reintentá. Para distinguir las dos causas, el propio mensaje del instalador trae el comando (`git sparse-checkout list`).                                                                                     |
+| El instalador aborta con **`El plugin NO quedó instalado`**                                                                                                                               | `code --install-extension` salió 0 pero la extensión no quedó — el instalador verifica el **efecto**, no el código de salida              | Corré a mano `code --install-extension vendor/integra-hub-vscode.vsix --force` para ver el error completo (ver abajo) y reportalo.                                                                                                                          |
+| El instalador dice **`[SKIP] .vscode/settings.json existe y no pude leerlo como JSON`**                                                                                                   | Tu `settings.json` de la carpeta tiene comentarios o una coma de más: no es JSON estricto y el instalador **no lo pisa** a propósito      | Agregale la clave a mano: `"integraHub.baseUrl": "<url del Hub>"`. El resto de tu config queda intacta.                                                                                                                                                     |
+| El ícono de **Integra Hub** no aparece en la Activity Bar                                                                                                                                 | La extensión no quedó instalada, o VSCode venía abierto de antes                                                                          | Verificá con `code --list-extensions \| grep integrasoftwareerp`. Si figura, reabrí VSCode. Si no figura, corré `./specoe-setup-host.sh --skip-elevation` desde la **carpeta del starter** (el plugin es un paso por máquina, no por room).                 |
 
 ### Instalar el plugin a mano (solo si el instalador no pudo)
 
-El mecanismo normal es el instalador — esto es la salida de emergencia. Desde la carpeta del room:
+El mecanismo normal es el instalador de máquina — esto es la salida de emergencia. Desde la **carpeta del starter** (es ahí donde vive `vendor/`):
 
 ```bash
 code --install-extension vendor/integra-hub-vscode.vsix --force

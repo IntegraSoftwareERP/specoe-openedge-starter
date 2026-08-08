@@ -15,9 +15,11 @@
 # Identidad (SPEC-0157): el starter pide Hub URL + email + clave, llama
 # POST /auth/sdd/login y guarda el UserSddToken + machineId en el keyring del SO
 # (canal secrets.mjs). NINGÚN secreto queda en archivos: ni act-as, ni cuid de
-# tenant — el tenant lo resuelve el server a partir del token. El rol es config
-# de la carpeta (INTEGRA_SDD_ROLE en .mcp.json) y viaja como claim sin firma;
-# el Hub lo autoriza server-side contra los roles concedidos a tu usuario.
+# tenant — el tenant lo resuelve el server a partir del token. El rol es de la
+# SESIÓN (SPEC-0187 P2): viaja como claim sin firma en INTEGRA_SDD_ROLE, exportada
+# en el entorno del proceso por el launcher CLI o el plugin VSCode — el .mcp.json
+# NO lo porta, el subproceso MCP lo hereda del entorno. El Hub lo autoriza
+# server-side contra los roles concedidos a tu usuario.
 # Credenciales no interactivas (CI/automación): INTEGRA_HUB_EMAIL +
 # INTEGRA_HUB_PASSWORD + INTEGRA_HUB_API_URL en el entorno.
 #
@@ -108,37 +110,19 @@ specoe_local_ca() {
   return 0
 }
 
-# ----- Lectura de un campo del yaml ANCLADA a su seccion (SPEC-0167 P2, T2.1) -----
-# `specoe_yaml_get <archivo> <seccion>.<clave>` devuelve el valor de la clave DENTRO del
-# bloque de su seccion. El validador de config leia el ultimo segmento del nombre con
-# `grep -E "^\s*<clave>:" | head -1` sobre el archivo ENTERO: eso agarra la PRIMERA
-# coincidencia en orden de archivo, asi que una clave homonima ubicada ANTES del campo
-# objetivo gana y el check evalua un campo distinto del que declara evaluar. Andaba por el
-# orden de las claves del template, no por construccion.
-# Devuelve vacio si la seccion o la clave no estan. Quita comillas y comentario inline.
-specoe_yaml_get() {
-  local file="$1" section="${2%%.*}" key="${2#*.}"
-  [ -f "$file" ] || return 0
-  awk -v sec="$section" -v key="$key" -v q="'" '
-    # Toda linea sin indentar abre un bloque top-level (y cierra el anterior).
-    /^[^[:space:]]/ { inblock = (index($0, sec ":") == 1); next }
-    !inblock { next }
-    $0 !~ "^[[:space:]]+" key ":" { next }
-    {
-      v = $0
-      sub("^[[:space:]]+" key ":[[:space:]]*", "", v)
-      if (substr(v, 1, 1) == q) {                       # valor entre comillas simples
-        v = substr(v, 2); i = index(v, q); if (i > 0) v = substr(v, 1, i - 1)
-      } else if (substr(v, 1, 1) == "\"") {             # entre comillas dobles
-        v = substr(v, 2); i = index(v, "\""); if (i > 0) v = substr(v, 1, i - 1)
-      } else {                                          # pelado, con comentario inline opcional
-        sub(/[[:space:]]*#.*$/, "", v); sub(/[[:space:]]+$/, "", v)
-      }
-      print v
-      exit
-    }
-  ' "$file"
-}
+# ----- Lectura/escritura de campos del yaml ANCLADAS a su seccion (SPEC-0167 P2, T2.1) -----
+# `specoe_yaml_get` y `specoe_yaml_set` viven en specoe-yaml.sh desde SPEC-0187 P7: los
+# necesitan tambien el launcher (exporta el tenant del room) y specoe-add-room.sh (lo fija).
+# Una segunda copia del parser reintroduce el defecto que el helper vino a cerrar — dos
+# lecturas del MISMO archivo con criterios distintos (TKT-0256).
+# shellcheck source=specoe-yaml.sh
+if [ -f "$SCRIPT_DIR/specoe-yaml.sh" ]; then
+  source "$SCRIPT_DIR/specoe-yaml.sh"
+else
+  err "Falta $SCRIPT_DIR/specoe-yaml.sh — el helper que lee y escribe el project.config.yaml.
+  Sin el, este instalador no puede resolver ni el rol ni el tenant de la carpeta, asi que corto en vez de seguir con valores vacios.
+  Actualizá el starter de esta carpeta (git -C \"$SCRIPT_DIR\" pull --ff-only) y volvé a correr el MISMO comando."
+fi
 
 # ----- Universo del check de config (SPEC-0167 P2, ADR-003) -----
 # CINCO campos. `paths.workspace-root` entra porque es un path absoluto al workspace del
@@ -328,6 +312,12 @@ else
   install_force "$BUNDLE_DIR/hooks/sdd-identity.mjs"              "$CLAUDE_HOME/hooks/sdd-identity.mjs"
   install_force "$BUNDLE_DIR/scripts/provision-secrets.mjs"       "$CLAUDE_HOME/scripts/provision-secrets.mjs"
   install_force "$BUNDLE_DIR/scripts/sdd-login.mjs"               "$CLAUDE_HOME/scripts/sdd-login.mjs"
+  # SPEC-0187 P5: el CLI del canal de identidad. Es la interfaz que consumen los procesos de
+  # AFUERA del bundle (el plugin VSCode por child_process) — si no viaja al host, el consumidor
+  # no tiene canal y vuelve a armarse su propio almacen de credenciales, que es el doble login
+  # que la SPEC cierra. Importa ./sdd-login.mjs y ../hooks/{secrets,sdd-identity}.mjs, todos ya
+  # en esta misma lista.
+  install_force "$BUNDLE_DIR/scripts/specoe-identity.mjs"         "$CLAUDE_HOME/scripts/specoe-identity.mjs"
   # SPEC-0167 P3 (T3.4): el motor del verificador viaja al HOST. Antes no se instalaba en
   # ningun lado y specoe-verify-room.sh lo resolvia dentro de la carpeta del room
   # ($SCRIPT_DIR/.claude-bundle/scripts), que es justo lo que el recorte del room saca. Sus dos
@@ -431,6 +421,23 @@ ROBOT_STORED="$(json_field "$LOGIN_JSON" robot.tokenStored)"
 ROBOT_POOL="$(json_field "$LOGIN_JSON" robot.seatPoolExhausted)"
 
 log "  Login OK — tenant '$TENANT_SLUG'. UserSddToken + machineId guardados en el keyring."
+
+# SPEC-0187 P7 — el login guarda la identidad bajo las claves de ESE tenant. Si la carpeta no
+# declara ninguno, se lo dejamos declarado con el slug que acaba de devolver el Hub: sin eso,
+# una carpeta con dos tenants en la maquina no sabria cual de las dos identidades es la suya, y
+# la sesion arrancaria con el aviso de "no declara tenant" el primer dia. No se pisa un tenant
+# ya declarado: si la carpeta dice otro, esa declaracion es del operador y el aviso del arranque
+# es la respuesta correcta, no una reescritura silenciosa.
+if [ -n "$TENANT_SLUG" ] && [ -f project.config.yaml ]; then
+  ROOM_TENANT_ACTUAL="$(specoe_yaml_get project.config.yaml specoe.tenant)"
+  if [ -z "$ROOM_TENANT_ACTUAL" ]; then
+    specoe_yaml_set project.config.yaml specoe.tenant "$TENANT_SLUG"
+    log "  specoe.tenant='$TENANT_SLUG' declarado en project.config.yaml (lo exporta el launcher como INTEGRA_SDD_TENANT)."
+  elif [ "$ROOM_TENANT_ACTUAL" != "$TENANT_SLUG" ]; then
+    warn "  Esta carpeta declara specoe.tenant='$ROOM_TENANT_ACTUAL' y el login fue del tenant '$TENANT_SLUG'."
+    warn "    → No lo piso: si la carpeta es del otro tenant, hacé el login con el usuario de ESE tenant; si la declaracion esta mal, corregila a mano."
+  fi
+fi
 log "  Roles SDD de tu usuario: ${USER_ROLES:-<ninguno>}"
 [ -n "$USER_ROLES" ] || warn "  Tu usuario no tiene roles SDD concedidos — un ADMIN del tenant te los concede en el Hub (Administración → SDD → Roles por usuario)."
 
@@ -576,12 +583,16 @@ fi
 # El starter renderizado al repo publico NO trae .mcp.json (lleva el bearer del skill-server),
 # asi que sin este paso Claude Code no conecta a los MCP. Genera/actualiza DOS servers:
 #   - specoe (skill-server): placeholders, el SessionStart hook lo puebla con el JWT fresco.
-#   - integra-hub (SPEC-0157): modo USER — la identidad sale del keyring (login SDD), el rol
-#     es config de ESTA carpeta (INTEGRA_SDD_ROLE, claim sin firma que el Hub autoriza
-#     server-side). SIN secretos act-as, SIN credenciales, SIN cuid de tenant: el tenant lo
-#     resuelve el server a partir del token del usuario.
+#   - integra-hub (SPEC-0157): modo USER — la identidad sale del keyring (login SDD). El rol
+#     NO va en este archivo (SPEC-0187 P2): es de la SESIÓN — INTEGRA_SDD_ROLE la exporta el
+#     launcher CLI o el plugin VSCode y el subproceso MCP la hereda del entorno, así hook,
+#     cliente MCP y header x-sdd-role leen EL MISMO valor por construcción. SIN secretos
+#     act-as, SIN credenciales, SIN cuid de tenant: el tenant lo resuelve el server a partir
+#     del token del usuario.
 # Idempotente y preservador: no pisa `specoe` si ya existe ni borra otros servers; el entry
-# `integra-hub` sí se regenera (es config derivada del yaml, no estado del dev).
+# `integra-hub` sí se regenera (es config derivada del yaml, no estado del dev) — y esa
+# regeneración es también la migración: una re-corrida sobre un .mcp.json viejo que traía
+# INTEGRA_SDD_ROLE la elimina.
 
 # Precondicion dura del artefacto del MCP (SPEC-0165 P4 / T4.2). El entry integra-hub que se
 # escribe abajo apunta al bundle VENDORIZADO con path relativo al cwd del room — el mismo cwd
@@ -609,14 +620,23 @@ log "Generando/actualizando .mcp.json (specoe + integra-hub modo USER)..."
 ROOM_ROLE="$(specoe_yaml_get project.config.yaml specoe.role)"
 MCP_HUB_URL="${HUB_URL:-$(specoe_yaml_get project.config.yaml hub.api-url)}"
 MCP_HUB_URL="${MCP_HUB_URL:-https://hub.integra.local/api/v1}"
-[ -n "$ROOM_ROLE" ] || warn "  specoe.role está vacío en project.config.yaml — .mcp.json queda SIN INTEGRA_SDD_ROLE (el Hub va a responder SDD_SESSION_ROLE_CLAIM_MISSING). Fijalo con specoe-add-room.sh <ROL>."
+ROOM_TENANT="$(specoe_yaml_get project.config.yaml specoe.tenant)"
+# SPEC-0187 P7 — el tenant tampoco viaja al .mcp.json, por la misma razon que el rol (P2): es de
+# la SESION. El launcher lo exporta como INTEGRA_SDD_TENANT desde esta clave, y el hook de
+# licencia la lee del yaml cuando la carpeta se abre a mano.
+if [ -n "$ROOM_TENANT" ]; then
+  log "  specoe.tenant='$ROOM_TENANT' — identidad y licencia de esta carpeta se resuelven bajo ese tenant."
+else
+  log "  specoe.tenant vacío — la carpeta opera en modo single-tenant (claves sin dimension tenant). Declaralo con specoe-add-room.sh --tenant <slug> o corriendo ./setup.sh --login."
+fi
+[ -n "$ROOM_ROLE" ] || warn "  specoe.role está vacío en project.config.yaml — es la DECLARACIÓN del rol del room, la consumen los launchers/UI (nunca los hooks ni el .mcp.json: el rol efectivo lo declara cada SESIÓN exportando INTEGRA_SDD_ROLE, SPEC-0187 P2). Fijalo con specoe-add-room.sh <ROL>."
 
 NODE_BIN="$(specoe_node_bin)"
 MCP_CA="$(specoe_local_ca)"
 
-"$NODE_BIN" - "$ROOM_ROLE" "$MCP_HUB_URL" "$MCP_CA" "$MCP_BUNDLE" <<'EOF'
+"$NODE_BIN" - "$MCP_HUB_URL" "$MCP_CA" "$MCP_BUNDLE" <<'EOF'
 const fs = require('fs');
-const [role, hubUrl, caPath, bundle] = process.argv.slice(2);
+const [hubUrl, caPath, bundle] = process.argv.slice(2);
 let doc = { mcpServers: {} };
 try {
   doc = JSON.parse(fs.readFileSync('.mcp.json', 'utf8'));
@@ -641,11 +661,20 @@ if (!doc.mcpServers.specoe) {
 // a QUE apunta — el bundle vendorizado que viene dentro de la carpeta (SPEC-0165 P4 / T4.1),
 // no un node_modules/ que este instalador nunca instala. La existencia del archivo ya se
 // verifico mas arriba con err.
+// SPEC-0187 P2: INTEGRA_SDD_ROLE ya NO se escribe aca. El rol es de la SESION (lo exporta el
+// launcher CLI o el plugin VSCode) y el subproceso MCP lo hereda del entorno del proceso que
+// lo spawnea — hook, cliente MCP y header x-sdd-role leen EL MISMO valor por construccion
+// (verificado en el Step 0 de la fase, AP9). Reescribir el entry completo es tambien la
+// migracion: si un .mcp.json previo traia la clave, la regeneracion la elimina.
+const hadRole = Boolean(
+  doc.mcpServers['integra-hub'] &&
+  doc.mcpServers['integra-hub'].env &&
+  doc.mcpServers['integra-hub'].env.INTEGRA_SDD_ROLE
+);
 const env = {
   INTEGRA_HUB_API_URL: hubUrl,
   INTEGRA_SDD_IDENTITY_MODE: 'USER',
 };
-if (role) env.INTEGRA_SDD_ROLE = role;
 if (caPath) env.NODE_EXTRA_CA_CERTS = caPath;
 // --use-system-ca: SEGUNDO camino al mismo CA, independiente del env (TKT-0261). El bundle
 // vendorizado NO arma canal de CA propio: su unica via era NODE_EXTRA_CA_CERTS, o sea que la
@@ -661,66 +690,21 @@ doc.mcpServers['integra-hub'] = {
   args: ['--use-system-ca', bundle],
   env,
 };
-console.log(`  [WRITE]   mcpServers.integra-hub (modo USER${role ? ', rol ' + role : ', SIN rol'})`);
+if (hadRole) console.log('  [MIGRATE] mcpServers.integra-hub: INTEGRA_SDD_ROLE eliminada — el rol es de la sesion (SPEC-0187 P2)');
+console.log('  [WRITE]   mcpServers.integra-hub (modo USER, sin rol: lo declara la sesion por entorno)');
 
 fs.writeFileSync('.mcp.json', JSON.stringify(doc, null, 2) + '\n');
 EOF
 
-# ----- 5.6. Instalar el plugin VSCode Integra Hub -----
-# ESTE PASO VA DESPUES DEL 5.5 A PROPOSITO (SPEC-0165 P5 / T5.2). El corte por falta del CLI
-# `code` de aca abajo mata la corrida, y el risk_flag de esta fase exige que ese corte NO deje
-# el room a medio configurar: su caso vinculante falla explicitamente "si el room queda sin
-# .mcp.json". Esa condicion solo se cumple si el .mcp.json YA se escribio, o sea con este paso
-# DESPUES del 5.5. Subirlo arriba hace fallar el caso por construccion.
-
-log "Instalando el plugin VSCode Integra Hub..."
-
-# El chequeo del CLI `code` es precondicion DURA de ESTE paso, no del bloque general de
-# prerrequisitos (SPEC-0165 P5 / T5.1): `--host-only` y `--login` tienen que seguir corriendo en
-# maquinas sin VSCode, y los dos saltan este bloque entero via DO_ROOM=0. Es `err` y no `warn`
-# —a diferencia del chequeo de `claude` de mas arriba— porque con warn el instalador anuncia
-# exito con el plugin sin instalar, que es el verde-falso que esta SPEC viene a cerrar (O8).
-command -v code >/dev/null 2>&1 || err "No encontre el CLI 'code' de VSCode en el PATH, y sin el no puedo instalar el plugin Integra Hub en esta maquina.
-  Si VSCode YA esta instalado, lo que falta es el CLI: abri VSCode, tocá Ctrl+Shift+P (paleta de comandos) y corré «Shell Command: Install 'code' command in PATH». Cerrá y volvé a abrir Git Bash para que tome el PATH nuevo.
-  Si VSCode NO esta instalado: bajalo de https://code.visualstudio.com y en el instalador de Windows tildá «Add to PATH».
-  Después, volvé a correr el MISMO comando: el .mcp.json de esta carpeta ya quedó escrito y este paso retoma desde acá."
-
-VSIX_PATH="vendor/integra-hub-vscode.vsix"
-VSIX_EXT_ID="integrasoftwareerp.integra-hub-vscode"
-
-# Mismo par de causas que el corte del bundle del MCP de mas arriba: o el starter es anterior al
-# release que vendoriza los artefactos, o esta carpeta es un room recortado sin '/vendor/' en la
-# lista INCLUSIVA de specoe-add-room.sh.
-[ -f "$VSIX_PATH" ] || err "Falta el plugin VSCode: no esta el artefacto '$VSIX_PATH' en esta carpeta.
-  Hay DOS causas posibles y hay que descartar las dos:
-    a) el starter de esta carpeta es anterior al release que vendoriza el plugin — actualizalo (git -C \"$SCRIPT_DIR\" pull --ff-only) y volvé a correr el MISMO comando;
-    b) esta carpeta es un room recortado y '/vendor/' no quedo en SPECOE_ROOM_KEEP (la lista INCLUSIVA de specoe-add-room.sh): entonces el clon del room NO lo trae aunque el starter lo tenga.
-  Para distinguirlas: git -C \"$SCRIPT_DIR\" sparse-checkout list   (si no devuelve nada, esta carpeta no es un room recortado y es (a); si devuelve la lista y '/vendor/' no figura, es (b))."
-
-code --install-extension "$VSIX_PATH" --force || err "Falló 'code --install-extension $VSIX_PATH --force' — el plugin Integra Hub no quedó instalado.
-  Revisá el mensaje del CLI de arriba. Si VSCode está abierto, cerralo y reintentá el MISMO comando."
-
-# Verificacion POSTERIOR, sobre el EFECTO y no sobre el exit code (T5.2): `--install-extension`
-# puede salir 0 sin dejar nada instalado, asi que el unico dato que vale es que la extension
-# figure en el listado. Se captura a variable en vez de encadenar un pipe a `grep -q`: con
-# `set -o pipefail`, el grep que corta temprano le manda SIGPIPE al productor y la pipeline
-# devolveria 141 aunque el match haya sido exitoso.
-#   - `tr -d '\r'`: en Git Bash la salida puede venir con CRLF y el match de linea completa
-#     fallaria por el \r.
-#   - `tr '[:upper:]' '[:lower:]'`: el id de una extension es case-insensitive para VSCode y el
-#     listado no garantiza el casing del manifiesto. La comparacion se hace en minusculas contra
-#     $VSIX_EXT_ID, que es minuscula por construccion (publisher + name del manifiesto).
-#     NO se usa `grep -i`: en el GNU grep 3.0 de Git Bash (MSYS2) la combinacion `-F -i` ABORTA
-#     con SIGABRT (rc=134) en vez de matchear — verificado en este banco, y daba un falso
-#     negativo con la extension REALMENTE instalada. Si alguien "arregla" esto agregando -i,
-#     vuelve el bug.
-#   - `grep -Fx`: literal y linea COMPLETA, no substring.
-VSIX_INSTALLED_LIST="$(code --list-extensions 2>/dev/null | tr -d '\r' | tr '[:upper:]' '[:lower:]' || true)"
-grep -Fxq "$VSIX_EXT_ID" <<<"$VSIX_INSTALLED_LIST" || err "El plugin NO quedó instalado: 'code --list-extensions' no lista '$VSIX_EXT_ID' después de instalar '$VSIX_PATH'.
-  El comando de instalación no reportó error, así que el efecto es lo único que vale acá.
-  Probá instalarlo a mano para ver el error completo: code --install-extension $VSIX_PATH --force
-  Si el problema persiste, reportalo a Integra Software (soporte@integrasoftware.biz) con esa salida."
-log "  [OK]      $VSIX_EXT_ID instalado (verificado con code --list-extensions)"
+# ----- 5.6. (LIBRE) -----
+# Acá vivía «Instalar el plugin VSCode Integra Hub». SPEC-0187 P9 / T9.1 lo MUDÓ al flujo de
+# máquina (specoe-setup-host.sh, paso 6), porque su frecuencia real es por-máquina y no por-room:
+# el .vsix se instala en el VSCode del usuario, no en esta carpeta. Estando acá, cada room nuevo
+# repetía la instalación y —peor— el corte duro por falta del CLI `code` mataba la corrida de un
+# room en máquinas donde el plugin YA estaba puesto, y en máquinas solo-CLI que no lo necesitan.
+# El room-flow ya NO chequea el CLI `code` ni corta por él.
+# El criterio anti-verde-falso de SPEC-0165 P5 NO se perdió en la mudanza: viaja con el paso como
+# el caso (b) de la matriz del host-flow (VSCode presente sin el CLI → err duro, no warn).
 
 # ----- 5.7. baseUrl del plugin en el settings de workspace del room -----
 # Decision del Operador sobre Q1 (2026-07-27, "Usable solo baseUrl"): el instalador puebla
@@ -768,7 +752,7 @@ fs.writeFileSync(FILE, JSON.stringify(doc, null, 2) + '\n');
 console.log(`  [WRITE]   integraHub.baseUrl = ${hubUrl}`);
 EOF
 
-fi # cierra: if DO_ROOM (parte de carpeta — config + .mcp.json + plugin VSCode)
+fi # cierra: if DO_ROOM (parte de carpeta — config + .mcp.json + settings de workspace)
 
 # ----- 6. Next steps -----
 
@@ -789,6 +773,9 @@ else
   log "  2. Iniciar Claude Code: claude"
   log "  3. Ver docs/QUICKSTART-VSCODE.md para el arranque en VSCode"
   log "  (project.config.yaml ya paso el check de config: campos obligatorios completos y editados)"
+  # El plugin ya no se instala acá (SPEC-0187 P9 / T9.1): nombrar quién lo hace evita que el dev
+  # lo dé por instalado por haber corrido este script.
+  log "  (el plugin VSCode Integra Hub lo instala el flujo de MÁQUINA —specoe-setup-host.sh, paso 6—, 1 vez por máquina y no por room)"
   log ""
   # TKT-0256: mismo criterio que la lectura del paso 5.5 — el resumen final mostraba la URL con
   # las comillas simples del template adentro, o sea distinta de la que decia haber configurado.

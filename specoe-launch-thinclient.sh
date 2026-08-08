@@ -5,10 +5,12 @@
 # Modelo por usuario: la identidad es el token de TU usuario (guardado en el
 # keyring por el login de setup.sh/specoe-setup-host.sh) + el enrolamiento del
 # equipo. Acá NO viaja ningún secreto de rol ni cuid de tenant: el tenant lo
-# resuelve el server a partir del token, y el rol es un CLAIM declarado por la
-# carpeta/sesión (x-sdd-role, sin firma) que el Hub autoriza server-side contra
-# los roles concedidos a tu usuario. Declarar un rol no concedido rebota 403
-# SDD_ROLE_NOT_GRANTED — por eso este script no necesita validar nada más.
+# resuelve el server a partir del token, y el rol es un CLAIM de la SESIÓN
+# (x-sdd-role, sin firma): viaja por INTEGRA_SDD_ROLE exportada en el entorno del
+# proceso — el .mcp.json del room NO lo porta (SPEC-0187 P2), el subproceso MCP lo
+# hereda de esta shell. El Hub lo autoriza server-side contra los roles concedidos
+# a tu usuario. Declarar un rol no concedido rebota 403 SDD_ROLE_NOT_GRANTED —
+# por eso este script no necesita validar nada más.
 #
 # Uso:
 #   ./specoe-launch-thinclient.sh <ROL>
@@ -47,6 +49,30 @@ esac
 export INTEGRA_SDD_ROLE="$ROLE"
 export INTEGRA_SDD_IDENTITY_MODE="USER"
 
+# SPEC-0187 P7 — el tenant de la sesion, desde la declaracion del room. Es el selector que
+# resuelve QUE identidad y QUE licencia del keyring usa esta sesion: sin el, una maquina con dos
+# tenants no sabe cual de las dos identidades es la de esta carpeta.
+#
+# La env es INTEGRA_SDD_TENANT y NO INTEGRA_ACT_AS_TENANT (Step 0 de la fase, AP8): el valor de
+# esa otra es el Tenant.id del contrato scoped —el Hub rebota 403 ACT_AS_TENANT_MISMATCH si no
+# coincide con el tenant del JWT del firmante— y lo que dimensiona estas claves es el tenantSlug,
+# que es otro campo. Reusar el nombre andaba de casualidad en integra-piloto (donde id y slug
+# coinciden) y rompia en el primer cliente con cuid.
+#
+# Sin `specoe.tenant` declarado no se exporta nada: la sesion queda en modo single-tenant y las
+# lecturas caen a las claves legacy — que es el piloto instalado, y no se rompe.
+# shellcheck source=specoe-yaml.sh
+if [ -f "$SCRIPT_DIR/specoe-yaml.sh" ]; then
+  source "$SCRIPT_DIR/specoe-yaml.sh"
+  ROOM_TENANT="$(specoe_yaml_get "$SCRIPT_DIR/project.config.yaml" specoe.tenant)"
+  if [ -n "$ROOM_TENANT" ]; then
+    export INTEGRA_SDD_TENANT="$ROOM_TENANT"
+  fi
+else
+  warn "Falta $SCRIPT_DIR/specoe-yaml.sh: no puedo leer specoe.tenant, la sesion arranca sin declarar tenant."
+  warn "  → Actualizá el starter de esta carpeta (git -C \"$SCRIPT_DIR\" pull --ff-only). Si esta maquina tiene identidad de un solo tenant, no cambia nada."
+fi
+
 # Chequeo accionable del material de identidad (no bloquea: el borde real es el
 # 401/403 del Hub — esto es UX para no descubrirlo recién adentro de la sesión).
 NODE_BIN="$(specoe_node_bin)"
@@ -63,7 +89,7 @@ else
 fi
 
 log "=== Sesion SDD thin-client: rol $ROLE (identidad por usuario) ==="
-log "INTEGRA_SDD_ROLE=$ROLE  INTEGRA_SDD_IDENTITY_MODE=USER"
+log "INTEGRA_SDD_ROLE=$ROLE  INTEGRA_SDD_IDENTITY_MODE=USER  INTEGRA_SDD_TENANT=${INTEGRA_SDD_TENANT:-<sin declarar: modo single-tenant>}"
 log "Si el Hub responde 403, traducí el código: bash \"$SCRIPT_DIR/specoe-gate-messages.sh\" <CODIGO> $ROLE"
 log "Shell lista. Abri tu sesion desde aca: 'code .' o 'claude' heredan el entorno."
 

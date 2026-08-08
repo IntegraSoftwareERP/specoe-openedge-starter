@@ -33,7 +33,7 @@ specoe_gate_message() {
       echo "Tu usuario no tiene un seat activo de la licencia SDD. Lo resuelve un ADMIN del tenant: asignarte un seat (Administración → SDD → Seats). Si el pool está agotado, el admin tiene que liberar un seat o ampliar la licencia con Integra."
       ;;
     SDD_SESSION_ROLE_CLAIM_MISSING)
-      echo "La sesión SDD llegó al Hub sin rol declarado (falta el header x-sdd-role). Lo resolvés VOS: el .mcp.json de esta carpeta no tiene INTEGRA_SDD_ROLE — regenerá la config del room (./specoe-add-room.sh <ROL> ... o ./setup.sh --room-only) y reabrí la sesión."
+      echo "La sesión SDD llegó al Hub sin rol declarado (falta el header x-sdd-role). Lo resolvés VOS: el rol es de la SESIÓN, no del .mcp.json (SPEC-0187 P2) — esta sesión se abrió sin INTEGRA_SDD_ROLE en el entorno. Cerrá la sesión y reabrila con el launcher (./specoe-launch-thinclient.sh <ROL>) o desde el plugin de VSCode, que exportan el rol al entorno. Regenerar el .mcp.json NO lo repone."
       ;;
     *)
       echo "Código '${code:-<vacío>}' no mapeado. Revisá el campo 'message' del error del Hub; si es un 403 del gate SDD, contactá al admin del tenant con el código exacto."

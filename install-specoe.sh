@@ -3,7 +3,9 @@
 #
 # Hace host + UN room en un solo comando. Es un COMPOSER de los scripts separados (no duplica):
 #   specoe-setup-host.sh   → 1 vez por máquina (pre-req + hosts + CA + bundle + verificación
-#                            + login SDD: pide TU email + clave del Hub y enrola el equipo — SPEC-0157)
+#                            + plugin VSCode (.vsix — SPEC-0187 P9: es por máquina, no por room;
+#                            sin VSCode se salta) + login SDD: pide TU email + clave del Hub y
+#                            enrola el equipo — SPEC-0157)
 #   specoe-add-room.sh     → 1 vez por room  (carpeta + specoe.role + .mcp.json con el rol + licencia del rol)
 #
 # Identidad por usuario: el login guarda el token en el keyring; NINGÚN secreto
@@ -40,7 +42,7 @@ while [[ $# -gt 0 ]]; do
     --ip)   HOST_ARGS+=(--ip "$2");  shift 2 ;;
     --repo) REPO_URL="$2"; shift 2 ;;
     --skip-elevation) HOST_ARGS+=(--skip-elevation); shift ;;
-    -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,26p' "$0"; exit 0 ;;
     -*) err "Opción desconocida: $1 (ver --help)" ;;
     *)
       if [ -z "$LICENSE_KEY" ]; then LICENSE_KEY="$1"; shift

@@ -37,7 +37,12 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { pathToFileURL } from 'node:url';
 import { applyCaChannel, describeNetworkError, DEFAULT_CA_PATH } from './ca-channel.mjs';
-import { resolveUserContext } from './sdd-identity.mjs';
+import {
+  resolveUserContext,
+  resolveSessionTenant,
+  readIdentityMaterialScoped,
+  scopedName,
+} from './sdd-identity.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -232,18 +237,55 @@ async function resolveRole() {
   }
 }
 
-async function getLicenseKey() {
+// SPEC-0187 P7 — el tenant de ESTA carpeta. Precedencia: la env del selector (que exportan los
+// launchers) > la clave `specoe.tenant` del yaml del room. Se lee tambien del yaml a proposito:
+// una carpeta abierta a mano (doble click, `code .`) no tiene la env, y ahi el room igual sabe
+// de que tenant es — sin esto, abrir sin launcher caeria al fallback legacy en una maquina
+// multi-tenant, que es exactamente el pisado silencioso que la fase cierra.
+// Parser minimo con el mismo criterio que `role:` y `api-url:`: la unica clave `tenant:` del
+// yaml vive bajo `specoe:`.
+async function resolveTenant() {
+  const fromEnv = resolveSessionTenant();
+  if (fromEnv) return fromEnv;
+  try {
+    const yaml = await fs.readFile(path.join(PROJECT_DIR, 'project.config.yaml'), 'utf8');
+    const m = yaml.match(/^\s*tenant:\s*['"]?([^'"\n#]*?)['"]?\s*(#.*)?$/m);
+    const value = m && m[1] ? m[1].trim() : '';
+    return value || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Los accounts del keyring donde puede vivir la licencia de este room, en orden de prueba.
+ *
+ * SPEC-0187 P7 — con tenant declarado la lista NO contiene ningun account legacy: una licencia
+ * guardada sin tenant pertenece a la instalacion anterior y puede ser de OTRO tenant. Caer a
+ * ella seria el fallback silencioso que la fase cierra. Es funcion aparte y exportada porque el
+ * criterio se verifica en la suite sin depender del keyring del SO.
+ */
+export function licenseAccountsFor(tenantSlug, role) {
+  const accounts = tenantSlug
+    ? [scopedName(tenantSlug, role), scopedName(tenantSlug, 'default')]
+    : [role, 'default'];
+  return accounts.filter(Boolean);
+}
+
+async function getLicenseKey(tenantSlug = null) {
   // 1. Env var
   if (process.env.SPECOE_LICENSE_KEY) return process.env.SPECOE_LICENSE_KEY;
 
   // 2. Keyring — multi-rol: account = rol de la carpeta; fallback 'default'
   //    (retrocompat 1-rol). getPassword tira si el account no existe → probamos uno a uno.
+  //    SPEC-0187 P7 — con tenant declarado, los accounts son '<slug>:<ROL>' / '<slug>:default'
+  //    y NO se prueban los legacy: una licencia de otro tenant no es una licencia de este.
   try {
     const kr = await import('@napi-rs/keyring').catch(() => null);
     if (kr) {
       const { Entry } = kr;
       const role = await resolveRole();
-      for (const account of [role, 'default'].filter(Boolean)) {
+      for (const account of licenseAccountsFor(tenantSlug, role)) {
         try {
           const key = new Entry('specoe-license', account).getPassword();
           if (key) return key;
@@ -257,8 +299,17 @@ async function getLicenseKey() {
   }
 
   // 3. Cache file de ultima validacion (retiene key para offline grace)
+  //    SPEC-0187 P7 — el cache es POR CARPETA, pero una carpeta puede cambiar de tenant: si el
+  //    room declara uno distinto del que valido esa key, el cache es de OTRO tenant y usarlo
+  //    seria el fallback silencioso por la puerta de atras. Se descarta (el `tenantSlug` lo
+  //    escribe el camino de validacion de mas abajo; un cache anterior a esta fase no lo tiene
+  //    y sigue sirviendo para el room que nunca declaro tenant).
   const cache = await readCache();
-  if (cache?.licenseKey) return cache.licenseKey;
+  if (cache?.licenseKey) {
+    if (!tenantSlug || !cache.tenantSlug || cache.tenantSlug === tenantSlug) {
+      return cache.licenseKey;
+    }
+  }
 
   return null;
 }
@@ -769,15 +820,200 @@ export function buildRoleNotice(roleResolution) {
  * `roleResolution` (MACHINE-mode, ADR-006): ahi no hay veredicto que registrar, pero lo que
  * el room declaro sigue siendo el dato util.
  */
-export function buildRoleResolutionLog({ roleResolution, declaredRole }) {
+export function buildRoleResolutionLog({ roleResolution, declaredRole, machineAuthorization }) {
   const outcome = roleResolution?.outcome ?? null;
+  // SPEC-0187 P4 — el status de autorizacion del equipo entra en la MISMA linea que el
+  // veredicto de rol: las dos cosas explican por que una sesion opera sin catalogo, y
+  // separarlas en dos lineas obligaria a cruzarlas por timestamp para contar poblaciones.
+  // `null` cuando el bloque no vino (Hub viejo, o USER-mode sin userContext): la ausencia se
+  // registra como ausencia, no como un estado inventado.
+  const machineAuthStatus = machineAuthorization?.status ?? null;
   return {
     level: outcome === OUTCOME_ROLE_NOT_GRANTED ? 'warn' : 'info',
     msg: 'resolucion de rol del Hub',
     outcome,
     declaredRole: roleResolution?.declaredRole ?? declaredRole ?? null,
     servedRole: roleResolution?.servedRole ?? null,
+    machineAuthStatus,
   };
+}
+
+// ----- diagnostico de arranque por causa server-side (SPEC-0187 P4) -----
+//
+// EL DEFECTO QUE CIERRA ESTA SECCION. El caso integra-erp: un equipo enrolado PENDIENTE de
+// aprobacion. El backend lo sabia —el guard compuesto tiraba MACHINE_PENDING_APPROVAL en cada
+// pedido— pero el arranque del room no tenia como decirlo: el JWT salia sin claim, el catalogo
+// no venia, y lo unico que el dev leia era un generico "sin rol" que lo mandaba a pedirle a un
+// admin un rol que probablemente ya tenia. Diagnostico correcto server-side, propagacion rota
+// client-side (ADR-002).
+//
+// P3 puso el dato en la respuesta del validate (`machineAuthorization.status`, aditivo, solo
+// USER-mode con userContext). Aca se lo cruza con el estado LOCAL de identidad SDD y se nombra
+// la causa exacta. Todo lo de esta seccion es puro y exportado: la suite lo ejercita sin red.
+//
+// EL CRITERIO DE RUIDO ES CLIENT-SIDE. Una instalacion de producto —sin identidad SDD en el
+// canal y sin rol declarado— NO gana ningun aviso. Es la failure_condition literal de O3: el
+// dia que el caso normal empieza a ver diagnosticos, el aviso deja de leerse y el mecanismo
+// entero se vuelve ruido.
+
+export const MACHINE_AUTH_ACTIVE = 'ACTIVE';
+export const MACHINE_AUTH_PENDING = 'PENDING';
+export const MACHINE_AUTH_REVOKED = 'REVOKED';
+export const MACHINE_AUTH_NOT_ENROLLED = 'NOT_ENROLLED';
+
+/** Outcome de `roleResolution` que significa "esta sesion no declaro ningun rol". */
+export const OUTCOME_ROLE_NOT_DECLARED = 'NOT_DECLARED';
+
+// Prefijo estable del aviso de arranque, para grep y para la suite. Es OTRO a proposito, y no
+// contiene `SPECOE-DIAG` ni `SPECOE-ROL-RECHAZADO` como subcadena: un test puede afirmar la
+// presencia (o la AUSENCIA) de este canal sin que se la conteste otro.
+export const STARTUP_DIAG_PREFIX = 'SPECOE-ARRANQUE';
+
+// Etiqueta de causa. Cada aviso lleva UNA y son mutuamente excluyentes: es lo que permite que
+// el dev —y el test— sepan de un vistazo cual de las cuatro causas se disparo.
+export const CAUSE_EQUIPO_PENDIENTE = 'EQUIPO-PENDIENTE';
+export const CAUSE_EQUIPO_REVOCADO = 'EQUIPO-REVOCADO';
+export const CAUSE_LOGIN_SDD_INCOMPLETO = 'LOGIN-SDD-INCOMPLETO';
+export const CAUSE_ROL_NO_DECLARADO = 'ROL-NO-DECLARADO';
+// SPEC-0187 P7 — el room declara un tenant del que este equipo no tiene material, o tiene
+// identidad de varios y no declara ninguno. Es la causa que reemplaza al fallback silencioso.
+export const CAUSE_TENANT_SIN_IDENTIDAD = 'TENANT-SIN-IDENTIDAD';
+
+function startupNotice(causa, cuerpo) {
+  return `\n\n[[${STARTUP_DIAG_PREFIX}:${causa}]] ${cuerpo}`;
+}
+
+/**
+ * El aviso del aislamiento por tenant, o null.
+ *
+ * SALE SIEMPRE QUE HAYA UN MOTIVO, y a proposito NO pasa por el discriminador de ruido de
+ * `buildStartupDiagnosis`: ese discriminador es "esta maquina tiene identidad SDD resuelta", y
+ * este caso es justamente el de la maquina que NO la tiene PARA ESTE TENANT. Silenciarlo con la
+ * misma guarda dejaria al dev con un room que no opera y sin ninguna linea que lo explique.
+ *
+ * El ruido igual queda acotado por otro lado: sin tenant declarado y sin identidad scoped, el
+ * `scope.notice` es null y esta funcion devuelve null — o sea la instalacion de producto y el
+ * piloto single-tenant no ven nada nuevo.
+ *
+ * `scopeNotice` es el aviso que ya construyo la resolucion del canal (sdd-identity.mjs): se
+ * reusa el texto en vez de reescribirlo para que el dev lea la MISMA instruccion la vea donde
+ * la vea (log del hook, CLI de identidad, arranque).
+ */
+export function buildTenantScopeNotice({ scopeNotice = null, licensePresent = true } = {}) {
+  const partes = [];
+  if (scopeNotice) partes.push(scopeNotice);
+  if (!licensePresent) {
+    partes.push(
+      'Tampoco hay licencia guardada para (tenant, rol) de este room: si la licencia de esta maquina es anterior al esquema por tenant, ' +
+        'volvé a correr specoe-add-room.sh con el tenant del room para regrabarla.',
+    );
+  }
+  if (partes.length === 0) return null;
+  return startupNotice(
+    CAUSE_TENANT_SIN_IDENTIDAD,
+    `ATENCION: ${partes.join(' ')} La sesion arranca igual — esto no corta el arranque.`,
+  );
+}
+
+/**
+ * El aviso de arranque con la causa exacta, o null cuando no hay nada que avisar.
+ *
+ * Entradas: el bloque `machineAuthorization` de la respuesta del validate (P3), el
+ * `roleResolution` del mismo validate (SPEC-0176 P2), y si esta maquina tiene identidad SDD
+ * resuelta — el discriminador de ruido.
+ *
+ * PRECEDENCIA. Devuelve UN solo aviso, y el orden no es arbitrario: el estado del equipo va
+ * primero porque es el unico que el dev NO puede resolver solo (depende de un admin) y porque
+ * mientras el equipo no este habilitado, declarar un rol no cambia nada. Nombrar dos causas a
+ * la vez es como el aviso deja de leerse.
+ *
+ * ROLE_NOT_GRANTED NO SE TOCA. Ese caso lo sigue sirviendo `buildRoleNotice` con el texto
+ * vigente (TKT-0248/TKT-0263) y esta funcion devuelve null para el, salvo que ADEMAS haya una
+ * causa de equipo: ahi los dos avisos salen, porque son dos hechos distintos y verdaderos, y
+ * callar el del equipo reintroduce exactamente el "sin rol" enganoso que origino la SPEC.
+ *
+ * COMPATIBILIDAD. Sin el bloque `machineAuthorization` (Hub anterior a P3, o Hub nuevo en
+ * USER-mode sin userContext) no se inventa nada: la rama nueva devuelve null y el output del
+ * hook queda byte-igual al vigente. Mismo patron honesto que `seatUserResolved === false`.
+ *
+ * NO bloquea el arranque: hereda el contrato de salida de ADR-002 (SPEC-0164 P2).
+ */
+export function buildStartupDiagnosis({
+  machineAuthorization,
+  roleResolution,
+  sddIdentityPresent = false,
+} = {}) {
+  // EL DISCRIMINADOR DE RUIDO, UNO SOLO Y ARRIBA DE TODO. Ninguna de las cuatro causas habla si
+  // esta maquina no tiene identidad SDD: sin ella la instalacion es de PRODUCTO y cualquier
+  // aviso es ruido (failure_condition de O3). Vale incluso para los status de equipo, que hoy
+  // solo pueden llegar CON userContext —o sea con identidad— y por eso la guarda no les cambia
+  // el comportamiento: esta para que un cambio server-side no pueda convertir el caso normal en
+  // ruido sin pasar por aca.
+  if (!sddIdentityPresent) return null;
+
+  const status = machineAuthorization?.status ?? null;
+
+  // (1) El caso que origino la SPEC. Nunca dice "sin rol" ni manda a declarar ninguno: pedir
+  // o corregir un rol con el equipo pendiente es trabajo tirado.
+  if (status === MACHINE_AUTH_PENDING) {
+    return startupNotice(
+      CAUSE_EQUIPO_PENDIENTE,
+      'ATENCION: la licencia es valida y tu usuario esta resuelto, pero ESTE EQUIPO figura ' +
+        'PENDIENTE DE APROBACION en el Hub. Mientras siga pendiente, el canal SDD rechaza los ' +
+        'pedidos de esta maquina (MACHINE_PENDING_APPROVAL) y la sesion opera sin catalogo del ' +
+        'room. Esto NO se destraba pidiendo un rol: mientras el equipo no este aprobado, el ' +
+        'canal rechaza igual, tengas el rol que tengas. ' +
+        'Accion: pedi a un ADMIN del tenant que apruebe este equipo en Administracion -> ' +
+        'Identidad SDD -> Equipos, y volve a abrir la sesion. La sesion arranca igual — esto no ' +
+        'corta el arranque.',
+    );
+  }
+
+  // (2) Revocado: mismo canal, consecuencia opuesta — aca no hay nada que esperar.
+  if (status === MACHINE_AUTH_REVOKED) {
+    return startupNotice(
+      CAUSE_EQUIPO_REVOCADO,
+      'ATENCION: la licencia es valida, pero la autorizacion de ESTE EQUIPO fue REVOCADA en el ' +
+        'Hub. El canal SDD no va a servir catalogo desde esta maquina hasta que se reactive, ' +
+        'tengas el rol que tengas: no es una caida del skill-server. Accion: si la ' +
+        'revocacion no fue intencional, pedi a un ADMIN del tenant que reactive el equipo en ' +
+        'Administracion -> Identidad SDD -> Equipos; si fue intencional, esta maquina ya no ' +
+        'opera rooms SDD. La sesion arranca igual — esto no corta el arranque.',
+    );
+  }
+
+  // (3) El Hub no encuentra NINGUN equipo enrolado por tu usuario en este tenant, pero la
+  // maquina tiene identidad SDD guardada (garantizado por la guarda de arriba): el login SDD
+  // quedo a medias.
+  if (status === MACHINE_AUTH_NOT_ENROLLED) {
+    return startupNotice(
+      CAUSE_LOGIN_SDD_INCOMPLETO,
+      'ATENCION: esta maquina tiene identidad SDD guardada, pero el Hub no encuentra NINGUN ' +
+        'equipo enrolado para tu usuario en este tenant. El login SDD de esta maquina quedo a ' +
+        'medias: la credencial local existe y el enrolamiento del equipo no. Esto tampoco se ' +
+        'destraba pidiendo un rol. Accion: volve a correr el login SDD desde el starter ' +
+        '(./setup.sh --login), que enrola el equipo, y volve a abrir la sesion. La sesion ' +
+        'arranca igual — esto no corta el arranque.',
+    );
+  }
+
+  // (4) El equipo esta bien (o el Hub no opino) y esta sesion no declaro ningun rol: es una
+  // instalacion SDD abierta por fuera de los dos launchers (doble click, `code .`).
+  // Se nombran los DOS caminos porque los dos son validos y el dev elige.
+  if (roleResolution?.outcome === OUTCOME_ROLE_NOT_DECLARED) {
+    return startupNotice(
+      CAUSE_ROL_NO_DECLARADO,
+      'ATENCION: esta maquina tiene identidad SDD, pero esta sesion no declaro el rol del room, ' +
+        'asi que el Hub no firmo ningun claim y los tools MCP no sirven el catalogo del room. ' +
+        'Te falta declarar el rol, y hay dos caminos: abri el room desde el plugin de VSCode ' +
+        '(cada solapa declara su rol) o arrancalo con ./specoe-launch-thinclient.sh <ROL> desde ' +
+        'el starter. Abrir la carpeta a mano (doble click, o `code .`) no declara nada. La ' +
+        'sesion arranca igual — esto no corta el arranque.',
+    );
+  }
+
+  // Producto en silencio, equipo ACTIVE, y Hub viejo sin el campo: los tres sin aviso.
+  return null;
 }
 
 /** La via de escape esta activa? Devuelve por que, o null. */
@@ -837,7 +1073,10 @@ async function blockSession(diag) {
 // ----- main -----
 
 async function main() {
-  const licenseKey = await getLicenseKey();
+  // SPEC-0187 P7 — el tenant del room decide QUE claves se leen (licencia e identidad). Va
+  // primero porque la licencia es lo primero que se resuelve.
+  const tenantSlug = await resolveTenant();
+  const licenseKey = await getLicenseKey(tenantSlug);
   if (!licenseKey) {
     // Escenario 3. NO bloquea: este hook se registra global (~/.claude/settings.json) y
     // corre en toda sesion de Claude Code de la maquina. Una carpeta sin licencia no es un
@@ -847,8 +1086,23 @@ async function main() {
     const hub = await resolveHubUrl();
     const context = buildFailureContext({ scenario: SCENARIO_NO_LICENSE_KEY, hub, ca: null });
     await syncSkillServerEntry(null);
-    await logLine({ level: 'warn', msg: 'no license key encontrada — skills libres solamente' });
-    emitContext('no-license', context);
+    await logLine({
+      level: 'warn',
+      msg: 'no license key encontrada — skills libres solamente',
+      tenantSlug,
+    });
+    // SPEC-0187 P7 — con tenant declarado, "no hay licencia" puede ser "la licencia esta
+    // guardada bajo las claves viejas": el aviso lo nombra en vez de dejar el room mudo. Sin
+    // tenant declarado no se agrega nada — una sesion sin SpecOE no gana avisos nuevos.
+    let tenantNotice = null;
+    if (tenantSlug) {
+      const material = await readIdentityMaterialScoped({ tenantSlug });
+      tenantNotice = buildTenantScopeNotice({
+        scopeNotice: material.notice,
+        licensePresent: false,
+      });
+    }
+    emitContext('no-license', context + (tenantNotice ?? ''));
     return 0;
   }
 
@@ -877,6 +1131,7 @@ async function main() {
     hubUrl,
     timeoutMs: fetchDeadlineMs(),
     allowDerive: HOOK_BUDGET_MS - (Date.now() - STARTED_AT) >= MIN_DERIVE_BUDGET_MS,
+    tenantSlug,
   });
   await logLine({
     level: userCtx.userId ? 'info' : 'warn',
@@ -885,6 +1140,10 @@ async function main() {
       : 'sin userContext — en USER-mode el JWT sale SIN claim sddRole (bundle producto)',
     source: userCtx.source,
     reason: userCtx.reason,
+    // SPEC-0187 P7 — de QUE tenant salio el material, y por que criterio se eligio. Sin este
+    // dato, un room que opera con la identidad de otro tenant no se distingue en el log.
+    tenantSlug: userCtx.scope?.tenantSlug ?? null,
+    tenantScope: userCtx.scope?.outcome ?? null,
   });
 
   // SPEC-0176 P2 — el rol que esta carpeta declara. Viaja en el MISMO validate: cero
@@ -918,6 +1177,9 @@ async function main() {
         validatedAt: new Date().toISOString(),
         token: body.token,
         tenantId: body.tenantId,
+        // SPEC-0187 P7 — de que tenant es esta licencia, con el mismo slug que declara el room:
+        // es lo que permite descartar el cache cuando la carpeta cambia de tenant.
+        ...(tenantSlug ? { tenantSlug } : {}),
         tier: body.tier,
         features: body.features,
       };
@@ -930,8 +1192,26 @@ async function main() {
       // pidio. AUSENTE en MACHINE-mode (ADR-006): ahi `roleResolution` no viene y no hay
       // veredicto, solo queda registrado lo que el room declaro.
       const roleResolution = body.roleResolution ?? null;
-      await logLine(buildRoleResolutionLog({ roleResolution, declaredRole }));
+      // SPEC-0187 P4 — el diagnostico de autorizacion del equipo. ADITIVO y solo presente en
+      // USER-mode con userContext: sin el campo (Hub anterior a P3) todo lo de abajo es null y
+      // el output queda byte-igual al vigente.
+      const machineAuthorization = body.machineAuthorization ?? null;
+      await logLine(buildRoleResolutionLog({ roleResolution, declaredRole, machineAuthorization }));
       const roleNotice = buildRoleNotice(roleResolution);
+      // El discriminador de ruido (ADR-002): identidad SDD resuelta = instalacion SDD. Se lee
+      // del userContext que YA se resolvio arriba — cero requests y cero lecturas nuevas. Una
+      // maquina con material en el canal pero sin userId resuelto (derivacion sin presupuesto,
+      // canje rechazado) cuenta como AUSENTE y no recibe aviso: degrada al comportamiento de
+      // hoy, que es el error barato. El caro es avisarle a una instalacion de producto.
+      const startupNotice = buildStartupDiagnosis({
+        machineAuthorization,
+        roleResolution,
+        sddIdentityPresent: Boolean(userCtx.userId),
+      });
+      // SPEC-0187 P7 — el aviso del aislamiento por tenant es OTRO canal y sale ademas del de
+      // arriba: son hechos distintos (uno habla del equipo en el Hub, este de que identidad
+      // local se pudo resolver) y callar este deja al dev con un room mudo.
+      const tenantNotice = buildTenantScopeNotice({ scopeNotice: userCtx.scope?.notice ?? null });
       // Output JSON para el harness (puede usar hookSpecificOutput para env vars).
       console.log(
         JSON.stringify({
@@ -940,7 +1220,9 @@ async function main() {
             hookEventName: 'SessionStart',
             additionalContext:
               `SpecOE license: tier=${body.tier}, features=${body.features.length}` +
-              (roleNotice ?? ''),
+              (roleNotice ?? '') +
+              (startupNotice ?? '') +
+              (tenantNotice ?? ''),
           },
         }),
       );

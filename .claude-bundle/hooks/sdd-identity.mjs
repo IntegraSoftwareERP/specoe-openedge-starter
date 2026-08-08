@@ -42,6 +42,158 @@ export const SDD_IDENTITY_MACHINE_NAME = 'machine-id';
 // lee (deriva su sesion con el token opaco); la agrega este bundle para el hook de licencia.
 export const SDD_IDENTITY_USER_NAME = 'user-id';
 
+// ----- SPEC-0187 P7 — la dimension tenant del canal -----
+//
+// El backend ya tiene la dimension (AuthorizedMachine es unico por (tenantId, fingerprintHash));
+// el canal del cliente no la tenia, asi que dos tenants en la misma maquina se pisaban las
+// mismas tres entradas. Aca vive la resolucion, UNA sola vez, porque los tres consumidores
+// (login, hook de licencia, CLI de identidad) tienen que coincidir byte a byte en QUE clave
+// leen: dos criterios que se separen es exactamente el pisado que la fase viene a cerrar.
+//
+// LA ENV DEL SELECTOR ES `INTEGRA_SDD_TENANT`, NO `INTEGRA_ACT_AS_TENANT`. El plan proponia
+// reusar la del contrato scoped; el Step 0 (AP8) lo verifico y la descarto: el valor de
+// INTEGRA_ACT_AS_TENANT es el `Tenant.id` —el backend rebota 403 ACT_AS_TENANT_MISMATCH si no
+// coincide con el tenantId del JWT del firmante— mientras que la dimension de estas claves es
+// el `tenantSlug`. `Tenant.id` y `Tenant.slug` son campos distintos: coinciden por accidente
+// historico en integra-piloto y NO en un tenant nuevo. Veredicto en el comment de la fase P7.
+export const SDD_TENANT_ENV = 'INTEGRA_SDD_TENANT';
+
+// Indice de tenants con identidad en ESTA maquina. Existe porque el canal no se puede
+// enumerar (ni el keyring del SO ni el cipher-file exponen un listado por service): sin este
+// dato, una sesion que no declara tenant no podria saber si hay una sola identidad guardada o
+// tres, y elegir a ciegas entre dos tenants es el pisado en su version silenciosa.
+// El nombre no colisiona: los tenants viven en '<slug>:<algo>' y los legacy no tienen ':'.
+export const SDD_IDENTITY_TENANTS_NAME = 'tenants';
+
+/** El tenant que declara ESTA sesion, o null. Trim + vacio = no declarado. */
+export function resolveSessionTenant(env = process.env) {
+  const raw = (env[SDD_TENANT_ENV] ?? '').trim();
+  return raw || null;
+}
+
+/** Account del canal para (tenant, entrada). Sin tenant devuelve la clave legacy sin prefijo. */
+export function scopedName(tenantSlug, name) {
+  return tenantSlug ? `${tenantSlug}:${name}` : name;
+}
+
+/**
+ * El aviso que reemplaza al fallback silencioso. Nombra el tenant y los DOS caminos que lo
+ * resuelven, porque son distintos: `login` sirve para un equipo que nunca se autentico contra
+ * ese tenant, `migrate` para el que tiene identidad guardada de antes del esquema por tenant.
+ */
+export function missingIdentityNotice(tenantSlug) {
+  return (
+    `no hay identidad SDD para el tenant '${tenantSlug}' en este equipo. ` +
+    `Accion: \`specoe-identity.mjs login --tenant ${tenantSlug}\` si nunca te autenticaste con ese tenant, ` +
+    `o \`specoe-identity.mjs migrate --tenant ${tenantSlug}\` si tu identidad es anterior al esquema por tenant. ` +
+    `NO se usa la identidad guardada de otro tenant: operar con la credencial equivocada es peor que no operar.`
+  );
+}
+
+/** Los slugs con identidad en el canal, en orden de alta. Nunca tira: sin indice devuelve []. */
+export async function readTenantIndex({ getSecretImpl = getSecret } = {}) {
+  try {
+    const raw = await getSecretImpl(SDD_IDENTITY_SERVICE, SDD_IDENTITY_TENANTS_NAME);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((s) => typeof s === 'string' && s) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Suma un slug al indice (idempotente). Devuelve la lista resultante. */
+export async function addTenantToIndex(
+  tenantSlug,
+  { getSecretImpl = getSecret, setSecretImpl = setSecret } = {},
+) {
+  const current = await readTenantIndex({ getSecretImpl });
+  if (!tenantSlug || current.includes(tenantSlug)) return current;
+  const next = [...current, tenantSlug];
+  await setSecretImpl(SDD_IDENTITY_SERVICE, SDD_IDENTITY_TENANTS_NAME, JSON.stringify(next));
+  return next;
+}
+
+/** Saca un slug del indice. Devuelve la lista resultante. */
+export async function removeTenantFromIndex(
+  tenantSlug,
+  { getSecretImpl = getSecret, setSecretImpl = setSecret } = {},
+) {
+  const current = await readTenantIndex({ getSecretImpl });
+  if (!current.includes(tenantSlug)) return current;
+  const next = current.filter((s) => s !== tenantSlug);
+  // setSecret rechaza el valor vacio, y '[]' es un valor legitimo: el indice vacio significa
+  // "no queda identidad scoped", que NO es lo mismo que "nunca hubo indice".
+  await setSecretImpl(SDD_IDENTITY_SERVICE, SDD_IDENTITY_TENANTS_NAME, JSON.stringify(next));
+  return next;
+}
+
+/** Outcomes de la resolucion de scope. Estables: la suite y los avisos discriminan por esto. */
+export const SCOPE_DECLARED = 'declarado'; // la sesion declaro el tenant
+export const SCOPE_SINGLE = 'unico'; // no declaro y hay UNA sola identidad scoped
+export const SCOPE_LEGACY = 'legacy'; // no declaro y no hay identidad scoped: claves sin tenant
+export const SCOPE_AMBIGUOUS = 'ambiguo'; // no declaro y hay VARIAS: no se adivina
+
+/**
+ * Que claves lee esta sesion. Un solo lugar decide, y el fallback legacy queda ACOTADO a la
+ * unica situacion donde no puede mentir: la sesion no declaro tenant y el canal no tiene
+ * ninguna identidad scoped (o sea, la instalacion del piloto anterior a esta fase).
+ *
+ * Devuelve { tenantSlug, outcome, notice }: `notice` no-null es un aviso accionable para el
+ * dev, y significa que NO hay que leer nada — nunca se cae a otro tenant ni al legacy.
+ */
+export async function resolveIdentityScope({
+  tenantSlug = resolveSessionTenant(),
+  getSecretImpl = getSecret,
+} = {}) {
+  if (tenantSlug) return { tenantSlug, outcome: SCOPE_DECLARED, notice: null };
+
+  const tenants = await readTenantIndex({ getSecretImpl });
+  if (tenants.length === 1) {
+    return { tenantSlug: tenants[0], outcome: SCOPE_SINGLE, notice: null };
+  }
+  if (tenants.length > 1) {
+    return {
+      tenantSlug: null,
+      outcome: SCOPE_AMBIGUOUS,
+      notice:
+        `este equipo tiene identidad SDD de ${tenants.length} tenants (${tenants.join(', ')}) y esta sesion no declara ninguno. ` +
+        `Accion: declara \`specoe.tenant\` en el project.config.yaml del room (los launchers lo exportan como ${SDD_TENANT_ENV}). ` +
+        `No se elige uno por default: operar con el tenant equivocado es el defecto que este aislamiento viene a evitar.`,
+    };
+  }
+  return { tenantSlug: null, outcome: SCOPE_LEGACY, notice: null };
+}
+
+/**
+ * El material de identidad del scope vigente, con VALORES. Punto unico de lectura: lo consumen
+ * el `status` del CLI, el `session-token` y el hook de licencia.
+ *
+ * Devuelve { tenantSlug, outcome, notice, present, userToken, machineId, userId }. Con `notice`
+ * no-null los tres valores vienen en null a proposito: hay algo que decirle al dev y nada que
+ * leer. `present` es la unica lectura de "esta maquina puede operar" (token + machineId).
+ */
+export async function readIdentityMaterialScoped({
+  tenantSlug = resolveSessionTenant(),
+  getSecretImpl = getSecret,
+} = {}) {
+  const scope = await resolveIdentityScope({ tenantSlug, getSecretImpl });
+  if (scope.notice) {
+    return { ...scope, present: false, userToken: null, machineId: null, userId: null };
+  }
+  const [userToken, machineId, userId] = await Promise.all([
+    getSecretImpl(SDD_IDENTITY_SERVICE, scopedName(scope.tenantSlug, SDD_IDENTITY_TOKEN_NAME)),
+    getSecretImpl(SDD_IDENTITY_SERVICE, scopedName(scope.tenantSlug, SDD_IDENTITY_MACHINE_NAME)),
+    getSecretImpl(SDD_IDENTITY_SERVICE, scopedName(scope.tenantSlug, SDD_IDENTITY_USER_NAME)),
+  ]);
+  const present = userToken != null && machineId != null;
+  // El aviso sale SOLO cuando la sesion declaro el tenant: en los otros outcomes la ausencia de
+  // material es "no hay login todavia", que ya se comunica por otros canales del arranque.
+  const notice =
+    !present && scope.outcome === SCOPE_DECLARED ? missingIdentityNotice(scope.tenantSlug) : null;
+  return { ...scope, notice, present, userToken, machineId, userId };
+}
+
 // ----- fingerprint SDD — replica exacta de mcp-server/src/sdd-identity.ts -----
 
 export function hashDiskSerial(serial) {
@@ -186,11 +338,14 @@ export async function deriveUserId({
  * UNA vez y lo persiste — asi la instalacion que ya hizo login antes de este fix se repara
  * sola en el primer arranque, sin re-login.
  *
- * Devuelve { userId, source, reason }:
+ * Devuelve { userId, source, reason, scope }:
  *   source 'canal'    — estaba guardado (camino normal, sin red).
  *   source 'derivado' — se canjeo el token ahora y quedo guardado.
  *   userId null       — no hay identidad SDD por usuario en esta maquina (modo MACHINE, o
  *                       login no corrido), o la derivacion fallo. `reason` dice cual.
+ *   scope             — { tenantSlug, outcome, notice }: QUE claves se leyeron (SPEC-0187 P7).
+ *                       `scope.notice` no-null es un aviso accionable para el dev; en ese caso
+ *                       no se leyo ninguna clave de otro tenant ni la legacy.
  *
  * NUNCA tira: el caller de arriba es un hook de arranque y un throw aca seria bloquear una
  * sesion por no poder mandar un campo opcional.
@@ -200,23 +355,28 @@ export async function resolveUserContext({
   timeoutMs = 4000,
   fetchImpl = fetch,
   allowDerive = true,
+  tenantSlug = resolveSessionTenant(),
 } = {}) {
+  let scope = { tenantSlug, outcome: SCOPE_DECLARED, notice: null };
   try {
-    const stored = await getSecret(SDD_IDENTITY_SERVICE, SDD_IDENTITY_USER_NAME);
-    if (stored) return { userId: stored, source: 'canal', reason: null };
+    const material = await readIdentityMaterialScoped({ tenantSlug });
+    scope = { tenantSlug: material.tenantSlug, outcome: material.outcome, notice: material.notice };
+    // SPEC-0187 P7 — el room declara un tenant del que este equipo no tiene identidad (o hay
+    // varias y ninguna declarada). Se corta ACA con el motivo: caer a las claves de otro tenant
+    // seria operar con la credencial equivocada, que es peor que no operar.
+    if (material.notice) return { userId: null, source: null, reason: material.notice, scope };
 
-    const [token, machineId] = await Promise.all([
-      getSecret(SDD_IDENTITY_SERVICE, SDD_IDENTITY_TOKEN_NAME),
-      getSecret(SDD_IDENTITY_SERVICE, SDD_IDENTITY_MACHINE_NAME),
-    ]);
+    if (material.userId) return { userId: material.userId, source: 'canal', reason: null, scope };
+
     // Sin material NO se deriva y NO se hace ningun request: una maquina en modo MACHINE
     // (o sin login SDD) no tiene nada que resolver, y el Hub ignora userContext ahi.
-    if (!token || !machineId) {
+    if (!material.present) {
       return {
         userId: null,
         source: null,
         reason:
           'no hay material de identidad SDD en el canal (login no corrido, o el tenant opera en modo MACHINE)',
+        scope,
       };
     }
     if (!allowDerive) {
@@ -224,30 +384,37 @@ export async function resolveUserContext({
         userId: null,
         source: null,
         reason: 'hay material en el canal pero esta corrida no tenia presupuesto para derivarlo',
+        scope,
       };
     }
 
     const { userId, reason } = await deriveUserId({
       hubUrl,
-      token,
-      machineId,
+      token: material.userToken,
+      machineId: material.machineId,
       timeoutMs,
       fetchImpl,
     });
-    if (!userId) return { userId: null, source: null, reason };
+    if (!userId) return { userId: null, source: null, reason, scope };
 
-    // Persistir es lo que hace que este camino sea de UNA sola vez por maquina.
+    // Persistir es lo que hace que este camino sea de UNA sola vez por maquina — bajo la MISMA
+    // clave de la que se leyo el material, nunca la legacy.
     try {
-      await setSecret(SDD_IDENTITY_SERVICE, SDD_IDENTITY_USER_NAME, userId);
+      await setSecret(
+        SDD_IDENTITY_SERVICE,
+        scopedName(scope.tenantSlug, SDD_IDENTITY_USER_NAME),
+        userId,
+      );
     } catch {
       /* el canal no acepto la escritura: se re-deriva el proximo arranque, no se pierde nada */
     }
-    return { userId, source: 'derivado', reason: null };
+    return { userId, source: 'derivado', reason: null, scope };
   } catch (err) {
     return {
       userId: null,
       source: null,
       reason: `error resolviendo el userContext: ${err?.message}`,
+      scope,
     };
   }
 }
