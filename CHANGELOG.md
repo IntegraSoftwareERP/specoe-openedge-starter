@@ -2,6 +2,44 @@
 
 All notable changes to this project. Automatic — regenerado por `./scripts/changelog.sh`.
 
+## 0.2.16 — 2026-08-10 (TKT-0306 — el plugin y el MCP vendorizados vuelven a ser los de sus repos)
+
+**Arregla un starter que instalaba software viejo sin decirlo.** `vendor/` traía el `.vsix` del
+plugin construido el 2026-07-31 desde `7c58a55`, o sea anterior a TODO SPEC-0187: en la VM de QA el
+comando «Integra Hub: Agregar room...» no aparecía en la paleta —es de P8— y «Abrir room» reventaba
+con `Cannot read properties of undefined (reading 'nombre')`, porque el `integraHub.roomsRoot` que
+el instalador configura también es de P8 y el plugin instalado sólo entendía el roster manual
+`integraHub.rooms`. Plugin viejo con configuración nueva. P1, P6 y P8 estaban COMPLETED y su valor
+no llegaba a nadie.
+
+- **El `.vsix` se reconstruyó desde `dcb3790`** (HEAD de `integra-hub-vscode`, con los PRs #12/#13/#14
+  adentro): trae la contención de rooms de P8, el login unificado por terminal de P6 y el canje del
+  material del keyring de P1.
+- **El bundle del MCP se reconstruyó desde `974c8b9`**, 16 commits de `mcp-server` por delante del
+  `a4812cac` que estaba vendorizado — entre ellos TKT-0274 (transporte por referencia), TKT-0261
+  (canal de CA propio), TKT-0271/0272 y TKT-0300. El manifiesto lo declaraba como colateral a
+  verificar y lo estaba: los rooms del starter corrían un MCP sin esas tools.
+- **El MANIFEST vuelve a describir lo que hay**, con los dos hashes recalculados y la
+  reproducibilidad re-medida sobre los commits nuevos: el bundle de esbuild dio dos corridas
+  idénticas byte a byte, y `vsce` volvió a dar dos `packageSha256` distintos con un solo
+  `contentSha256` — que es exactamente por qué el manifiesto declara los dos.
+
+**Y para que no vuelva a pasar por olvido**: el re-vendorizado no era tarea de nadie. Ninguna de las
+nueve fases de SPEC-0187 se hacía cargo, y no hay pipeline que lo reconstruya. Ahora
+`verify-vendor-drift` compara a diario el `sourceSha` de cada componente contra el repo de origen y
+avisa cuando quedaron commits que tocan lo que se empaqueta. No reconstruye —eso sigue siendo
+humano—, pero acordarse deja de serlo.
+
+## 0.2.15 — 2026-08-08 (SPEC-0187 P2/P4/P5/P7/P9 + TKT-0299/0303 — destrabe del starter público)
+
+El starter público estaba 27 commits atrás y se publicó para destrabarlo: rol por env de la sesión
+(P2), diagnóstico de arranque por causa (P4), CLI `specoe-identity` (P5), `specoe.tenant` y
+alternancia (P7), host-flow del `.vsix` e idempotencia del hosts (P9), más TKT-0299 y TKT-0303.
+
+**El tag salió sin bumpear `VERSION`**, que quedó en `0.2.14`: por eso no hay entrada propia acá y
+por eso `verify-public-mirror` quedó en rojo — el espejo publica lo que dice el archivo, no lo que
+dice el tag. Se cierra con este `0.2.16`. Registrado en TKT-0306.
+
 ## 0.2.14 — 2026-08-01 (TKT-0256 — la URL del Hub sale del yaml sin las comillas del template)
 
 **Arregla un room que queda apuntando a una URL inválida sin decirlo.** `setup.sh` leía

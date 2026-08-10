@@ -3225,8 +3225,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path2) {
-      let input = path2;
+    function removeDotSegments(path3) {
+      let input = path3;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -3425,8 +3425,8 @@ var require_schemes = __commonJS({
         wsComponent.secure = void 0;
       }
       if (wsComponent.resourceName) {
-        const [path2, query] = wsComponent.resourceName.split("?");
-        wsComponent.path = path2 && path2 !== "/" ? path2 : void 0;
+        const [path3, query] = wsComponent.resourceName.split("?");
+        wsComponent.path = path3 && path3 !== "/" ? path3 : void 0;
         wsComponent.query = query;
         wsComponent.resourceName = void 0;
       }
@@ -6788,12 +6788,12 @@ var require_dist = __commonJS({
         throw new Error(`Unknown format "${name}"`);
       return f;
     };
-    function addFormats(ajv, list, fs2, exportName) {
+    function addFormats(ajv, list, fs3, exportName) {
       var _a2;
       var _b;
       (_a2 = (_b = ajv.opts.code).formats) !== null && _a2 !== void 0 ? _a2 : _b.formats = (0, codegen_1._)`require("ajv-formats/dist/formats").${exportName}`;
       for (const f of list)
-        ajv.addFormat(f, fs2[f]);
+        ajv.addFormat(f, fs3[f]);
     }
     module.exports = exports = formatsPlugin;
     Object.defineProperty(exports, "__esModule", { value: true });
@@ -9675,8 +9675,8 @@ function getErrorMap() {
 
 // node_modules/zod/v3/helpers/parseUtil.js
 var makeIssue = (params) => {
-  const { data, path: path2, errorMaps, issueData } = params;
-  const fullPath = [...path2, ...issueData.path || []];
+  const { data, path: path3, errorMaps, issueData } = params;
+  const fullPath = [...path3, ...issueData.path || []];
   const fullIssue = {
     ...issueData,
     path: fullPath
@@ -9791,11 +9791,11 @@ var errorUtil;
 
 // node_modules/zod/v3/types.js
 var ParseInputLazyPath = class {
-  constructor(parent, value, path2, key) {
+  constructor(parent, value, path3, key) {
     this._cachedPath = [];
     this.parent = parent;
     this.data = value;
-    this._path = path2;
+    this._path = path3;
     this._key = key;
   }
   get path() {
@@ -13718,10 +13718,10 @@ function mergeDefs(...defs) {
 function cloneDef(schema) {
   return mergeDefs(schema._zod.def);
 }
-function getElementAtPath(obj, path2) {
-  if (!path2)
+function getElementAtPath(obj, path3) {
+  if (!path3)
     return obj;
-  return path2.reduce((acc, key) => acc?.[key], obj);
+  return path3.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -14104,11 +14104,11 @@ function aborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path2, issues) {
+function prefixIssues(path3, issues) {
   return issues.map((iss) => {
     var _a2;
     (_a2 = iss).path ?? (_a2.path = []);
-    iss.path.unshift(path2);
+    iss.path.unshift(path3);
     return iss;
   });
 }
@@ -14291,7 +14291,7 @@ function formatError(error48, mapper = (issue2) => issue2.message) {
 }
 function treeifyError(error48, mapper = (issue2) => issue2.message) {
   const result = { errors: [] };
-  const processError = (error49, path2 = []) => {
+  const processError = (error49, path3 = []) => {
     var _a2, _b;
     for (const issue2 of error49.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
@@ -14301,7 +14301,7 @@ function treeifyError(error48, mapper = (issue2) => issue2.message) {
       } else if (issue2.code === "invalid_element") {
         processError({ issues: issue2.issues }, issue2.path);
       } else {
-        const fullpath = [...path2, ...issue2.path];
+        const fullpath = [...path3, ...issue2.path];
         if (fullpath.length === 0) {
           result.errors.push(mapper(issue2));
           continue;
@@ -14333,8 +14333,8 @@ function treeifyError(error48, mapper = (issue2) => issue2.message) {
 }
 function toDotPath(_path) {
   const segs = [];
-  const path2 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
-  for (const seg of path2) {
+  const path3 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
+  for (const seg of path3) {
     if (typeof seg === "number")
       segs.push(`[${seg}]`);
     else if (typeof seg === "symbol")
@@ -26740,13 +26740,13 @@ function resolveRef(ref, ctx) {
   if (!ref.startsWith("#")) {
     throw new Error("External $ref is not supported, only local refs (#/...) are allowed");
   }
-  const path2 = ref.slice(1).split("/").filter(Boolean);
-  if (path2.length === 0) {
+  const path3 = ref.slice(1).split("/").filter(Boolean);
+  if (path3.length === 0) {
     return ctx.rootSchema;
   }
   const defsKey = ctx.version === "draft-2020-12" ? "$defs" : "definitions";
-  if (path2[0] === defsKey) {
-    const key = path2[1];
+  if (path3[0] === defsKey) {
+    const key = path3[1];
     if (!key || !ctx.defs[key]) {
       throw new Error(`Reference not found: ${ref}`);
     }
@@ -32649,12 +32649,163 @@ function buildActAsGrantHeader(now = Date.now()) {
   return { [ACT_AS_GRANT_HEADER]: pending.grant };
 }
 
+// src/ca-channel.ts
+import fs from "node:fs";
+import os2 from "node:os";
+import path2 from "node:path";
+import tls from "node:tls";
+import { X509Certificate } from "node:crypto";
+function defaultCaPath(env = process.env) {
+  const override = env.INTEGRA_HUB_CA_FILE?.trim();
+  if (override) return override;
+  return path2.join(os2.homedir(), ".claude", "caddy-local-root.crt");
+}
+function pemBody(pem) {
+  return String(pem).replace(/-----(BEGIN|END) CERTIFICATE-----/g, "").replace(/\s+/g, "");
+}
+function getStore(kind) {
+  try {
+    const fn = tls.getCACertificates;
+    return typeof fn === "function" ? fn(kind) : [];
+  } catch {
+    return [];
+  }
+}
+function setStore(certs) {
+  const fn = tls.setDefaultCACertificates;
+  if (typeof fn !== "function") throw new Error("tls.setDefaultCACertificates no existe");
+  fn(certs);
+}
+function hasStoreApis() {
+  const t = tls;
+  return typeof t.setDefaultCACertificates === "function" && typeof t.getCACertificates === "function";
+}
+function readCaPem(caPath) {
+  let pem;
+  try {
+    pem = fs.readFileSync(caPath, "utf8");
+  } catch (err) {
+    return { ok: false, reason: "ca-missing", error: err?.message };
+  }
+  try {
+    const x = new X509Certificate(pem);
+    const cn = (dn) => (String(dn).split("\n").find((l) => l.startsWith("CN=")) ?? String(dn)).trim();
+    return { ok: true, pem, subject: cn(x.subject), reason: "ok" };
+  } catch (err) {
+    return { ok: false, reason: "ca-unparsable", error: err?.message };
+  }
+}
+function applyCaChannel(caPath = defaultCaPath()) {
+  const ca = readCaPem(caPath);
+  if (!ca.ok || !ca.pem) return { ok: false, caPath, reason: ca.reason, error: ca.error };
+  if (!hasStoreApis()) {
+    return {
+      ok: false,
+      caPath,
+      reason: "api-missing",
+      subject: ca.subject,
+      error: `tls.setDefaultCACertificates/getCACertificates no existen en ${process.version}`
+    };
+  }
+  const system = getStore("system");
+  const bundled = getStore("bundled");
+  const storeBefore = getStore("default").length;
+  try {
+    setStore([.../* @__PURE__ */ new Set([...system, ...bundled, ca.pem])]);
+  } catch (err) {
+    return {
+      ok: false,
+      caPath,
+      reason: "apply-failed",
+      subject: ca.subject,
+      error: err?.message,
+      storeBefore,
+      system: system.length,
+      bundled: bundled.length
+    };
+  }
+  const effective = getStore("default");
+  const wanted = pemBody(ca.pem);
+  const inStore = effective.some((c) => pemBody(c) === wanted);
+  return {
+    ok: inStore,
+    caPath,
+    reason: inStore ? "ok" : "not-in-effective-store",
+    subject: ca.subject,
+    storeBefore,
+    storeAfter: effective.length,
+    system: system.length,
+    bundled: bundled.length
+  };
+}
+function installCaChannel(caPath = defaultCaPath()) {
+  const result = applyCaChannel(caPath);
+  if (result.ok) {
+    console.error(
+      `[mcp-server] canal de CA aplicado desde ${result.caPath} (${result.subject}) \u2014 store ${result.storeBefore} \u2192 ${result.storeAfter}`
+    );
+  } else if (result.reason === "ca-missing") {
+    console.error(
+      `[mcp-server] sin CA propio en ${result.caPath}: el TLS queda como lo dej\xF3 el entorno (--use-system-ca / NODE_EXTRA_CA_CERTS). No es un error.`
+    );
+  } else {
+    console.error(
+      `[mcp-server] el CA de ${result.caPath} EXISTE pero el canal no se pudo armar (${result.reason}): ${result.error ?? "sin detalle"}`
+    );
+  }
+  return result;
+}
+function describeNetworkError(err) {
+  const e = err;
+  const raw = e?.cause?.code ?? e?.code ?? null;
+  const code = typeof raw === "string" ? raw : e?.cause?.name ?? e?.name ?? null;
+  return {
+    code,
+    cause: e?.cause?.message ?? null,
+    message: e?.message ?? String(err)
+  };
+}
+var HINTS = {
+  UNABLE_TO_GET_ISSUER_CERT_LOCALLY: "el TLS del Hub no valida: falta su CA en este proceso. Verific\xE1 que exista el CA del piloto en disco (INTEGRA_HUB_CA_FILE o ~/.claude/caddy-local-root.crt) o que el entry del .mcp.json conserve --use-system-ca / NODE_EXTRA_CA_CERTS.",
+  UNABLE_TO_VERIFY_LEAF_SIGNATURE: "el TLS del Hub no valida: la cadena llega incompleta o reemitida (SSL scanning de antivirus). Mismo remedio que arriba: el CA del piloto tiene que estar en disco o en el trust del sistema.",
+  SELF_SIGNED_CERT_IN_CHAIN: "la cadena del Hub trae un root self-signed que este proceso no conoce \u2014 instal\xE1 el CA del piloto (specoe-setup-host.sh lo hace en el paso del UAC).",
+  DEPTH_ZERO_SELF_SIGNED_CERT: "el cert del Hub es self-signed y no est\xE1 en el store \u2014 instal\xE1 el CA del piloto.",
+  CERT_HAS_EXPIRED: "el certificado del Hub (o su CA) est\xE1 vencido \u2014 hay que renovarlo del lado del servidor.",
+  ENOTFOUND: "el host del Hub no resuelve por DNS \u2014 revis\xE1 INTEGRA_HUB_API_URL y el archivo hosts.",
+  ECONNREFUSED: "el host resuelve pero nadie escucha en ese puerto \u2014 \xBFel Hub est\xE1 levantado?",
+  ETIMEDOUT: "la conexi\xF3n al Hub expir\xF3 sin respuesta \u2014 red, firewall o VPN.",
+  TimeoutError: "la request al Hub expir\xF3 \u2014 red, firewall o VPN."
+};
+function formatNetworkError(err, method, url2) {
+  const { code, cause, message } = describeNetworkError(err);
+  const parts = [`[mcp-server] ${method} ${url2} fall\xF3`];
+  if (code) parts.push(`(${code})`);
+  const detail = cause ?? message;
+  if (detail && detail !== "fetch failed") parts.push(`\u2014 ${detail}`);
+  const hint = code ? HINTS[code] : void 0;
+  if (hint) parts.push(`
+  ${hint}`);
+  return parts.join(" ");
+}
+var HubNetworkError = class extends Error {
+  code;
+  url;
+  method;
+  constructor(err, method, url2) {
+    super(formatNetworkError(err, method, url2), { cause: err });
+    this.name = "HubNetworkError";
+    this.code = describeNetworkError(err).code;
+    this.method = method;
+    this.url = url2;
+  }
+};
+
 // src/sdd-identity.ts
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { promises as fs } from "node:fs";
-import os2 from "node:os";
+import { promises as fs2 } from "node:fs";
+import os3 from "node:os";
 var execFileAsync = promisify(execFile);
 var SDD_IDENTITY_SERVICE = "integra-sdd-identity";
 var SDD_IDENTITY_TOKEN_NAME = "user-token";
@@ -32687,12 +32838,12 @@ async function getDiskSerial() {
       return match ? match[1].trim() : "";
     }
     if (process.platform === "linux") {
-      const blocks = await fs.readdir("/sys/block");
+      const blocks = await fs2.readdir("/sys/block");
       for (const name of blocks) {
         if (name.startsWith("loop") || name.startsWith("ram") || name.startsWith("sr"))
           continue;
         try {
-          const s = (await fs.readFile(`/sys/block/${name}/device/serial`, "utf8")).trim();
+          const s = (await fs2.readFile(`/sys/block/${name}/device/serial`, "utf8")).trim();
           if (s) return s;
         } catch {
         }
@@ -32718,9 +32869,9 @@ async function collectSddFingerprint() {
   if (fingerprintCache) return fingerprintCache;
   const diskSerial = await getDiskSerial();
   fingerprintCache = {
-    hostname: os2.hostname(),
+    hostname: os3.hostname(),
     os: process.platform,
-    cpuModel: os2.cpus()[0]?.model ?? "unknown",
+    cpuModel: os3.cpus()[0]?.model ?? "unknown",
     diskSerialHash: hashDiskSerial(diskSerial)
   };
   return fingerprintCache;
@@ -32797,6 +32948,13 @@ async function buildSddIdentityHeaders(role = process.env.INTEGRA_SDD_ROLE, deps
 var API_BASE = process.env.INTEGRA_HUB_API_URL || "http://localhost:3000/api/v1";
 var AUTH_HOOK_URL = process.env.INTEGRA_HUB_AUTH_HOOK;
 var accessToken = null;
+async function hubFetch(url2, init) {
+  try {
+    return await fetch(url2, init);
+  } catch (err) {
+    throw new HubNetworkError(err, init.method ?? "GET", url2);
+  }
+}
 var hookModule = null;
 async function loadHook() {
   if (!AUTH_HOOK_URL) return null;
@@ -32829,7 +32987,7 @@ async function authenticate() {
     return;
   }
   const { email: email3, password } = resolveBasicAuthCredentials();
-  const res = await fetch(`${API_BASE}/auth/login`, {
+  const res = await hubFetch(`${API_BASE}/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email: email3, password })
@@ -32869,9 +33027,9 @@ async function refreshAuthAfter401() {
   accessToken = null;
   await authenticate();
 }
-async function request(method, path2, body) {
+async function request(method, path3, body) {
   const { bearer, roleHeaders } = await resolveAuthMaterial();
-  const res = await fetch(`${API_BASE}${path2}`, {
+  const res = await hubFetch(`${API_BASE}${path3}`, {
     method,
     headers: {
       "Content-Type": "application/json",
@@ -32882,7 +33040,7 @@ async function request(method, path2, body) {
   });
   if (res.status === 401) {
     await refreshAuthAfter401();
-    return request(method, path2, body);
+    return request(method, path3, body);
   }
   if (!res.ok) {
     const text = await res.text();
@@ -32891,14 +33049,14 @@ async function request(method, path2, body) {
   if (res.status === 204) return void 0;
   return res.json();
 }
-async function uploadFile(path2, filePath, filename, mimeType) {
+async function uploadFile(path3, filePath, filename, mimeType) {
   const { bearer, roleHeaders } = await resolveAuthMaterial();
-  const { readFileSync: readFileSync2 } = await import("fs");
-  const fileBuffer = readFileSync2(filePath);
+  const { readFileSync: readFileSync3 } = await import("fs");
+  const fileBuffer = readFileSync3(filePath);
   const blob = new Blob([fileBuffer], { type: mimeType });
   const formData = new FormData();
   formData.append("file", blob, filename);
-  const res = await fetch(`${API_BASE}${path2}`, {
+  const res = await hubFetch(`${API_BASE}${path3}`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${bearer}`,
@@ -32908,7 +33066,7 @@ async function uploadFile(path2, filePath, filename, mimeType) {
   });
   if (res.status === 401) {
     await refreshAuthAfter401();
-    return uploadFile(path2, filePath, filename, mimeType);
+    return uploadFile(path3, filePath, filename, mimeType);
   }
   if (!res.ok) {
     const text = await res.text();
@@ -32917,19 +33075,31 @@ async function uploadFile(path2, filePath, filename, mimeType) {
   return res.json();
 }
 var apiClient = {
-  get: (path2) => request("GET", path2),
-  post: (path2, body) => request("POST", path2, body),
-  put: (path2, body) => request("PUT", path2, body),
-  patch: (path2, body) => request("PATCH", path2, body),
-  delete: (path2) => request("DELETE", path2),
-  del: (path2) => request("DELETE", path2),
-  upload: (path2, filePath, filename, mimeType) => uploadFile(path2, filePath, filename, mimeType)
+  get: (path3) => request("GET", path3),
+  post: (path3, body) => request("POST", path3, body),
+  put: (path3, body) => request("PUT", path3, body),
+  patch: (path3, body) => request("PATCH", path3, body),
+  delete: (path3) => request("DELETE", path3),
+  del: (path3) => request("DELETE", path3),
+  upload: (path3, filePath, filename, mimeType) => uploadFile(path3, filePath, filename, mimeType)
 };
 
 // src/read-format.ts
 function formatRead(data) {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
+
+// src/generated/decision-kind.ts
+var DECISION_KINDS = [
+  "DECISION",
+  "BUGFIX",
+  "APPROVAL",
+  "OPERATOR_CORRECTION",
+  "SELF_CORRECTION",
+  "COMMENT",
+  "STATUS_UPDATE",
+  "DESIGN"
+];
 
 // src/verification.ts
 var import_semver = __toESM(require_semver2(), 1);
@@ -33060,6 +33230,59 @@ async function strictApply(schema, params, body) {
     }
     throw e;
   }
+}
+
+// src/content-by-reference.ts
+import { readFileSync as readFileSync2 } from "node:fs";
+import { createHash as createHash2 } from "node:crypto";
+function resolveContentByReference({
+  content,
+  contentPath,
+  expectedSha256
+}) {
+  if (content !== void 0 && contentPath !== void 0) {
+    throw new Error(
+      "CONTENT_AMBIGUOUS: pas\xE1 content (inline) O contentPath (por referencia), no los dos. Nada se escribi\xF3."
+    );
+  }
+  if (content === void 0 && contentPath === void 0) {
+    throw new Error(
+      "CONTENT_REQUIRED: pas\xE1 content (inline) o contentPath + expectedSha256 (por referencia). Nada se escribi\xF3."
+    );
+  }
+  if (contentPath !== void 0) {
+    if (!expectedSha256) {
+      throw new Error(
+        "EXPECTED_SHA256_REQUIRED: contentPath exige expectedSha256 \u2014 la emisi\xF3n por referencia es auto-verificada o no es. Nada se escribi\xF3."
+      );
+    }
+    let raw;
+    try {
+      raw = readFileSync2(contentPath);
+    } catch (e) {
+      throw new Error(
+        `CONTENT_PATH_UNREADABLE: no se pudo leer ${contentPath}: ${e.message}. Nada se escribi\xF3.`
+      );
+    }
+    const expected = expectedSha256.toLowerCase();
+    const actual = createHash2("sha256").update(raw).digest("hex");
+    if (actual !== expected) {
+      throw new Error(
+        `SHA256_MISMATCH: se declar\xF3 ${expected} pero ${contentPath} hashea ${actual}. Nada se escribi\xF3 \u2014 verific\xE1 que el archivo en disco sea el que cre\xE9s estar emitiendo.`
+      );
+    }
+    return raw.toString("utf8");
+  }
+  if (expectedSha256 !== void 0) {
+    const expected = expectedSha256.toLowerCase();
+    const actual = createHash2("sha256").update(Buffer.from(content, "utf8")).digest("hex");
+    if (actual !== expected) {
+      throw new Error(
+        `SHA256_MISMATCH: se declar\xF3 ${expected} pero el content inline hashea ${actual}. Nada se escribi\xF3.`
+      );
+    }
+  }
+  return content;
 }
 
 // src/tools/create-task.deprecated.ts
@@ -33433,6 +33656,102 @@ function makeSpecUnblockHandler(client) {
     }
     const { specId, resolutionNotes } = parsed.data;
     const result = await client.patch(`/specs/${specId}/unblock`, { resolutionNotes });
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  };
+}
+
+// src/tools/domain-context.ts
+var domainContextSetSchema = {
+  body: external_exports3.string().min(1).describe(
+    "Texto COMPLETO de la version nueva (no un delta): cada version es autosuficiente porque una cita se sella contra el texto de UNA version. Escribirlo en ORACIONES COMPLETAS \u2014 una cita a este documento tiene que alcanzar el minimo de 40 caracteres normalizados para poder respaldar un supuesto."
+  )
+};
+var domainContextGetSchema = {
+  version: external_exports3.number().int().min(1).optional().describe(
+    "Version puntual. Omitida devuelve la VIGENTE (max(version) del tenant). Con valor devuelve esa version, que es como se reverifica una cita sellada contra una anterior."
+  )
+};
+var SetParamsSchema = external_exports3.object(domainContextSetSchema).strict();
+var GetParamsSchema = external_exports3.object(domainContextGetSchema).strict();
+function schemaError(issues) {
+  return {
+    isError: true,
+    content: [
+      {
+        type: "text",
+        text: `Schema validation failed: ${issues.map((e) => e.message).join("; ")}`
+      }
+    ]
+  };
+}
+function makeDomainContextSetHandler(client) {
+  return async (params) => {
+    const parsed = SetParamsSchema.safeParse(params);
+    if (!parsed.success) return schemaError(parsed.error.issues);
+    const result = await client.post("/domain-context", { body: parsed.data.body });
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  };
+}
+function makeDomainContextGetHandler(client) {
+  return async (params) => {
+    const parsed = GetParamsSchema.safeParse(params);
+    if (!parsed.success) return schemaError(parsed.error.issues);
+    const { version: version2 } = parsed.data;
+    const path3 = version2 === void 0 ? "/domain-context" : `/domain-context?version=${version2}`;
+    const result = await client.get(path3);
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  };
+}
+
+// src/tools/operator-input.ts
+var specRequestOperatorInputSchema = {
+  specId: external_exports3.string().describe("Spec ID (cuid)"),
+  questions: external_exports3.string().min(1).describe(
+    "Las preguntas al Operador, CON CONTENIDO. Agrupar varias preguntas en un mismo pedido es lo esperado: el tope cuenta REQUESTS, no preguntas. Escribirlas de forma que la respuesta pueda citarse despues como fuente OPERATOR_INPUT."
+  ),
+  artifactKind: external_exports3.enum(["DISCOVERY_REPORT", "ENGINEERING_PLAN"]).describe(
+    "Artefacto EN PRODUCCION cuando se pide el input: DISCOVERY_REPORT (Discovery) o ENGINEERING_PLAN (Engineering)."
+  )
+};
+var specOperatorInputListSchema = {
+  specId: external_exports3.string().describe("Spec ID (cuid)"),
+  status: external_exports3.enum(["OPEN", "ANSWERED"]).optional().describe(
+    "Filtro opcional. Omitido devuelve el historial COMPLETO: una consulta ya respondida sigue siendo fuente citable y no puede desaparecer del listado por default."
+  )
+};
+var RequestParamsSchema = external_exports3.object(specRequestOperatorInputSchema).strict();
+var ListParamsSchema = external_exports3.object(specOperatorInputListSchema).strict();
+function schemaError2(issues) {
+  return {
+    isError: true,
+    content: [
+      {
+        type: "text",
+        text: `Schema validation failed: ${issues.map((e) => e.message).join("; ")}`
+      }
+    ]
+  };
+}
+function makeSpecRequestOperatorInputHandler(client) {
+  return async (params) => {
+    const parsed = RequestParamsSchema.safeParse(params);
+    if (!parsed.success) return schemaError2(parsed.error.issues);
+    const { specId, questions, artifactKind } = parsed.data;
+    const result = await client.post(
+      `/specs/${encodeURIComponent(specId)}/operator-input`,
+      { questions, artifactKind }
+    );
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  };
+}
+function makeSpecOperatorInputListHandler(client) {
+  return async (params) => {
+    const parsed = ListParamsSchema.safeParse(params);
+    if (!parsed.success) return schemaError2(parsed.error.issues);
+    const { specId, status } = parsed.data;
+    const base = `/specs/${encodeURIComponent(specId)}/operator-input`;
+    const path3 = status === void 0 ? base : `${base}?status=${status}`;
+    const result = await client.get(path3);
     return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
   };
 }
@@ -34317,6 +34636,31 @@ server.tool(
   )
 );
 server.tool(
+  "ihub_list_task_links",
+  "List the links (PR URLs, docs) attached to a task, newest first. Devuelve el `id` de cada link \u2014 el que consume ihub_unlink_task_link.",
+  {
+    taskId: external_exports3.string().describe("Task ID (cuid)")
+  },
+  async (params) => strictApply(
+    external_exports3.object({ taskId: external_exports3.string() }).strict(),
+    params,
+    ({ taskId }) => apiClient.get(`/tasks/${taskId}/links`)
+  )
+);
+server.tool(
+  "ihub_unlink_task_link",
+  "Remove a link from a task by its link id. V\xEDa de correcci\xF3n de un TaskLink mal creado (PR equivocado / cerrado). Usar ihub_list_task_links para obtener el linkId.",
+  {
+    taskId: external_exports3.string().describe("Task ID (cuid)"),
+    linkId: external_exports3.string().describe("TaskLink ID (cuid) \u2014 sale de ihub_list_task_links")
+  },
+  async (params) => strictApply(
+    external_exports3.object({ taskId: external_exports3.string(), linkId: external_exports3.string() }).strict(),
+    params,
+    ({ taskId, linkId }) => apiClient.delete(`/tasks/${taskId}/links/${linkId}`)
+  )
+);
+server.tool(
   "ihub_upload_attachment",
   "Upload a file to a ticket or interaction from a local file path or URL. Supports images, PDFs, and any file type.",
   {
@@ -34352,7 +34696,7 @@ server.tool(
         isError: true
       };
     }
-    const { readFileSync: readFileSync2, existsSync, writeFileSync, unlinkSync } = await import("fs");
+    const { readFileSync: readFileSync3, existsSync, writeFileSync, unlinkSync } = await import("fs");
     const { basename, extname, join } = await import("path");
     const { tmpdir } = await import("os");
     const mimeTypes = {
@@ -34375,7 +34719,15 @@ server.tool(
     let fileName;
     let tempFile = false;
     if (validated.source.startsWith("http://") || validated.source.startsWith("https://")) {
-      const res = await fetch(validated.source);
+      let res;
+      try {
+        res = await fetch(validated.source);
+      } catch (err) {
+        return {
+          content: [{ type: "text", text: formatNetworkError(err, "GET", validated.source) }],
+          isError: true
+        };
+      }
       if (!res.ok) {
         return {
           content: [{ type: "text", text: `Failed to download: ${res.status} ${res.statusText}` }],
@@ -34601,13 +34953,13 @@ server.tool(
 );
 server.tool(
   "spec_get",
-  "Get full Spec detail with phases, metrics, comments. comments (all|recent|none, tool default all \u2014 preserva byte-a-byte el shape que requiere el canal [ROUTE:]/inbox-check) + commentsLimit acotan comments[] de spec y de cada fase; recent agrega commentCount (total real), none lo omite.",
+  "Get full Spec detail with phases, metrics, comments. comments (all|recent|none, tool default all \u2014 preserva byte-a-byte el shape que requiere el canal [ROUTE:]/inbox-check) + commentsLimit acotan comments[] de spec y de cada fase; recent agrega commentCount (total real), none lo omite. TKT-0272 \u2014 cuando la fase tiene `canonicalContract`, \xC9SE es el contrato vigente: la fase viene con `contentIsHistorical: true` y su `content` llega con un banner del servidor que avisa que NO es normativo. No implementes contra el `content` de una fase marcada as\xED.",
   specGetSchema,
   makeSpecGetHandler(apiClient)
 );
 server.tool(
   "spec_get_phase",
-  "Get lean detail of a single Spec Phase, wrapping the EXISTING endpoint GET /specs/:specId/phases/:id (PhasesService.findById). Returns only that phase's own tickets/tasks/comments/kbArticles/attachments \u2014 no comments/phases from other phases nor the parent Spec. Use instead of spec_get when you only need one phase (smaller payload).",
+  "Get lean detail of a single Spec Phase, wrapping the EXISTING endpoint GET /specs/:specId/phases/:id (PhasesService.findById). Returns only that phase's own tickets/tasks/comments/kbArticles/attachments \u2014 no comments/phases from other phases nor the parent Spec. Use instead of spec_get when you only need one phase (smaller payload). TKT-0272 \u2014 cuando la fase tiene `canonicalContract`, \xC9SE es el contrato vigente: la fase viene con `contentIsHistorical: true` y su `content` llega con un banner del servidor que avisa que NO es normativo. No implementes contra el `content` de una fase marcada as\xED.",
   specGetPhaseSchema,
   makeSpecGetPhaseHandler(apiClient)
 );
@@ -34791,12 +35143,12 @@ server.tool(
           ]
         };
       }
-      const path2 = validated.phaseId ? `/specs/${validated.id}/phases/${validated.phaseId}/comments` : `/specs/${validated.id}/comments`;
+      const path3 = validated.phaseId ? `/specs/${validated.id}/phases/${validated.phaseId}/comments` : `/specs/${validated.id}/comments`;
       const contentWithTokens = prependTokensHeader(
         validated.content,
         validated.verification_tokens
       );
-      const comment = await apiClient.post(path2, {
+      const comment = await apiClient.post(path3, {
         content: contentWithTokens,
         internal: validated.internal,
         category
@@ -35154,7 +35506,7 @@ server.tool(
 );
 server.tool(
   "spec_update_phase",
-  "Update phase status, content, assignee. SPEC-0089 v0.3.1: when `status` is provided (phase transition \u2014 a structural verdict), verification_tokens is required post MCP_SERVER_RELEASE >= 0.2.0. When `content` is provided alongside tokens, the tokens are prepended to `content` as a `## Verification` table. Content-only / assignee-only updates never require tokens.",
+  "Update phase status, content, assignee. SPEC-0089 v0.3.1: when `status` is provided (phase transition \u2014 a structural verdict), verification_tokens is required post MCP_SERVER_RELEASE >= 0.2.0. When `content` is provided alongside tokens, the tokens are prepended to `content` as a `## Verification` table. Content-only / assignee-only updates never require tokens. TKT-0300: transicionar a IN_PROGRESS o COMPLETED rebota 422 PHASE_CONTRACT_MISALIGNED si la fase tiene el contrato can\xF3nico reescrito sin realign (v\xE1lvula: phase realign de Engineering, o force con state.force_transition).",
   {
     specId: external_exports3.string(),
     phaseId: external_exports3.string(),
@@ -35353,7 +35705,7 @@ server.tool(
 );
 server.tool(
   "task_take",
-  "Take an unassigned task (auto-assigns to current user). If the task is assigned to another user, returns an error \u2014 an admin must reassign.",
+  "Take an unassigned task (auto-assigns to current user). If the task is assigned to another user, returns an error \u2014 an admin must reassign. TKT-0300: rebota 422 PHASE_CONTRACT_MISALIGNED si la fase de la task tiene el contrato can\xF3nico reescrito sin realign (Engineering debe declarar el realign antes del pasaje a CC-Dev).",
   {
     taskId: external_exports3.string().describe("Task ID to take")
   },
@@ -35464,7 +35816,23 @@ server.tool(
     kind: external_exports3.enum(["MANUAL_TECHNICAL", "MANUAL_USER", "IMPLEMENTATION_DETAIL", "INFORMAL_EXPLANATION", "PROBLEM_STATEMENT", "DISCOVERY_REPORT", "DISCOVERY_AMENDMENT", "ENGINEERING_PLAN", "ADVERSARIAL_VERDICT", "CLOSEOUT_DECISION"]).describe(
       "Documentation section kind. MANUAL_TECHNICAL = technical manual for developers/integrators; MANUAL_USER = end-user manual; IMPLEMENTATION_DETAIL = internal implementation notes; INFORMAL_EXPLANATION = plain-language explanation for non-technical stakeholders. SDD kinds (SPEC-0096): PROBLEM_STATEMENT, DISCOVERY_REPORT, DISCOVERY_AMENDMENT, ENGINEERING_PLAN, ADVERSARIAL_VERDICT, CLOSEOUT_DECISION."
     ),
-    content: external_exports3.string().describe("Markdown content for the section"),
+    content: external_exports3.string().optional().describe(
+      "Markdown content for the section (inline). Opcional si pas\xE1s contentPath + expectedSha256 (TKT-0274 \u2014 transporte por referencia). Exactamente UNA de las dos v\xEDas."
+    ),
+    // TKT-0274 — transporte por referencia para artefactos grandes (planes, verdicts,
+    // closeouts): el content inline obligaba a pasar 150 KB por el contexto del agente
+    // emisor y la fricción fabricaba propuestas de bypass (caso SPEC-0166 rev 7). El
+    // mcp-server corre LOCAL: lee contentPath del disco, hashea los bytes crudos y
+    // compara contra expectedSha256 ANTES de emitir; si difiere rechaza sin escribir.
+    // contentPath/expectedSha256 NO se reenvían al PUT — el backend recibe content
+    // resuelto, igual que con la vía inline. DEBEN estar en AMBOS schemas (shape
+    // externo + .strict() interno) o el SDK/Zod los stripea.
+    contentPath: external_exports3.string().optional().describe(
+      "TKT-0274 \u2014 ruta local (absoluta) al archivo con el content. Alternativa a content para artefactos grandes: el mcp-server lee el archivo, verifica expectedSha256 sobre los bytes crudos y reci\xE9n ah\xED emite \u2014 byte-exacto por construcci\xF3n y cero costo de contexto. Mutuamente excluyente con content; exige expectedSha256."
+    ),
+    expectedSha256: external_exports3.string().optional().describe(
+      "TKT-0274 \u2014 sha256 hex esperado. OBLIGATORIO con contentPath (la emisi\xF3n por referencia es auto-verificada o no es); opcional con content inline. Computado sobre los bytes crudos del archivo (el mismo que sha256sum / Get-FileHash). Si difiere, la tool rechaza sin escribir."
+    ),
     title: external_exports3.string().optional().describe('Optional override; defaults to "[SPEC-XXXX] <kind label>"'),
     summary: external_exports3.string().optional().describe("Optional short summary visible in KB search"),
     tags: external_exports3.array(external_exports3.string()).optional().describe("Extra tags on top of the auto-applied spec:<number> and doc:<kind>"),
@@ -35486,7 +35854,7 @@ server.tool(
     // .strict() interno) o el SDK/Zod lo stripea antes del forward y el PUT nunca lo ve, sin error
     // visible — el modo de falla de RE-005 (verdictScope) y de TKT-0236.
     coverageDeclaration: external_exports3.record(external_exports3.string(), external_exports3.unknown()).optional().describe(
-      "SPEC-0168 P1 \u2014 { reviewedArtifactContentHash, outputUnits[], inputSources[] }. El hash sale del contentHash que spec_get_documentation expone por secci\xF3n; el gate de cobertura llega en P3."
+      "SPEC-0168 \u2014 { reviewedArtifactContentHash, outputUnits[], outputFamilies[], inputSources[] }. El hash sale del contentHash que spec_get_documentation expone por secci\xF3n. El gate (P3 salida + P4 entrada) EXIGE las dos mitades: un pronunciamiento por cada unidad enumerada del artefacto revisado, y una entrada en inputSources por cada fuente de contexto que el Hub enumera \u2014 DISCOVERY_REPORT vigente, SpecComment, SpecPhaseComment (tabla distinta), verdict de la ronda anterior y REPO. Las dos de comments se declaran con ref = cuid del \xFAltimo comment le\xEDdo; REPO con ref libre (<repo> @ <sha>), que el Hub NO verifica."
     ),
     // SPEC-0109 P3 — round/artifactReviewed del trail append-only (kinds APPEND:
     // ADVERSARIAL_VERDICT, DISCOVERY_AMENDMENT). El backend los asigna field-by-field a
@@ -35527,7 +35895,12 @@ server.tool(
     external_exports3.object({
       specId: external_exports3.string(),
       kind: external_exports3.enum(["MANUAL_TECHNICAL", "MANUAL_USER", "IMPLEMENTATION_DETAIL", "INFORMAL_EXPLANATION", "PROBLEM_STATEMENT", "DISCOVERY_REPORT", "DISCOVERY_AMENDMENT", "ENGINEERING_PLAN", "ADVERSARIAL_VERDICT", "CLOSEOUT_DECISION"]),
-      content: external_exports3.string(),
+      // TKT-0274 — espejo .strict() de content (ahora opcional) + contentPath +
+      // expectedSha256. La exclusión mutua y la verificación del hash viven en
+      // resolveContentByReference, que corre antes del PUT.
+      content: external_exports3.string().optional(),
+      contentPath: external_exports3.string().optional(),
+      expectedSha256: external_exports3.string().optional(),
       title: external_exports3.string().optional(),
       summary: external_exports3.string().optional(),
       tags: external_exports3.array(external_exports3.string()).optional(),
@@ -35562,7 +35935,12 @@ server.tool(
       ).optional()
     }).strict(),
     params,
-    ({ specId, kind, ...body }) => apiClient.put(`/specs/${specId}/documentation/${kind}`, body)
+    ({ specId, kind, content, contentPath, expectedSha256, ...body }) => apiClient.put(`/specs/${specId}/documentation/${kind}`, {
+      ...body,
+      // TKT-0274 — el backend siempre recibe content resuelto; contentPath y
+      // expectedSha256 mueren acá (verificados o rechazados sin escribir).
+      content: resolveContentByReference({ content, contentPath, expectedSha256 })
+    })
   )
 );
 server.tool(
@@ -35630,7 +36008,7 @@ server.tool(
 );
 server.tool(
   "spec_findings_read",
-  "Read the structured findings of a SPEC ADVERSARIAL_VERDICT (SPEC-0172 P6). Returns severity, finding class, resolution status and the full acceptance state (signer, effective role, date, justification and revert marker) WITHOUT deserializing the artifact markdown. By default only the CURRENT verdict \u2014 the only one the severity threshold evaluates; includeSuperseded=true adds previous rounds, each with its artifact `round` and `isCurrentVerdict: false`. Optional severity/status filters. Requires spec.read. 404 if the SPEC does not belong to the caller tenant. Double-schema (external shape + .strict() internal) \u2014 each field must be in BOTH or the SDK strips it.",
+  "Read the structured findings of a SPEC ADVERSARIAL_VERDICT (SPEC-0172 P6). Returns severity, finding class, resolution status and the full acceptance state (signer, effective role, date, justification and revert marker) WITHOUT deserializing the artifact markdown. By default only the CURRENT verdict \u2014 the only one the severity threshold evaluates; includeSuperseded=true adds previous rounds, each with its artifact `round` and `isCurrentVerdict: false`. Optional severity/status filters. Requires spec.findings_read (TKT-0271 \u2014 the six SDD roles carry this key; it used to be spec.read, which no SDD role holds, so every SDD session got 403). 404 if the SPEC does not belong to the caller tenant. Double-schema (external shape + .strict() internal) \u2014 each field must be in BOTH or the SDK strips it.",
   {
     specId: external_exports3.string().describe("Spec ID (cuid)"),
     severity: external_exports3.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"]).optional().describe("Optional filter by finding severity."),
@@ -35661,7 +36039,7 @@ server.tool(
 );
 server.tool(
   "spec_finding_get",
-  "Read ONE finding of a SPEC ADVERSARIAL_VERDICT by its cuid OR by its findingKey \u2014 the key the verdict names it with (SPEC-0172 P6, literal verification of O2: querying the resolution state of an individual finding without deserializing the artifact blob). If the key only exists in a superseded round, that one is returned with `isCurrentVerdict: false` and its `round`. Requires spec.read. 404 FINDING_NOT_FOUND if neither the id nor the key match inside the SPEC. Double-schema (external shape + .strict() internal).",
+  "Read ONE finding of a SPEC ADVERSARIAL_VERDICT by its cuid OR by its findingKey \u2014 the key the verdict names it with (SPEC-0172 P6, literal verification of O2: querying the resolution state of an individual finding without deserializing the artifact blob). If the key only exists in a superseded round, that one is returned with `isCurrentVerdict: false` and its `round`. Requires spec.findings_read (TKT-0271 \u2014 the six SDD roles carry this key; it used to be spec.read, which no SDD role holds, so every SDD session got 403). 404 FINDING_NOT_FOUND if neither the id nor the key match inside the SPEC. Double-schema (external shape + .strict() internal).",
   {
     specId: external_exports3.string().describe("Spec ID (cuid)"),
     findingId: external_exports3.string().describe('AdversarialFinding cuid OR findingKey (e.g. "F3") of the finding to read')
@@ -35674,7 +36052,7 @@ server.tool(
 );
 server.tool(
   "tenant_accepted_risks_read",
-  "Read the ACTIVE risk acceptances of the whole tenant, WITHOUT fixing a SPEC (SPEC-0172 P6, O4 \u2014 the axis that did not exist in any implemented surface: the precedent GET /specs/:specId/accepted-risks requires a specId). Each acceptance carries its SPEC, the finding, the severity, who signed (user AND effective role), when, and how many days ago (ageDays). Active = signed, NOT reverted (acceptedRiskClearedAt NULL) and on the CURRENT verdict; reverted ones never appear. Also returns `metrics` { windowDays, specsWithAcceptance, totalSpecsInWindow, proportion }: the share of SPECs that went through the adversarial gate within the window and are processed under an exception today. No exception expires, so the signature date does not filter the list. Requires spec.read. Double-schema (external shape + .strict() internal).",
+  "Read the ACTIVE risk acceptances of the whole tenant, WITHOUT fixing a SPEC (SPEC-0172 P6, O4 \u2014 the axis that did not exist in any implemented surface: the precedent GET /specs/:specId/accepted-risks requires a specId). Each acceptance carries its SPEC, the finding, the severity, who signed (user AND effective role), when, and how many days ago (ageDays). Active = signed, NOT reverted (acceptedRiskClearedAt NULL) and on the CURRENT verdict; reverted ones never appear. Also returns `metrics` { windowDays, specsWithAcceptance, totalSpecsInWindow, proportion }: the share of SPECs that went through the adversarial gate within the window and are processed under an exception today. No exception expires, so the signature date does not filter the list. Requires spec.findings_read (TKT-0271 \u2014 the six SDD roles carry this key; it used to be spec.read, which no SDD role holds, so every SDD session got 403). Double-schema (external shape + .strict() internal).",
   {
     windowDays: external_exports3.number().optional().describe("Metric window: 30, 60 or 90 (default 30). Does NOT filter the acceptances list."),
     specId: external_exports3.string().optional().describe("Optional filter: restrict `acceptances` to one SPEC. `metrics` stays tenant-wide.")
@@ -35806,7 +36184,7 @@ server.tool(
 );
 server.tool(
   "spec_phase_set_canonical_contract",
-  "Setea el contrato can\xF3nico tipado de una fase (columna canonicalContract Json?, le\xEDda por el gate de engineering-review item c). Los 4 componentes deben ser strings no vac\xEDos o el gate falla al solicitar la review. Opcional noCodeLayer (TKT-0231): declara que la fase NO produce capa de c\xF3digo (gobierno/documentaci\xF3n) y exime a sus tasks del gate de cierre de worktree (PR link + delta) que una fase sin c\xF3digo no puede satisfacer.",
+  "Setea el contrato can\xF3nico tipado de una fase (columna canonicalContract Json?, le\xEDda por el gate de engineering-review item c). Los 4 componentes deben ser strings no vac\xEDos o el gate falla al solicitar la review. Opcional noCodeLayer (TKT-0231): declara que la fase NO produce capa de c\xF3digo (gobierno/documentaci\xF3n) y exime a sus tasks del gate de cierre de worktree (PR link + delta) que una fase sin c\xF3digo no puede satisfacer. Opcional postconditionDeliverables (TKT-0268): los entregables de los que dependen las postcondiciones de la fase, cada uno con la fase donde vive. El backend los cruza contra el grafo PhaseDependency (BLOCKS) + sortOrder y rebota 422 PHASE_CONTRACT_POSTCONDITION_UNSATISFIABLE si alguno vive en una fase POSTERIOR \u2014 una fase no puede exigir como postcondici\xF3n un resultado que produce otra fase aguas abajo (caso vivo SPEC-0160 P1). El gate de salida de Engineering exige adem\xE1s que el entregable viva en la propia fase o en un ancestro del DAG BLOCKS.",
   {
     specId: external_exports3.string().describe("Spec ID (cuid) or SPEC-XXXX number"),
     phaseId: external_exports3.string().describe("SpecPhase ID (cuid)"),
@@ -35820,9 +36198,13 @@ server.tool(
       // PRODUCES de la fase. `rationale` es obligatorio si declared=true.
       noCodeLayer: external_exports3.object({ declared: external_exports3.boolean(), rationale: external_exports3.string().optional() }).optional().describe(
         'Fase sin capa de c\xF3digo: { declared: true, rationale: "por qu\xE9 no produce c\xF3digo" }. Omitir en fases de c\xF3digo.'
+      ),
+      // TKT-0268 — satisfacibilidad de la postcondición DENTRO de la fase.
+      postconditionDeliverables: external_exports3.array(external_exports3.object({ deliverable: external_exports3.string(), phase: external_exports3.string() })).optional().describe(
+        'Entregables de los que dependen las postcondiciones: [{ deliverable: "qu\xE9", phase: "cuid o nombre de fase de la misma SPEC" }]. Si alguno vive en una fase posterior, el contrato NO se guarda (422).'
       )
     }).describe(
-      "Contrato can\xF3nico: { queHace, queProduce, precondiciones, postcondiciones } + noCodeLayer opcional"
+      "Contrato can\xF3nico: { queHace, queProduce, precondiciones, postcondiciones } + noCodeLayer / postconditionDeliverables opcionales"
     )
   },
   async (params) => strictApply(
@@ -35834,7 +36216,10 @@ server.tool(
         queProduce: external_exports3.string(),
         precondiciones: external_exports3.string(),
         postcondiciones: external_exports3.string(),
-        noCodeLayer: external_exports3.object({ declared: external_exports3.boolean(), rationale: external_exports3.string().optional() }).optional()
+        noCodeLayer: external_exports3.object({ declared: external_exports3.boolean(), rationale: external_exports3.string().optional() }).optional(),
+        // TKT-0268 — la clave viaja tal cual al PUT; el cruce contra el grafo de
+        // fases lo hace el backend (el MCP no tiene el grafo).
+        postconditionDeliverables: external_exports3.array(external_exports3.object({ deliverable: external_exports3.string(), phase: external_exports3.string() })).optional()
       })
     }).strict(),
     params,
@@ -35852,6 +36237,30 @@ server.tool(
   "Declara la re-alineaci\xF3n del contrato can\xF3nico de una fase: la \xDANICA acci\xF3n que apaga la marca de desalineo (contractAlignment.misaligned). No es un acuse \u2014 exige una disposici\xF3n por CADA artefacto que la se\xF1al enumera (staleTasks, staleAcceptanceCriteria, staleSurfaces y CONTENT si staleContent). Falta una sola \u2192 422 nombrando el faltante, sin apagar nada; y si aparece un artefacto nuevo entre tu lectura y el POST, tambi\xE9n rebota: la enumeraci\xF3n se recomputa dentro de la transacci\xF3n. Disposiciones: STILL_VALID / SUPERSEDED_BY (+supersededByRef, la \xFAnica forma de declarar un ganador cuando el modelo es add-only) / OBSOLETE (+note). Requiere permiso phase.realign_contract (ENGINEERING/OPERATOR) y la SPEC en {IN_PROGRESS, ENGINEERING}; fase en estado final \u2192 400.",
   specPhaseRealignContractSchema,
   makeSpecPhaseRealignContractHandler(apiClient)
+);
+server.tool(
+  "domain_context_set",
+  "Crea una version NUEVA del documento de conocimiento de dominio del tenant (usuarios, operacion, umbrales estables). Append-only: no pisa ninguna version anterior \u2014 la version se calcula como max(version) + 1 y NO existe update ni delete, porque una cita se sella contra el texto de UNA version y editarla volveria irreverificable toda cita ya sellada. `body` es el texto COMPLETO de la version nueva, no un delta. Escribirlo en ORACIONES COMPLETAS: una cita necesita 40 caracteres normalizados para respaldar un supuesto. Requiere el permiso tenant.domain_context.write (solo OPERATOR) \u2014 cualquier otro actor recibe 403. Devuelve el cuid de la version, que es el `source_id` citable.",
+  domainContextSetSchema,
+  makeDomainContextSetHandler(apiClient)
+);
+server.tool(
+  "domain_context_get",
+  "Devuelve el documento de conocimiento de dominio del tenant. Sin `version` devuelve la VIGENTE (max(version)); con `version` devuelve esa version puntual, que es como se reverifica una cita sellada contra una version anterior. El `id` de la respuesta es el `source_id` que un EvidenceRef con source_type DOMAIN_CONTEXT tiene que citar. Lectura sin permiso especial (la necesita cualquiera que verifique una cita), acotada al tenant del firmante. 404 DOMAIN_CONTEXT_NOT_FOUND si el tenant no cargo ninguna version.",
+  domainContextGetSchema,
+  makeDomainContextGetHandler(apiClient)
+);
+server.tool(
+  "spec_request_operator_input",
+  "Pide input al Operador sobre una SPEC y la deja EN ESPERA, SIN castigo: el estado y el contexto de la SPEC NO cambian (mismo stateId, mismo inProgressContext) y tu turno cierra igual. Con la consulta abierta, el gate del dispatcher bloquea TODA transicion de la SPEC salvo BLOCKED y CANCELLED \u2014 el rechazo nombra el cuid de la consulta pendiente. Agrupar varias preguntas en un pedido es eficiencia, no evasion: el tope cuenta REQUESTS. Devuelve requestsUsed/requestsMax. 422 OPERATOR_INPUT_CAP_REACHED si la SPEC agoto el tope del tenant (sin retroceso de estado; el tope se sube por PATCH /admin/sdd/tenants/:id/operator-input-cap), OPERATOR_INPUT_ALREADY_OPEN si ya hay una abierta. Requiere el permiso spec.request_operator_input (DISCOVERY, ENGINEERING, OPERATOR). La respuesta NO se da por MCP: es acto humano por UI.",
+  specRequestOperatorInputSchema,
+  makeSpecRequestOperatorInputHandler(apiClient)
+);
+server.tool(
+  "spec_operator_input_list",
+  "Consultas al Operador de una SPEC (historial completo) mas `pendingId` \u2014 la abierta que esta gateando el avance, o null \u2014 y requestsUsed/requestsMax. El `id` de cada fila es el `source_id` que un EvidenceRef con source_type OPERATOR_INPUT tiene que citar, y su `answerText` es el corpus contra el que se verifica la cita. Filtro opcional status (OPEN|ANSWERED); omitido devuelve todo, porque una consulta respondida sigue siendo fuente citable. Lectura sin permiso especial (la necesita cualquiera que verifique una cita), acotada al tenant del firmante.",
+  specOperatorInputListSchema,
+  makeSpecOperatorInputListHandler(apiClient)
 );
 server.tool(
   "task_add_acceptance_criterion",
@@ -36490,15 +36899,7 @@ server.tool(
   {
     title: external_exports3.string().min(1).max(200).describe("Short distilled title (<200 chars)."),
     body: external_exports3.string().min(1).describe("Markdown body with full decision content (rationale, tradeoffs, etc.)."),
-    kind: external_exports3.enum([
-      "DECISION",
-      "BUGFIX",
-      "APPROVAL",
-      "OPERATOR_CORRECTION",
-      "SELF_CORRECTION",
-      "COMMENT",
-      "STATUS_UPDATE"
-    ]).describe("Type of decision record."),
+    kind: external_exports3.enum(DECISION_KINDS).describe("Type of decision record."),
     scope: external_exports3.enum(["SPEC_LEVEL", "PHASE_LEVEL"]).describe("SPEC_LEVEL \u2192 linkedPhaseId must be null. PHASE_LEVEL \u2192 linkedPhaseId required."),
     linkedSpecId: external_exports3.string().optional().describe("Linked Spec id (optional)."),
     linkedPhaseId: external_exports3.string().optional().describe("Linked SpecPhase id. Required if scope=PHASE_LEVEL, must be null if scope=SPEC_LEVEL."),
@@ -36516,15 +36917,7 @@ server.tool(
     const ParamsSchema10 = external_exports3.object({
       title: external_exports3.string().min(1).max(200),
       body: external_exports3.string().min(1),
-      kind: external_exports3.enum([
-        "DECISION",
-        "BUGFIX",
-        "APPROVAL",
-        "OPERATOR_CORRECTION",
-        "SELF_CORRECTION",
-        "COMMENT",
-        "STATUS_UPDATE"
-      ]),
+      kind: external_exports3.enum(DECISION_KINDS),
       scope: external_exports3.enum(["SPEC_LEVEL", "PHASE_LEVEL"]),
       linkedSpecId: external_exports3.string().optional(),
       linkedPhaseId: external_exports3.string().optional(),
@@ -36578,15 +36971,7 @@ server.tool(
   "decision_list",
   "List Decisions with filters (kind/lifecycle/scope/linkedSpecId/linkedPhaseId/parentDecisionId/tags/tagsAll/isBlocking). Default lifecycle=ACTIVE backend-side. tags=OR (hasSome), tagsAll=AND (hasEvery). Returns {data, total, limit, offset}.",
   {
-    kind: external_exports3.enum([
-      "DECISION",
-      "BUGFIX",
-      "APPROVAL",
-      "OPERATOR_CORRECTION",
-      "SELF_CORRECTION",
-      "COMMENT",
-      "STATUS_UPDATE"
-    ]).optional(),
+    kind: external_exports3.enum(DECISION_KINDS).optional(),
     lifecycle: external_exports3.enum(["ACTIVE", "SUPERSEDED", "RETRACTED", "HISTORICAL", "BLOCKED"]).optional().describe("Default ACTIVE backend-side. Pass explicit to list other lifecycles."),
     scope: external_exports3.enum(["SPEC_LEVEL", "PHASE_LEVEL"]).optional(),
     linkedSpecId: external_exports3.string().optional(),
@@ -36622,15 +37007,7 @@ server.tool(
     id: external_exports3.string().describe("Decision id to update."),
     title: external_exports3.string().min(1).max(200).optional(),
     body: external_exports3.string().min(1).optional(),
-    kind: external_exports3.enum([
-      "DECISION",
-      "BUGFIX",
-      "APPROVAL",
-      "OPERATOR_CORRECTION",
-      "SELF_CORRECTION",
-      "COMMENT",
-      "STATUS_UPDATE"
-    ]).optional(),
+    kind: external_exports3.enum(DECISION_KINDS).optional(),
     scope: external_exports3.enum(["SPEC_LEVEL", "PHASE_LEVEL"]).optional(),
     linkedPhaseId: external_exports3.string().nullable().optional().describe("Pass null to clear linkedPhaseId (e.g. when changing scope to SPEC_LEVEL)."),
     tags: external_exports3.array(external_exports3.string()).optional(),
@@ -36643,15 +37020,7 @@ server.tool(
       id: external_exports3.string(),
       title: external_exports3.string().min(1).max(200).optional(),
       body: external_exports3.string().min(1).optional(),
-      kind: external_exports3.enum([
-        "DECISION",
-        "BUGFIX",
-        "APPROVAL",
-        "OPERATOR_CORRECTION",
-        "SELF_CORRECTION",
-        "COMMENT",
-        "STATUS_UPDATE"
-      ]).optional(),
+      kind: external_exports3.enum(DECISION_KINDS).optional(),
       scope: external_exports3.enum(["SPEC_LEVEL", "PHASE_LEVEL"]).optional(),
       linkedPhaseId: external_exports3.string().nullable().optional(),
       tags: external_exports3.array(external_exports3.string()).optional(),
@@ -36698,15 +37067,7 @@ server.tool(
   'Search Decisions (SPEC-0048 F3 TSK-A \u2014 BM25-only V1). Free-text query via websearch_to_tsquery (espacios=AND, "..."=phrase, OR expl\xEDcito) sobre title (A) + body (B) + supersededReason/retractedReason (C). Tags NO en BM25 \u2014 filtran via tags (OR/hasSome) y tagsAll (AND/hasEvery). Supersession chain navigation via supersedingChainOf (forward-walking recursive CTE). lifecycle SIN default (a diferencia de decision_list) \u2014 search expone all-lifecycles a menos que se filtre expl\xEDcito. Returns {data, total, limit, offset} donde data[i] = {item: Decision, score: number} (score=0 cuando q ausente, orden por createdAt DESC).',
   {
     q: external_exports3.string().optional().describe("Free-text query. Ausente \u2192 solo structured filters, orden por createdAt DESC."),
-    kind: external_exports3.enum([
-      "DECISION",
-      "BUGFIX",
-      "APPROVAL",
-      "OPERATOR_CORRECTION",
-      "SELF_CORRECTION",
-      "COMMENT",
-      "STATUS_UPDATE"
-    ]).optional(),
+    kind: external_exports3.enum(DECISION_KINDS).optional(),
     lifecycle: external_exports3.enum(["ACTIVE", "SUPERSEDED", "RETRACTED", "HISTORICAL", "BLOCKED"]).optional().describe("NO default \u2014 search list across all lifecycles a menos que se filtre expl\xEDcito."),
     scope: external_exports3.enum(["SPEC_LEVEL", "PHASE_LEVEL"]).optional(),
     dateFrom: external_exports3.string().optional().describe("ISO 8601 \u2014 inclusive lower bound del createdAt."),
@@ -38105,6 +38466,7 @@ server.tool(
 );
 async function main() {
   validateRoleEnv();
+  installCaChannel();
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }

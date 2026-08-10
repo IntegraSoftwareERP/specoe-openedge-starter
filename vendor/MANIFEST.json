@@ -1,7 +1,7 @@
 {
-  "starterVersion": "0.2.14",
+  "starterVersion": "0.2.16",
   "schemaVersion": 2,
-  "generatedAt": "2026-07-31",
+  "generatedAt": "2026-08-10",
   "hashPolicy": {
     "note": "TKT-0252 — dos hashes con dos propositos distintos. Ninguno reemplaza al otro: el que verifica procedencia mira contentSha256, el que verifica la copia mira packageSha256.",
     "packageSha256": "sha256 del archivo tal cual quedo en vendor/. CHECKSUM DE COPIA: detecta corrupcion en el canal de publicacion (clon, normalizacion de fin de linea, transferencia). NO prueba procedencia cuando el artefacto es un contenedor: vsce escribe timestamps dentro del .vsix, asi que empaquetar el MISMO commit dos veces da dos valores distintos.",
@@ -17,10 +17,11 @@
       "version": "0.1.2",
       "sourceRepo": "IntegraSoftwareERP/integra-hub",
       "sourcePath": "mcp-server",
-      "sourceSha": "a4812cac479942c62c12464fffef05f36f6d0024",
-      "packageSha256": "dc928d5fe4e27a03c59ae204a73978ec4105647e4708ed08948609cad93d1061",
+      "sourceSha": "974c8b92ae7f258d7d528077e85c89651185ec83",
+      "packageSha256": "78c37134689ee50d4c83ee6d1483093384359887d30c54366cd09fa3d96c2a6b",
       "versionCommand": "node vendor/integra-hub-mcp.mjs --version",
-      "reproducibility": "esbuild sobre el mismo input produce el mismo output: VERIFICADO 2026-07-31 reconstruyendo el bundle desde a4812ca dos veces — las dos corridas dieron dc928d5f..., identico al valor publicado. Por eso este componente NO necesita contentSha256: su packageSha256 ya identifica el contenido."
+      "reproducibility": "esbuild sobre el mismo input produce el mismo output: VERIFICADO 2026-08-10 reconstruyendo el bundle desde 974c8b9 dos veces — las dos corridas dieron 78c37134..., byte a byte identicas. Por eso este componente NO necesita contentSha256: su packageSha256 ya identifica el contenido.",
+      "versionNote": "TKT-0306 — la version del paquete sigue siendo 0.1.2 y NO se bumpeo al re-vendorizar: mcp-server no la movio entre a4812ca y 974c8b9. O sea que `--version` devuelve lo mismo para el bundle viejo y el nuevo, y no sirve para distinguirlos desde la VM. Lo que los distingue es el sourceSha declarado aca y su packageSha256."
     },
     {
       "name": "integra-hub-vscode",
@@ -29,10 +30,10 @@
       "version": "0.1.0",
       "sourceRepo": "IntegraSoftwareERP/integra-hub-vscode",
       "sourcePath": ".",
-      "sourceSha": "7c58a5577866e1e623a07448912255fb8fd0ade9",
-      "packageSha256": "46c73ab88f21079f975b818c0e2954d0e0897e609dad073ed112139f4d507f2a",
-      "contentSha256": "50340cd0b6c451dba892308633e8ec2d56116f34359e50df754af8ab5f1a1cf9",
-      "reproducibility": "vsce NO es determinista: tres corridas del commit 7c58a55 dieron tres packageSha256 distintos (ab2ad6e0..., 46c73ab8..., 774a2261...) con el mismo contenido. Las tres dan el mismo contentSha256 50340cd0... — VERIFICADO 2026-07-31 reconstruyendo el .vsix desde 7c58a55 y comparandolo contra este artefacto vendorizado."
+      "sourceSha": "dcb3790a6bfd72828287e111e69722c2826f5706",
+      "packageSha256": "952d5b3ff5c13845a532acacd213325e0a9a97cbfdc6b3acc1e0bc66fd2c141a",
+      "contentSha256": "797c0cd9a0bd8d8915b054da24d592de36fa765842708db0445aa8f5674204b6",
+      "reproducibility": "vsce NO es determinista: dos corridas del commit dcb3790 dieron dos packageSha256 distintos (952d5b3f... y 4fdc4fd8...) con el mismo contenido — las dos dan el mismo contentSha256 797c0cd9... VERIFICADO 2026-08-10 empaquetando dos veces desde dcb3790, que reproduce lo medido el 2026-07-31 sobre 7c58a55 (tres corridas, tres packageSha256, un solo contentSha256)."
     }
   ]
 }
