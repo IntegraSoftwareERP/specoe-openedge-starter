@@ -124,13 +124,43 @@ else
   Actualizá el starter de esta carpeta (git -C \"$SCRIPT_DIR\" pull --ff-only) y volvé a correr el MISMO comando."
 fi
 
-# ----- Universo del check de config (SPEC-0167 P2, ADR-003) -----
-# CINCO campos. `paths.workspace-root` entra porque es un path absoluto al workspace del
-# cliente: dejarlo en el valor del template apunta a una ruta que no existe en la maquina.
+# ----- Universo del check de config (SPEC-0167 P2, ADR-003; partido en TKT-0309) -----
+# BASE: lo que TODA carpeta necesita, sea un room SDD o un proyecto ERP.
+# `paths.workspace-root` entra porque es un path absoluto al workspace del cliente: dejarlo en
+# el valor del template apunta a una ruta que no existe en la maquina.
 # Deliberadamente AFUERA: `specoe.role` y `hub.api-url`, porque los reescribe el propio
 # instalador antes de que el check corra (el sed de specoe-add-room.sh y el de --hub de mas
 # abajo). Compararlos daria falso positivo sobre una instalacion sana.
-SPECOE_CONFIG_FIELDS="project.name project.vendor paths.workspace-root database.logical-name pasoe.instance-name"
+SPECOE_CONFIG_FIELDS_BASE="project.name project.vendor paths.workspace-root"
+
+# ERP: los DOS campos del backend OpenEdge. Estaban en la lista unica hasta TKT-0309, asi que
+# el alta de CUALQUIER room cortaba hasta que el dev declarara una base Progress y una instancia
+# PASOE — que pueden no existir todavia, o no conocerse, cuando se instala un Discovery.
+# Medido sobre el starter: el UNICO consumidor de los dos es `docker/gradle/build.gradle`
+# (`pasoeInstance = '{{pasoe.instance-name}}'`), el build del webapp PASOE. Ni los hooks del
+# bundle, ni el launcher, ni el plugin, ni el MCP los leen — y `docker/` ni siquiera queda en la
+# carpeta de un room (specoe-add-room.sh lo recorta en SPECOE_ROOM_DROP). La lista obligatoria
+# no coincidia con lo que el sistema consume: eso es el bug, no una preferencia de diseño.
+SPECOE_CONFIG_FIELDS_ERP="database.logical-name pasoe.instance-name"
+
+# `specoe_config_fields <yaml>` — universo obligatorio PARA ESTA CARPETA.
+#
+# Discriminador: `specoe.role`. Es la DECLARACION del room (la fija specoe-add-room.sh en su
+# paso 2, ANTES del `setup.sh --room-only` del paso 5), asi que cuando el check corre sobre un
+# room ya esta escrita. Vacia = no es un room SDD: es el proyecto ERP del cliente, y ahi los dos
+# campos del backend siguen siendo obligatorios (el gate no se elimina, se acota).
+#
+# Falla hacia el comportamiento anterior: si el yaml no se puede leer o la clave no esta, el rol
+# sale vacio y se exige el universo completo. Un starter viejo no relaja el check por accidente.
+specoe_config_fields() {
+  local role
+  role="$(specoe_yaml_get "${1:-project.config.yaml}" specoe.role)"
+  if [ -n "$role" ]; then
+    echo "$SPECOE_CONFIG_FIELDS_BASE"
+  else
+    echo "$SPECOE_CONFIG_FIELDS_BASE $SPECOE_CONFIG_FIELDS_ERP"
+  fi
+}
 
 # Fallback declarado de ADR-003: sentinelas literales del template, para cuando el yaml
 # versionado del clone no se puede leer. Se desincronizan en silencio si el template cambia
@@ -494,9 +524,13 @@ fi
 
 log "Validando project.config.yaml..."
 
-# Este check CORTA (SPEC-0167 P2, ADR-003). Antes solo verificaba que los cinco campos no
+# Este check CORTA (SPEC-0167 P2, ADR-003). Antes solo verificaba que los campos obligatorios no
 # estuvieran vacios, y el propio script admitia el hueco a continuacion: con los valores del
 # template el check pasaba y el flujo fallaba varios pasos despues, lejos de la causa.
+#
+# QUE campos son obligatorios lo decide la carpeta, no el script (TKT-0309): un room SDD pide el
+# universo BASE; el proyecto ERP pide ademas los dos del backend OpenEdge. Ver
+# `specoe_config_fields` mas arriba.
 #
 # Referencia contra la que se compara: el project.config.yaml VERSIONADO del propio clone,
 # leido con `git show HEAD:...`. Se compara campo por campo (no el archivo entero) para no
@@ -515,6 +549,14 @@ if ! ( git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
   warn "  MODO DEGRADADO: no pude leer el project.config.yaml versionado (git show HEAD:project.config.yaml)."
   warn "  La deteccion de valores de template corre contra sentinelas literales, que pueden estar"
   warn "  desactualizadas respecto del template. Este check NO equivale al completo."
+fi
+
+SPECOE_CONFIG_FIELDS="$(specoe_config_fields project.config.yaml)"
+CONFIG_ROOM_ROLE="$(specoe_yaml_get project.config.yaml specoe.role)"
+if [ -n "$CONFIG_ROOM_ROLE" ]; then
+  log "  Carpeta declarada como room SDD (specoe.role='$CONFIG_ROOM_ROLE'): el check NO exige los campos del backend OpenEdge ($SPECOE_CONFIG_FIELDS_ERP) — no los lee nada del flujo SDD (TKT-0309)."
+else
+  log "  Carpeta sin specoe.role: se valida como proyecto ERP, con los campos del backend OpenEdge incluidos."
 fi
 
 CONFIG_EMPTY_FIELDS=""

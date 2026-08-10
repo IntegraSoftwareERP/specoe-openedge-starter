@@ -2,6 +2,34 @@
 
 All notable changes to this project. Automatic — regenerado por `./scripts/changelog.sh`.
 
+## 0.2.17 — 2026-08-10 (TKT-0309 — el alta de un room deja de pedir datos del ERP que el room no usa)
+
+**Arregla un gate que exigía lo que el sistema no consume.** `setup.sh` tenía UNA lista de campos
+obligatorios —`SPECOE_CONFIG_FIELDS`, cinco campos— y adentro estaban `database.logical-name` y
+`pasoe.instance-name`. Hasta que los cinco se editaran, la instanciación de **cualquier** room
+cortaba con exit 1: un dev que sólo va a operar un Discovery tenía que declarar una base Progress y
+una instancia PASOE que pueden no existir todavía en el cliente, o no conocerse al momento del alta.
+
+- **El universo del check lo decide ahora la carpeta.** `specoe.role` declarado (lo fija
+  `specoe-add-room.sh` antes de correr el check) = room SDD: se exigen `project.name`,
+  `project.vendor` y `paths.workspace-root`. Sin rol = proyecto ERP del cliente: se exigen además los
+  dos del backend OpenEdge, igual que antes. El gate no se desactiva, se acota — y falla hacia el
+  universo completo si el yaml no se puede leer.
+- **Por qué esos dos y no otros**: medido sobre el starter, el único consumidor de
+  `pasoe.instance-name` es `docker/gradle/build.gradle` (el build del webapp PASOE) y
+  `database.logical-name` no tiene ninguno — las skills del backend lo renderizan server-side desde
+  el yaml del tenant, que es otro archivo. Y `docker/` ni llega al clon de un room: `add-room` lo
+  recorta.
+- **Con test que lo gatea en CI**: `scripts/test-config-gate-fields.sh` extrae del `setup.sh` real el
+  universo de campos y la sección entera que corta, y los ejerce sobre rooms sintéticos — room SDD
+  pasa, room SDD con un campo BASE sin editar corta, proyecto ERP sigue exigiendo DB y PASOE, y un
+  control negativo con la lista única vuelve a cortar para probar que el banco discrimina.
+
+**Anotado y no resuelto** (salvedad explícita del Arquitecto): el valor de template de
+`pasoe.instance-name` es `oepas1`, que también es un valor real plausible, así que un dev del
+proyecto ERP que lo deja porque le sirve sigue contando como «sin editar». Deja de importar para
+rooms SDD; sigue vivo para proyectos ERP.
+
 ## 0.2.16 — 2026-08-10 (TKT-0306 — el plugin y el MCP vendorizados vuelven a ser los de sus repos)
 
 **Arregla un starter que instalaba software viejo sin decirlo.** `vendor/` traía el `.vsix` del

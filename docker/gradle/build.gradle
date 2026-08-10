@@ -1,5 +1,17 @@
 // gradle/build.gradle — placeholder para build del webapp PASOE.
 // El cliente customiza esto con los paths de su instalacion OpenEdge.
+//
+// TKT-0309 — ESTE archivo es el unico consumidor de `pasoe.instance-name` en todo el starter, y
+// `database.logical-name` no tiene ninguno (las skills del backend lo renderizan server-side
+// desde el yaml del TENANT en el skill-server, que es otro archivo). Por eso el check de config
+// de setup.sh dejo de exigir los dos cuando la carpeta es un room SDD: `docker/` ni llega al
+// clon de un room (specoe-add-room.sh lo recorta en SPECOE_ROOM_DROP), asi que ningun room los
+// consume. Para el proyecto ERP siguen obligatorios y setup.sh los exige igual que antes.
+//
+// Salvedad anotada, NO resuelta (decision del Arquitecto, 2026-08-10): el valor de template de
+// `pasoe.instance-name` es `oepas1`, que tambien es un valor real plausible. Un dev del proyecto
+// ERP que lo deja porque le sirve sigue contando como "sin editar" para ese check. Deja de
+// importar para rooms SDD; sigue vivo para proyectos ERP.
 
 plugins {
     id 'base'

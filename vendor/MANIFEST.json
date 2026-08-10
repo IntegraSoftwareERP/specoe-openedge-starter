@@ -1,5 +1,5 @@
 {
-  "starterVersion": "0.2.16",
+  "starterVersion": "0.2.17",
   "schemaVersion": 2,
   "generatedAt": "2026-08-10",
   "hashPolicy": {
@@ -30,9 +30,9 @@
       "version": "0.1.0",
       "sourceRepo": "IntegraSoftwareERP/integra-hub-vscode",
       "sourcePath": ".",
-      "sourceSha": "dcb3790a6bfd72828287e111e69722c2826f5706",
-      "packageSha256": "952d5b3ff5c13845a532acacd213325e0a9a97cbfdc6b3acc1e0bc66fd2c141a",
-      "contentSha256": "797c0cd9a0bd8d8915b054da24d592de36fa765842708db0445aa8f5674204b6",
+      "sourceSha": "4fbc12052992942f75930388f5bd783f7a5a47f7",
+      "packageSha256": "d2f673562a3f2a15614235e387a30ac6b76ae1a2576b34c23303441008e0d5a5",
+      "contentSha256": "df606943f855cdea95d40d28cb786b31ba353df6e7b0d84752d0386f73b9b451",
       "reproducibility": "vsce NO es determinista: dos corridas del commit dcb3790 dieron dos packageSha256 distintos (952d5b3f... y 4fdc4fd8...) con el mismo contenido — las dos dan el mismo contentSha256 797c0cd9... VERIFICADO 2026-08-10 empaquetando dos veces desde dcb3790, que reproduce lo medido el 2026-07-31 sobre 7c58a55 (tres corridas, tres packageSha256, un solo contentSha256)."
     }
   ]

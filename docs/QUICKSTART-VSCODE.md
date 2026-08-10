@@ -153,9 +153,14 @@ por carpeta, licencia por rol — no se pisan. Abrís cada carpeta en su propia 
 > persistida**, no se pierde.
 >
 > **Editá ahí el `project.config.yaml`** — el de la carpeta del room recién creada — con los datos de
-> tu proyecto. Son cinco campos: `project.name`, `project.vendor`, `paths.workspace-root`,
-> `database.logical-name` y `pasoe.instance-name`. El rol y la URL del Hub los escribe el
-> instalador: esos no los toques.
+> tu proyecto. Son tres campos: `project.name`, `project.vendor` y `paths.workspace-root`. El rol y la
+> URL del Hub los escribe el instalador: esos no los toques.
+>
+> **La base Progress y la instancia PASOE no hacen falta para un room** (TKT-0309): el flujo SDD no
+> las lee, así que `database.logical-name` y `pasoe.instance-name` pueden quedarse en el valor del
+> template — o no existir todavía en el cliente. Se siguen exigiendo cuando la carpeta es el
+> **proyecto ERP** (la que no declara `specoe.role`), porque ahí sí las consume el build del webapp
+> PASOE.
 >
 > **Segunda pasada** — volvé a correr **el mismo comando**. Ahora el check pasa y el room queda
 > instalado.
