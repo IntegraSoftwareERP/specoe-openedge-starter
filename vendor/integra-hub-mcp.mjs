@@ -33136,6 +33136,11 @@ var absenceTokenSchema = external_exports3.object({
   target: external_exports3.string().min(1).describe("What was searched for and not found (file/symbol/pattern)."),
   confirmedBy: external_exports3.string().min(1).describe("Plain ASCII confirmation evidence (command + result).")
 }).strict();
+var absenceAtTokenSchema = external_exports3.object({
+  claim: external_exports3.string().min(1),
+  target: external_exports3.string().min(1).describe("Path (repo-relative) que NO existia en el commit declarado."),
+  asOf: external_exports3.string().min(1).describe("Rev de git que ancla la afirmacion (sha, tag o ref resoluble en el repo).")
+}).strict();
 var externalTokenSchema = external_exports3.object({
   claim: external_exports3.string().min(1),
   src: external_exports3.string().url().describe("External URL (docs, RFC, vendor doc, etc.)."),
@@ -33153,6 +33158,9 @@ var gateRequiredTokenSchema = external_exports3.object({
 var tokensSchema = external_exports3.object({
   presence: presenceTokenSchema.optional(),
   absence: absenceTokenSchema.optional(),
+  // TKT-0312 — snake_case como el resto de las keys compuestas del wrapper
+  // (`operator_decision`, `gate_required`); el hook lo mapea al tipo `absence-at`.
+  absence_at: absenceAtTokenSchema.optional(),
   external: externalTokenSchema.optional(),
   operator_decision: operatorDecisionTokenSchema.optional(),
   gate_required: gateRequiredTokenSchema.optional()
@@ -33170,6 +33178,11 @@ function renderTokensToMarkdownTable(tokens) {
   if (tokens.absence) {
     rows.push(
       `| ${idx++} | ${cell(tokens.absence.claim)} | absence | target: \`${tokens.absence.target}\` | confirmed-by: ${cell(tokens.absence.confirmedBy)} | PENDING |`
+    );
+  }
+  if (tokens.absence_at) {
+    rows.push(
+      `| ${idx++} | ${cell(tokens.absence_at.claim)} | absence-at | target: \`${tokens.absence_at.target}\` | as-of: \`${tokens.absence_at.asOf}\` | PENDING |`
     );
   }
   if (tokens.external) {

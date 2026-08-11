@@ -7,11 +7,13 @@ Archivos que `setup.sh` instala en `~/.claude/` del dev al correr el starter por
 ## Que incluye
 
 - `hooks/specoe-license-check.mjs` — validacion de licencia SpecOE (SessionStart hook)
-- `hooks/specoe-role-check.mjs` — fail-fast de rol SDD: avisa al instante si faltan `INTEGRA_SDD_ROLE`/`INTEGRA_ACT_AS_SECRET` (SessionStart hook)
+- `hooks/specoe-role-check.mjs` — fail-fast de rol SDD (SessionStart hook). Ramifica por `INTEGRA_SDD_IDENTITY_MODE`, con el mismo criterio que el MCP: en modo **USER** (el del thin-client) pide `INTEGRA_SDD_ROLE` + el material de identidad del canal, y **no** mira act-as; en modo **MACHINE** pide `INTEGRA_SDD_ROLE` + `INTEGRA_ACT_AS_TENANT` + el secreto act-as del rol en el canal (TKT-0320)
 - `hooks/specoe-room-bootstrap.mjs` — baja el contrato del room desde el Skill Server (SessionStart hook)
 - `hooks/secrets.mjs` — canal de secretos por `(service, name)` (keyring nativo del SO / cipher-file fallback); resuelve el secreto act-as scoped del thin-client (SPEC-0148 P2)
 - `hooks/credentials.mjs` — cripto compartida (`encryptBlob`/`decryptBlob`) que `secrets.mjs` reusa para su fallback cifrado; sin esto `secrets.mjs` no carga (SPEC-0148 P2)
 - `hooks/package.json` + `hooks/package-lock.json` — manifest de dependencias de los hooks (incluye `@napi-rs/keyring`)
+- `hooks/vendor-deps.mjs` — resolvedor de esas dependencias: prueba primero la copia vendorizada de `hooks/vendor/` y solo despues `node_modules`. Tambien es el chequeo del instalador (`node vendor-deps.mjs --check`) (TKT-0314)
+- `hooks/vendor/` — las dependencias **vendorizadas**: bundles esbuild del cliente MCP y de `node-machine-id`, mas el loader de `@napi-rs/keyring` con su binding NATIVO por plataforma (`.node`). Las genera `scripts/build-hooks-vendor.mjs` del monorepo y `vendor/MANIFEST.json` declara version + sha256 de cada archivo. **Existen para que la instalacion no dependa de un `npm install` en la maquina del cliente**: en una VM Windows del piloto ese npm abortaba con una assertion de libuv y dejaba el host sin keyring —y por lo tanto sin license key y con el MCP en 401— mientras el instalador anunciaba exito (TKT-0314)
 - `scripts/provision-secrets.mjs` — escritor del canal de secretos (CLI `act-as <ROL>`, valor por stdin -> `setSecret`); sin esto el canal solo se puede leer, no grabar (SPEC-0148 P7)
 - `scripts/sdd-login.mjs` — login SDD por usuario (credenciales por ENV): canjea email/password por el material de identidad y lo deja en el canal (SPEC-0157 P6)
 - `scripts/specoe-identity.mjs` — **CLI del canal de identidad SDD**: la interfaz estable para consumidores de afuera del bundle (SPEC-0187 P5). Ver abajo.

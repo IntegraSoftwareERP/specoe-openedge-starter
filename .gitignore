@@ -18,3 +18,7 @@ coverage/
 # esta linea quedaba untracked y reportado por git status, lo que hacia imposible cualquier
 # criterio de divergencia acotada sobre la carpeta del room (SPEC-0167 P3, ADR-004).
 .mcp.json
+# Marca del corte del check de config: la escribe setup.sh con los campos que faltan editar y la
+# borra el paso que pasa (TKT-0307). Es estado local de la carpeta, y sin esta linea quedaria
+# untracked frenando la segunda pasada por el criterio de divergencia acotada de arriba.
+.specoe-config-pending

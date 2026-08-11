@@ -2,6 +2,125 @@
 
 All notable changes to this project. Automatic — regenerado por `./scripts/changelog.sh`.
 
+## 0.2.21 — 2026-08-11 (TKT-0320 — el hook de arranque deja de exigir act-as en modo USER)
+
+**Toda sesión de room del thin-client arrancaba con una alarma falsa.** `specoe-role-check.mjs`
+validaba siempre el contrato act-as de SPEC-0148 (`INTEGRA_SDD_ROLE` + `INTEGRA_ACT_AS_TENANT` + el
+secreto del rol en el canal) y no contemplaba el modo USER, que es el que usa el thin-client desde
+SPEC-0157 y el que SPEC-0187 P1 inyecta en cada solapa de room. Ahí la identidad viaja por el JWT de
+sesión SDD derivado del canal y act-as no participa: la variable que el hook exigía no existe en ese
+modo. El aviso no era cosmético — viaja por `hookSpecificOutput.additionalContext`, o sea que Claude
+Code se lo inyecta al agente como contexto de la sesión: el agente concluía que no podía operar
+contra el Hub y **se plantaba antes de hacer nada**, pidiendo un prerequisito inexistente. Y la
+remediación era imposible de seguir: mandaba a correr `specoe-launch-thinclient.sh <ROL> <TENANT_ID>`
+cuando ese launcher no exporta esa variable por diseño — exporta `INTEGRA_SDD_TENANT`, que es el
+`tenantSlug` y no el `Tenant.id` de act-as.
+
+- **El hook ramifica por `INTEGRA_SDD_IDENTITY_MODE`,** con el mismo criterio que el MCP
+  (`startup.ts`, `requiredEnvFor`): en modo **USER** lo obligatorio es `INTEGRA_SDD_ROLE` más el
+  material de identidad del canal; `INTEGRA_ACT_AS_TENANT` y el secreto act-as **no se chequean y su
+  ausencia no se reporta**. En modo **MACHINE** (o sin declarar) se conserva el chequeo vigente tal
+  cual, con su mensaje palabra por palabra.
+- **La remediación de cada rama nombra la variable que el launcher de ESE modo exporta.** La del
+  modo USER apunta a `specoe-launch-thinclient.sh <ROL>` y a `specoe.tenant` del
+  `project.config.yaml` (que el launcher exporta como `INTEGRA_SDD_TENANT`); `<TENANT_ID>` ya no
+  aparece ahí.
+- **El modo USER sigue avisando de lo suyo**: sin rol, sin material de identidad en el canal, o con
+  identidad de varios tenants y ninguno declarado — este último reusa el aviso de SPEC-0187 P7, que
+  ya nombra el tenant y las dos vías (`login` / `migrate`). Lo que no puede resolver —el canal que no
+  carga— se calla en vez de inventar una causa: el borde real sigue siendo el 401/403 del Hub.
+- **Suite nueva** (`test/role-check-modo-usuario.test.mjs`, 12 casos) con el control negativo
+  explícito: en modo scoped sin `INTEGRA_ACT_AS_TENANT` el aviso vigente se conserva.
+
+## 0.2.20 — 2026-08-11 (TKT-0317 — el room declara cuál es su repo de trabajo)
+
+**El room sabía su rol y su tenant, pero no dónde vive el código.** La carpeta del room ES un repo
+git —un clon shallow del starter con `sparse-checkout`— y no es el repo del cliente. Las herramientas
+de aislamiento del agente operan sobre el repo de la carpeta abierta, así que apuntaban a ese clon:
+pedir un worktree para aislar el trabajo de una fase fallaba (`git resolves its working tree to … a
+core.worktree redirect`) y, sin el corte, habría ensuciado el clon del starter. El equipo interno no
+lo veía porque abre el repo de trabajo directamente y usa el room como accesorio; el dev que sigue el
+QUICKSTART al pie se lo choca la primera vez que toca código.
+
+- **`specoe.work-repo` en el `project.config.yaml`** — la declaración, en la misma superficie donde
+  ya viven `specoe.role` y `specoe.tenant`. Ruta absoluta al checkout local, no una URL. La escribe
+  `./specoe-add-room.sh <ROL> --work-repo <ruta>` (con `specoe_yaml_set`, así que también entra en un
+  room ya instalado, cuyo yaml es anterior a la clave) y el template la trae documentada para
+  agregarla a mano. **No es `--repo`**, que sigue siendo la URL del starter que se clona.
+- **Cada sesión del room lo dice al arrancar.** `specoe-room-bootstrap.mjs` inyecta la declaración
+  por el mismo canal que el contrato del room, por los cuatro caminos de salida (también cuando
+  arranca `ungoverned`: un room sin contrato igual va a querer aislar trabajo). Discrimina tres
+  estados y ninguno se calla: declarado y con repo ahí → nombra la ruta y cómo usarla
+  (`git -C <ruta> worktree add …`); declarado y sin repo ahí → lo dice en vez de dejar que se use una
+  ruta falsa; sin declarar → lo declara y explica dónde ponerlo. La lectura del yaml va **anclada a
+  la sección** (`paths.repos` existe en el mismo archivo; un lector global lo agarraría — TKT-0256).
+- **El launcher lo exporta como `INTEGRA_SDD_WORK_REPO`** y esa env le gana al yaml, que es el único
+  canal que tiene una sesión abierta desde el launcher cuando el yaml quedó viejo.
+- **Fuera de alcance, declarado**: cómo el harness de Claude Code resuelve worktrees. No es
+  superficie propia; con la declaración el agente sabe contra qué repo apuntar git explícitamente.
+
+## 0.2.19 — 2026-08-11 (TKT-0314 — la instalación deja de depender de un `npm install` en la máquina del cliente)
+
+**Cierra un CRITICAL de QA sobre máquina limpia.** `setup.sh --host-only` instalaba el bundle y
+después corría `npm install` en `~/.claude/hooks` para bajar sus dependencias. En una VM Windows del
+piloto ese npm aborta con `Assertion failed: new_time >= loop->time, file src\win\core.c, line 327`
+—una assertion del event loop de libuv, no un fallo de red— y el instalador imprimía un **warn** y
+seguía de largo hasta el banner `Host listo`. Sin dependencias no carga el binding nativo de
+`@napi-rs/keyring`: el alta de room no persiste la license key, el hook de licencia no valida y el
+MCP responde **401**, diez minutos y varios pasos después de la causa. Desde la máquina del dev no
+había salida: reintentar, `npm ci`, borrar `node_modules`, resincronizar el reloj y reiniciar fallan
+igual; lo único que funcionó fue copiar `node_modules` desde otra máquina.
+
+- **Las dependencias viajan vendorizadas en el bundle.** Es el mismo criterio que ya se le aplicó al
+  MCP (`vendor/integra-hub-mcp.mjs`) y al plugin (`.vsix`): lo pesado se construye en el repo, viaja
+  con hashes y no se reconstruye en el cliente. `.claude-bundle/hooks/vendor/` trae el cliente MCP y
+  `node-machine-id` como bundles de esbuild, y el loader de `@napi-rs/keyring` con su binding
+  **nativo** por plataforma — windows x64/arm64, macOS arm64/x64 y linux x64 gnu. Las genera
+  `scripts/build-hooks-vendor.mjs` (interno) desde las versiones del `package-lock.json` del bundle.
+- **Los hooks resuelven por `vendor-deps.mjs`**: vendor primero, `node_modules` sólo como fallback
+  para plataformas que el vendorizado no cubre.
+- **Si las dependencias no quedan resueltas, la corrida CORTA.** Ya no es un warn: el instalador
+  nombra qué faltó, nombra la consecuencia (sin keyring no hay license key y el MCP da 401) y da el
+  camino de recuperación. `specoe-setup-host.sh` corre con `set -e`, así que **no** llega al banner
+  de «Host listo» — el mismo verde-falso que SPEC-0165 P5 cerró para el `.vsix`.
+- **`undici` y `eventsource` salieron de `package.json`**: ningún hook los importaba. `undici` quedó
+  de cuando el canal TLS se armaba con un dispatcher global (se sacó al medir que el `fetch` de Node
+  26 lo ignora) y `eventsource` entra igual como dependencia del SDK del MCP.
+- **Con tests que lo gatean en CI**: `scripts/test-host-deps-gate.sh` corre `setup.sh --host-only` de
+  verdad contra un HOME temporal y verifica que **no** quede `node_modules` (o sea que npm no corrió)
+  y que, sin vendor y con un npm que falla, la corrida corte sin anunciar éxito;
+  `.claude-bundle/hooks/test/vendor-deps.test.mjs` suma el roundtrip real contra el keyring del SO,
+  un control negativo del chequeo y la correspondencia manifiesto ↔ archivos ↔ `package-lock.json`.
+
+## 0.2.18 — 2026-08-10 (TKT-0307 — la segunda pasada del alta deja de pedir la licencia que la primera guardó)
+
+**Arregla el reintento del alta de room, que era un fallo.** La instanciación es de DOS PASADAS a
+propósito: la primera clona, fija el rol, **guarda la licencia en el keyring** y corta hasta que el
+dev edite el `project.config.yaml`; la segunda completa la config. Pero la segunda volvía a **exigir
+la license key** y sin ella cortaba con exit 1 — o sea que el paso normal del flujo obligaba a tener
+la key a mano dos veces. Detectado en QA sobre VM limpia (2026-08-10, starter `0.2.16`).
+
+- **La key se lee del keyring cuando no viene por argv.** `specoe-add-room.sh <ROL>` sin key busca la
+  del account correspondiente (`<ROL>`, o `<tenantSlug>:<ROL>` con `--tenant`) y sigue con esa; sólo
+  la pide cuando el keyring tampoco la tiene. Si la key vino del keyring **no se reescribe**: el log
+  ya no dice «guardando» una key que el dev no pasó. Los wrappers `specoe-room-<rol>.sh` heredan el
+  comportamiento — `./specoe-room-ccdev.sh` sin argumentos alcanza para la segunda pasada.
+- **El corte del check de config deja `.specoe-config-pending`** en la carpeta del room, con un campo
+  pendiente por línea, y el paso que pasa lo borra. Es el único canal que sobrevive al terminal:
+  cuando el alta la dispara el plugin de VSCode, esa salida se va con el proceso y el dev ve sólo
+  `exit code: 1`. La lista la escribe el mismo paso que decide el corte — no hay un segundo criterio
+  del lado del plugin. El archivo está en el `.gitignore` del starter y nombrado en la divergencia
+  acotada de `add-room`, así que no frena la segunda pasada.
+- **Los cinco campos que el gate exige valen `CAMBIAR-ME` en el template.** Cierra la salvedad que
+  TKT-0309 dejó anotada: `pasoe.instance-name` valía `oepas1`, que también es una instancia real
+  plausible, así que «lo dejé porque me sirve» y «no lo edité» eran indistinguibles. El valor de
+  ejemplo quedó en el comentario inline de cada campo.
+- **Con tests que lo gatean en CI**: `scripts/test-add-room-license.sh` extrae del `add-room` real la
+  resolución de la key y la persistencia, y las ejerce con el keyring stubbeado (incluido el caso
+  multi-tenant en las dos direcciones y un control negativo con la validación vieja);
+  `scripts/test-config-gate-fields.sh` suma el ciclo de vida de `.specoe-config-pending` y la
+  comparación de las sentinelas del fallback contra el template real.
+
 ## 0.2.17 — 2026-08-10 (TKT-0309 — el alta de un room deja de pedir datos del ERP que el room no usa)
 
 **Arregla un gate que exigía lo que el sistema no consume.** `setup.sh` tenía UNA lista de campos

@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "generatedBy": "packages/starter-template/scripts/build-hooks-vendor.mjs",
+  "note": "TKT-0314 — dependencias de los hooks vendorizadas. El instalador NO corre npm install en la maquina del cliente mientras estos archivos cubran la plataforma. Las versiones salen de .claude-bundle/hooks/package-lock.json; test-hooks-vendor.sh verifica que sigan coincidiendo.",
+  "packages": {
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "@napi-rs/keyring": "1.2.0",
+    "node-machine-id": "1.1.12"
+  },
+  "keyringPlatforms": [
+    "win32-x64-msvc",
+    "win32-arm64-msvc",
+    "darwin-arm64",
+    "darwin-x64",
+    "linux-x64-gnu"
+  ],
+  "files": {
+    "keyring/LICENSE": "02965ed67e29f871a53f7a7afa593a0ddc8020f86ccce0faaf1aa59215b5269e",
+    "keyring/index.d.ts": "304d3cfd843046e095374e0eb3f7bfb682a434061156bbf4131273786a052717",
+    "keyring/index.js": "165499f474025db4434eadc3942306906a7fa1b924942d83873daffaf16376ae",
+    "keyring/keyring.darwin-arm64.node": "3300cdd056525ae6aaeb32ec8ca01c21fa49e73fd594ca8baefd0d1f3568a388",
+    "keyring/keyring.darwin-x64.node": "1681cd798769f0991cd43c531ae6c454086922d1e05eeb33ef44db56a19c33a0",
+    "keyring/keyring.linux-x64-gnu.node": "817e0bf94d0e60786d7c2255601fe70ae0b7f684f8254ec124c3bb69a13f3f97",
+    "keyring/keyring.win32-arm64-msvc.node": "8948c414dd3f2e6a2050a6df402a1fa43e24f3f748937f45a07ac4aa85f53df7",
+    "keyring/keyring.win32-x64-msvc.node": "4ed2eb24a8281df18f2f6ed2396730d3237bada46f9e8001d79cba67fa74560d",
+    "keyring/package.json": "1ef804718928b773810ab478ca0d943d62bc8e639d0a14809a79120599de93f8",
+    "machine-id.mjs": "405c4d37b31b679bb737f93010c8fda0539d5bf373dea1af38894f683f84b242",
+    "mcp-client.mjs": "72965506703b319004d8e853fcbf048d181bfa583dd6cdc2bfa087f7450f56de"
+  }
+}

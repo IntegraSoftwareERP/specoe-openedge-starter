@@ -62,14 +62,24 @@ export INTEGRA_SDD_IDENTITY_MODE="USER"
 # Sin `specoe.tenant` declarado no se exporta nada: la sesion queda en modo single-tenant y las
 # lecturas caen a las claves legacy — que es el piloto instalado, y no se rompe.
 # shellcheck source=specoe-yaml.sh
+#
+# TKT-0317 — por el mismo canal viaja `specoe.work-repo`: el repo donde vive el CODIGO de este
+# room. Esta carpeta no lo es (es un clon shallow del starter) y las herramientas de aislamiento
+# del agente operan sobre el cwd, asi que sin este dato apuntan al repo equivocado. Se exporta
+# como INTEGRA_SDD_WORK_REPO para que el hook de arranque lo tenga aunque el yaml no se pueda
+# leer; sin declarar no se exporta nada y el hook lo dice al arrancar la sesion.
 if [ -f "$SCRIPT_DIR/specoe-yaml.sh" ]; then
   source "$SCRIPT_DIR/specoe-yaml.sh"
   ROOM_TENANT="$(specoe_yaml_get "$SCRIPT_DIR/project.config.yaml" specoe.tenant)"
   if [ -n "$ROOM_TENANT" ]; then
     export INTEGRA_SDD_TENANT="$ROOM_TENANT"
   fi
+  ROOM_WORK_REPO="$(specoe_yaml_get "$SCRIPT_DIR/project.config.yaml" specoe.work-repo)"
+  if [ -n "$ROOM_WORK_REPO" ]; then
+    export INTEGRA_SDD_WORK_REPO="$ROOM_WORK_REPO"
+  fi
 else
-  warn "Falta $SCRIPT_DIR/specoe-yaml.sh: no puedo leer specoe.tenant, la sesion arranca sin declarar tenant."
+  warn "Falta $SCRIPT_DIR/specoe-yaml.sh: no puedo leer specoe.tenant ni specoe.work-repo, la sesion arranca sin declarar tenant ni repo de trabajo."
   warn "  → Actualizá el starter de esta carpeta (git -C \"$SCRIPT_DIR\" pull --ff-only). Si esta maquina tiene identidad de un solo tenant, no cambia nada."
 fi
 
@@ -90,6 +100,7 @@ fi
 
 log "=== Sesion SDD thin-client: rol $ROLE (identidad por usuario) ==="
 log "INTEGRA_SDD_ROLE=$ROLE  INTEGRA_SDD_IDENTITY_MODE=USER  INTEGRA_SDD_TENANT=${INTEGRA_SDD_TENANT:-<sin declarar: modo single-tenant>}"
+log "INTEGRA_SDD_WORK_REPO=${INTEGRA_SDD_WORK_REPO:-<sin declarar: el room no sabe donde vive su codigo>}"
 log "Si el Hub responde 403, traducí el código: bash \"$SCRIPT_DIR/specoe-gate-messages.sh\" <CODIGO> $ROLE"
 log "Shell lista. Abri tu sesion desde aca: 'code .' o 'claude' heredan el entorno."
 

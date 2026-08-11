@@ -165,20 +165,27 @@ specoe_config_fields() {
 # Fallback declarado de ADR-003: sentinelas literales del template, para cuando el yaml
 # versionado del clone no se puede leer. Se desincronizan en silencio si el template cambia
 # — por eso es fallback y por eso el check declara en la salida cuando corre por aca.
+#
+# TKT-0307 — los cinco valen 'CAMBIAR-ME' y no un valor plausible. El caso que lo motiva es
+# `pasoe.instance-name`, cuyo valor de template era `oepas1`: tambien es una instancia PASOE real
+# y frecuente, asi que el dev que lo dejaba porque le servia seguia contando como "sin editar" y
+# el gate lo mandaba a cambiar algo que ya estaba bien. Una sentinela que nadie puede querer de
+# verdad hace que "sin editar" y "editado" sean estados distinguibles sin ambiguedad.
+# scripts/test-config-gate-fields.sh verifica que estos literales sigan siendo los del template.
 specoe_config_sentinel() {
   case "$1" in
-    project.name) echo "MiCliente ERP" ;;
-    project.vendor) echo "MiCliente SA" ;;
-    paths.workspace-root) echo "C:/MiCliente/VSCode" ;;
-    database.logical-name) echo "clientedb" ;;
-    pasoe.instance-name) echo "oepas1" ;;
+    project.name) echo "CAMBIAR-ME" ;;
+    project.vendor) echo "CAMBIAR-ME" ;;
+    paths.workspace-root) echo "CAMBIAR-ME" ;;
+    database.logical-name) echo "CAMBIAR-ME" ;;
+    pasoe.instance-name) echo "CAMBIAR-ME" ;;
   esac
 }
 
 # ----- 0. Parse argumentos -----
 
 HUB_URL=""
-DO_HOST=1  # parte de máquina: pre-req + bundle de hooks + npm install
+DO_HOST=1  # parte de máquina: pre-req + bundle de hooks + sus dependencias vendorizadas
 DO_LOGIN=1 # parte de usuario: login SDD (enrola equipo + tokens al keyring)
 DO_ROOM=1  # parte de carpeta: config + .mcp.json
 while [[ $# -gt 0 ]]; do
@@ -316,6 +323,9 @@ else
   # bundle difiere del instalado (o no habia), corremos npm install si o si. Asi una dep
   # nueva (ej. undici del fix del CA) llega tambien a maquinas con el bundle previo — el
   # gate por-dep no alcanzaba porque el npm install corria con el package.json viejo.
+  # TKT-0314 — con el vendorizado esto ya no gobierna el npm install: lo hace el chequeo de
+  # abajo. Sigue vivo para el unico caso que el chequeo no ve — una dependencia que resuelve
+  # por node_modules (plataforma fuera del vendor) con el arbol local en versiones viejas.
   DEPS_CHANGED=0
   if ! cmp -s "$BUNDLE_DIR/hooks/package.json" "$CLAUDE_HOME/hooks/package.json" 2>/dev/null; then
     DEPS_CHANGED=1
@@ -340,6 +350,10 @@ else
   # a la maquina y el import falla en la RESOLUCION — antes de que corra el catch del hook,
   # o sea sin mensaje y en cada arranque de Claude Code de esa maquina.
   install_force "$BUNDLE_DIR/hooks/sdd-identity.mjs"              "$CLAUDE_HOME/hooks/sdd-identity.mjs"
+  # TKT-0314 — el resolvedor de dependencias. Lo importan credentials.mjs, secrets.mjs,
+  # specoe-license-check.mjs y specoe-room-bootstrap.mjs: si NO llega al host, esos cuatro
+  # fallan en la RESOLUCION del import, o sea antes de su propio catch y sin mensaje.
+  install_force "$BUNDLE_DIR/hooks/vendor-deps.mjs"               "$CLAUDE_HOME/hooks/vendor-deps.mjs"
   install_force "$BUNDLE_DIR/scripts/provision-secrets.mjs"       "$CLAUDE_HOME/scripts/provision-secrets.mjs"
   install_force "$BUNDLE_DIR/scripts/sdd-login.mjs"               "$CLAUDE_HOME/scripts/sdd-login.mjs"
   # SPEC-0187 P5: el CLI del canal de identidad. Es la interfaz que consumen los procesos de
@@ -355,15 +369,89 @@ else
   # desde ~/.claude/scripts/ resuelven contra ~/.claude/hooks/, que este mismo bloque puebla.
   install_force "$BUNDLE_DIR/scripts/verify-room-serving.mjs"     "$CLAUDE_HOME/scripts/verify-room-serving.mjs"
 
-  # Dependencias de los hooks. Corremos npm install si cambiaron las deps (DEPS_CHANGED) o si
-  # falta node_modules / alguna dep clave (@modelcontextprotocol/sdk del bootstrap, undici del
-  # CA dispatcher). DEPS_CHANGED cubre cualquier dep FUTURA sin tocar este gate.
-  if [ -f "$CLAUDE_HOME/hooks/package.json" ]; then
-    if [ "$DEPS_CHANGED" -eq 1 ] || [ ! -d "$CLAUDE_HOME/hooks/node_modules" ] || [ ! -d "$CLAUDE_HOME/hooks/node_modules/@modelcontextprotocol/sdk" ] || [ ! -d "$CLAUDE_HOME/hooks/node_modules/undici" ]; then
-      log "  Instalando dependencias de los hooks (npm install)..."
-      (cd "$CLAUDE_HOME/hooks" && npm install --silent) || warn "  npm install fallo — los hooks pueden no funcionar hasta resolverlo"
-    fi
+  # ----- Dependencias de los hooks (TKT-0314) -----
+  #
+  # Antes esto era un `npm install` en la maquina del CLIENTE, con `|| warn` y la corrida
+  # siguiendo de largo hasta el banner de exito. En una VM Windows del piloto ese npm aborta con
+  # `Assertion failed: new_time >= loop->time, file src\win\core.c, line 327` —una assertion del
+  # event loop de libuv, no un fallo de red— y no hay camino de recuperacion desde la maquina del
+  # dev: reintentar, `npm ci`, borrar node_modules, resincronizar el reloj y reiniciar fallan
+  # igual. El unico que funciono fue copiar node_modules desde otra maquina, que no es una
+  # instruccion que se le pueda dar a un cliente.
+  #
+  # Ahora las dependencias VIAJAN vendorizadas en el bundle (mismo criterio que el MCP y el
+  # plugin) y este bloque solo las copia y VERIFICA. El npm install queda como fallback para las
+  # plataformas que el vendor no cubre, y su fallo ya no es un warn: si despues de todo los hooks
+  # no pueden resolver sus dependencias, el host NO esta listo y la corrida corta aca.
+  if [ -d "$BUNDLE_DIR/hooks/vendor" ]; then
+    # Se borra antes de copiar: el vendor lo administra el instalador entero (no hay config del
+    # usuario adentro) y una copia vieja podria dejar un .node de una version que ya no es la que
+    # el loader del keyring espera.
+    rm -rf "$CLAUDE_HOME/hooks/vendor"
+    cp -R "$BUNDLE_DIR/hooks/vendor" "$CLAUDE_HOME/hooks/vendor"
+    log "  [FORCE]   $CLAUDE_HOME/hooks/vendor (dependencias vendorizadas)"
+  else
+    warn "  [MISSING] $BUNDLE_DIR/hooks/vendor — bundle sin dependencias vendorizadas; queda el npm install de fallback"
   fi
+
+  # El chequeo corre POR EL MISMO CAMINO que usan los hooks (vendor primero, node_modules
+  # despues): un probe que importara distinto no probaria nada.
+  # `$(specoe_node_bin)` y no `node` pelado: en Git Bash el `node` del PATH esta envuelto por
+  # winpty y eso rompe la carga del modulo NATIVO del keyring, que es justo lo que se mide aca.
+  DEPS_NODE_BIN="$(specoe_node_bin)"
+  set +e
+  DEPS_REPORT="$("$DEPS_NODE_BIN" "$CLAUDE_HOME/hooks/vendor-deps.mjs" --check 2>&1)"
+  DEPS_STATUS=$?
+  set -e
+
+  # Cuando corre el fallback de npm. Dos casos, y el segundo es el que el probe solo no ve:
+  #   1. alguna dependencia no resuelve por ningun camino;
+  #   2. alguna resuelve por node_modules Y el package.json del bundle cambio — el arbol local
+  #      satisface el import pero con las versiones viejas, que es como una dep nueva no llegaba
+  #      a maquinas ya instaladas antes de que existiera DEPS_CHANGED.
+  # Si TODAS resuelven por vendor, DEPS_CHANGED es irrelevante: el vendor se acaba de pisar
+  # entero con el del bundle.
+  NEEDS_NPM=0
+  if [ "$DEPS_STATUS" -ne 0 ]; then
+    NEEDS_NPM=1
+  elif [ "$DEPS_CHANGED" -eq 1 ] && printf '%s\n' "$DEPS_REPORT" | grep -q ' node_modules'; then
+    NEEDS_NPM=1
+  fi
+
+  if [ "$NEEDS_NPM" -eq 1 ]; then
+    log "  Dependencias que el vendor no cubre en esta plataforma ($(uname -s)/$(uname -m)) — npm install de fallback..."
+    if [ -f "$CLAUDE_HOME/hooks/package.json" ]; then
+      (cd "$CLAUDE_HOME/hooks" && npm install --silent) || warn "  npm install fallo"
+    fi
+    set +e
+    DEPS_REPORT="$("$DEPS_NODE_BIN" "$CLAUDE_HOME/hooks/vendor-deps.mjs" --check 2>&1)"
+    DEPS_STATUS=$?
+    set -e
+  fi
+
+  if [ "$DEPS_STATUS" -ne 0 ]; then
+    err "Las dependencias de los hooks NO quedaron resueltas. El host NO esta listo.
+
+  Estado por dependencia (vendor = copia del bundle, node_modules = npm local, FALTA = ninguna):
+$(printf '%s\n' "$DEPS_REPORT" | sed 's/^/    /')
+
+  QUE SIGNIFICA: sin el binding nativo de @napi-rs/keyring no hay keyring, y sin keyring
+  specoe-add-room.sh no puede persistir la license key ('la license key NO quedo en el keyring'),
+  el hook specoe-license-check no valida y el MCP specoe responde 401. Nada de eso se va a
+  parecer a este error cuando aparezca, asi que la corrida corta ACA y no anuncia 'Host listo'.
+
+  COMO SALIR:
+   1. Verifica que el bundle traiga el vendor: ls $BUNDLE_DIR/hooks/vendor
+      Si no existe, el starter que estas usando es anterior a TKT-0314: actualizalo
+      (git -C <starter> pull) y volve a correr specoe-setup-host.sh.
+   2. Si el vendor existe pero tu plataforma no esta cubierta ($(uname -s)/$(uname -m)),
+      el fallback es el npm install que acaba de fallar. Su salida esta arriba de este mensaje.
+   3. Pedi al equipo de Integra que agregue tu plataforma al vendor citando TKT-0314 y el
+      resultado de: node -p \"process.platform + '/' + process.arch\""
+  fi
+
+  log "  Dependencias de los hooks OK:"
+  printf '%s\n' "$DEPS_REPORT" | sed 's/^/    /'
 fi
 fi # cierra: if DO_HOST (parte de máquina — bundle + npm)
 
@@ -578,7 +666,20 @@ for field in $SPECOE_CONFIG_FIELDS; do
 done
 if [ -n "$CONFIG_TEMPLATE_REF" ]; then rm -f "$CONFIG_TEMPLATE_REF"; fi
 
+# TKT-0307 — el corte deja ademas un archivo legible por maquina con UN campo pendiente por linea.
+# Por que: cuando el alta la dispara el plugin de VSCode, esta salida vive en un terminal que muere
+# con el proceso y se lleva la remediacion puesta — el dev ve "exit code: 1" y nada mas. El archivo
+# es el unico canal que sobrevive al terminal, y lo escribe el MISMO paso que decide el corte: si la
+# lista viviera del lado del plugin serian dos criterios para el mismo gate, que es el defecto que
+# TKT-0256 cerro en la lectura del yaml. Su PRESENCIA es el estado "config sin terminar": lo escribe
+# el corte y lo borra el paso que pasa, mas abajo.
+CONFIG_PENDING_FILE=".specoe-config-pending"
+
 if [ -n "$CONFIG_EMPTY_FIELDS" ] || [ -n "$CONFIG_TEMPLATE_FIELDS" ]; then
+  : >"$CONFIG_PENDING_FILE"
+  for field in $CONFIG_EMPTY_FIELDS $CONFIG_TEMPLATE_FIELDS; do
+    echo "$field" >>"$CONFIG_PENDING_FILE"
+  done
   warn "project.config.yaml todavia no describe a este cliente:"
   for field in $CONFIG_EMPTY_FIELDS; do
     warn "  - $field — VACIO"
@@ -595,6 +696,10 @@ if [ -n "$CONFIG_EMPTY_FIELDS" ] || [ -n "$CONFIG_TEMPLATE_FIELDS" ]; then
   warn "  editarlo antes de la primera pasada."
   err "Config incompleta o sin editar:${CONFIG_EMPTY_FIELDS}${CONFIG_TEMPLATE_FIELDS} — editar project.config.yaml y reintentar."
 fi
+
+# La config quedo completa: se borra la marca del corte anterior. Sin esto, un room que YA paso
+# seguiria mostrando campos pendientes al plugin — el archivo es estado, no bitacora.
+rm -f "$CONFIG_PENDING_FILE"
 
 if [ "$CONFIG_CHECK_MODE" = "versionado" ]; then
   log "Config: los $(echo $SPECOE_CONFIG_FIELDS | wc -w | tr -d ' ') campos obligatorios estan completos y editados (comparados contra el yaml versionado del clone)."

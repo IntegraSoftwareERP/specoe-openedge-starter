@@ -15,6 +15,25 @@
 # Scripts Node del bundle de hooks: LF (los lee node, pero mantenemos un solo criterio).
 *.mjs text eol=lf
 
+# TKT-0314 — bindings NATIVOS del keyring vendorizados (.claude-bundle/hooks/vendor/keyring/).
+# Son binarios: sin esta regla el checkout con core.autocrlf=true les cambia los bytes y el
+# .node llega corrupto al clon. El fallo aparece recien al cargar el modulo, con un mensaje del
+# loader de napi-rs que habla de optional dependencies y manda a reinstalar — o sea, lejos de la
+# causa y de vuelta al npm install que este vendorizado existe para no necesitar. El sha256 de
+# cada uno esta en .claude-bundle/hooks/vendor/MANIFEST.json y la suite del bundle lo verifica.
+*.node -text
+
+# TKT-0314 — TODO el vendorizado de los hooks, no solo los .node. El MANIFEST declara el sha256
+# de cada archivo calculado sobre los bytes con LF; sin estas dos reglas, el checkout con
+# core.autocrlf=true convierte a CRLF los que no matchean ninguna regla por extension
+# (keyring/index.js, index.d.ts, LICENSE, package.json y el propio MANIFEST.json) y el hash del
+# clon deja de coincidir con el declarado. Las reglas van DESPUES de las de extension a
+# proposito: en .gitattributes gana la ultima que matchea, asi que estas fijan el criterio del
+# directorio entero, y la segunda le devuelve a los .node su condicion de binario.
+# La suite del bundle verifica que ningun archivo del vendor quede sin cubrir.
+.claude-bundle/hooks/vendor/** text eol=lf
+.claude-bundle/hooks/vendor/**/*.node -text
+
 # PowerShell es nativo de Windows: CRLF.
 *.ps1 text eol=crlf
 

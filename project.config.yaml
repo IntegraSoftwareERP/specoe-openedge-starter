@@ -11,15 +11,19 @@ schema-version: '0.1.0'
 # TIER 1 — OBLIGATORIO
 # ============================================================================
 
+# TKT-0307 — los campos que el instalador EXIGE editar valen 'CAMBIAR-ME', no un valor plausible:
+# el gate de config de setup.sh corta mientras sigan asi, y una sentinela que nadie puede querer de
+# verdad evita el caso de `pasoe.instance-name: 'oepas1'`, que era a la vez valor de template y
+# valor real posible. Los demas campos SI traen defaults razonables a proposito: no los exige nadie.
 project:
-  name: 'MiCliente ERP' # Nombre comercial del proyecto
-  vendor: 'MiCliente SA' # Empresa cliente (razon social)
+  name: 'CAMBIAR-ME' # Nombre comercial del proyecto (ej. 'ACME ERP') — OBLIGATORIO editar
+  vendor: 'CAMBIAR-ME' # Empresa cliente, razon social (ej. 'ACME SA') — OBLIGATORIO editar
   email: 'contacto@micliente.com' # Email de contacto del proyecto (formato valido)
   locale: 'es-AR' # ICU locale (ej. es-AR, en-US, pt-BR)
   currency: 'ARS' # ISO 4217 de 3 letras (ej. ARS, USD, EUR)
 
 paths:
-  workspace-root: 'C:/MiCliente/VSCode' # Path absoluto al workspace del cliente
+  workspace-root: 'CAMBIAR-ME' # Path absoluto al workspace del cliente (ej. 'C:/ACME/VSCode') — OBLIGATORIO editar
   repos: # Nombres de carpetas de cada repo
     webservices: 'Webservices' # Clases ABL + PASOE content (obligatorio)
     data: 'Integra.Data' # Temp-tables + datasets (obligatorio)
@@ -33,7 +37,7 @@ paths:
   test-root: 'tests/' # Raiz de tests dentro de Integra.Test
 
 database:
-  logical-name: 'clientedb' # Nombre logico de la DB Progress
+  logical-name: 'CAMBIAR-ME' # Nombre logico de la DB Progress (ej. 'acmedb') — OBLIGATORIO en el proyecto ERP; un room SDD no lo usa (TKT-0309)
   broker-port: 49000 # Puerto del broker (1024-65535, unico)
   multi-tenant-field: 'Empresa' # Campo de tenant en todas las tablas (framework Integra)
   collation:
@@ -48,7 +52,7 @@ database:
 
 pasoe:
   oe-version: '12.8' # Version OpenEdge major.minor
-  instance-name: 'oepas1' # Instancia PASOE
+  instance-name: 'CAMBIAR-ME' # Instancia PASOE (ej. 'oepas1') — OBLIGATORIO en el proyecto ERP; un room SDD no lo usa (TKT-0309)
   working-dir: 'C:/OpenEdge/WRK/oepas1' # Working directory de PASOE
   webapp: 'ClienteWeb' # WebApp registrada en PASOE
   rest-transport: '/WebServices/rest/IntegraERP' # Path del REST transport (debe empezar con /)
@@ -99,8 +103,16 @@ hub:
 # declara SU rol acá. El SessionStart hook lo lee para resolver la licencia del
 # rol en el keyring (account = rol) y cachear su JWT por-carpeta. Vacío = modo
 # 1-rol legacy (licencia en el keyring account 'default').
+#
+# `work-repo` (TKT-0317) es el repo donde vive el CÓDIGO sobre el que trabaja este
+# room. ESTA carpeta no lo es: es un clon shallow del starter, y las herramientas
+# de aislamiento del agente operan sobre el cwd — sin esta declaración apuntan al
+# repo equivocado. Path absoluto al checkout local (no una URL). Lo fija
+# `specoe-add-room.sh --work-repo <ruta>` y lo exporta el launcher como
+# INTEGRA_SDD_WORK_REPO. Vacío = room que no toca código.
 specoe:
   role: '' # DISCOVERY | ENGINEERING | ADVERSARIAL | CC_DEV
+  work-repo: '' # Ruta absoluta al repo del código (ej. C:/Integra/VSCode/Webservices)
 
 frontend:
   enabled: false # true si el cliente tiene frontend React

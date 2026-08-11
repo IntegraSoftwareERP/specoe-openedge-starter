@@ -43,6 +43,7 @@ import {
   readIdentityMaterialScoped,
   scopedName,
 } from './sdd-identity.mjs';
+import { loadKeyring, loadMachineId } from './vendor-deps.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -104,8 +105,9 @@ const SKILL_JWT_MAX_AGE_MS = 55 * 60 * 1000;
 
 async function getMachineId() {
   try {
-    // node-machine-id es CommonJS — dynamic import retorna { default: module.exports }
-    const mod = await import('node-machine-id');
+    // node-machine-id es CommonJS — dynamic import retorna { default: module.exports }.
+    // TKT-0314 — sale del vendor del bundle; node_modules es solo el fallback.
+    const mod = await loadMachineId();
     const lib = mod.default ?? mod;
     if (typeof lib.machineIdSync === 'function') {
       return lib.machineIdSync(true); // true = hex raw (sin hash interno de la lib)
@@ -281,7 +283,7 @@ async function getLicenseKey(tenantSlug = null) {
   //    SPEC-0187 P7 — con tenant declarado, los accounts son '<slug>:<ROL>' / '<slug>:default'
   //    y NO se prueban los legacy: una licencia de otro tenant no es una licencia de este.
   try {
-    const kr = await import('@napi-rs/keyring').catch(() => null);
+    const kr = await loadKeyring().catch(() => null);
     if (kr) {
       const { Entry } = kr;
       const role = await resolveRole();

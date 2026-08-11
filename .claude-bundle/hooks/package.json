@@ -11,11 +11,10 @@
   "scripts": {
     "test": "node --test"
   },
+  "_dependencies_comment": "TKT-0314 — esta lista es EXACTAMENTE lo que los hooks importan, y esta vendorizada en vendor/ (ver vendor/MANIFEST.json). El instalador ya no corre npm install en la maquina del cliente mientras el vendor cubra la plataforma. Se sacaron dos deps que NINGUN hook importaba: `undici` (quedo de cuando el canal TLS se armaba con un dispatcher global, sacado al medir que el fetch de Node 26 lo ignora) y `eventsource` (entra igual como dependencia del SDK del MCP). Agregar una dep aca sin correr scripts/build-hooks-vendor.mjs pone rojo el CI: test-hooks-vendor.sh compara esta lista contra el manifiesto del vendor.",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
     "@napi-rs/keyring": "^1.1.7",
-    "eventsource": "^3.0.2",
-    "node-machine-id": "^1.1.12",
-    "undici": "^6.21.0"
+    "node-machine-id": "^1.1.12"
   }
 }

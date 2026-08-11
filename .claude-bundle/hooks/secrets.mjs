@@ -14,6 +14,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
 import { encryptBlob, decryptBlob } from './credentials.mjs';
+import { loadKeyring as loadVendoredKeyring } from './vendor-deps.mjs';
 import { fileURLToPath } from 'node:url';
 
 // HOME override (CLAUDE_HOME) para portabilidad + testing aislado, igual que deploy-hooks.mjs.
@@ -29,7 +30,10 @@ async function loadKeyring() {
   if (process.env.INTEGRA_SECRETS_NO_KEYRING === '1') return false;
   if (keyringModule !== undefined) return keyringModule;
   try {
-    keyringModule = await import('@napi-rs/keyring');
+    // TKT-0314 — el binding sale del vendor del bundle y solo cae a node_modules si el vendor
+    // no cubre esta plataforma. El try/catch de aca no cambia: sin keyring se degrada al
+    // cipher file, que es el contrato que este modulo ya tenia.
+    keyringModule = await loadVendoredKeyring();
   } catch {
     keyringModule = false;
   }

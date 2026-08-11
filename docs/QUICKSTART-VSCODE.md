@@ -85,7 +85,10 @@ Hace lo que se comparte entre todos tus rooms:
 
 1. Chequea Node (rango certificado 22.19.0–26.x, Node 23 afuera) / Claude Code / Git. Fuera del
    rango **aborta**: en esas versiones el canal TLS de los hooks no existe.
-2. Instala el bundle de hooks + dependencias (`npm install`).
+2. Instala el bundle de hooks + sus dependencias, que **viajan vendorizadas en el bundle**
+   (TKT-0314): no se baja nada del registry de npm en tu máquina. Si tu plataforma no está
+   cubierta por el vendorizado, cae a un `npm install` — y si ese tampoco las deja resueltas,
+   el instalador **corta ahí** en vez de anunciar que el host quedó listo.
 3. **Salta una ventana de elevación (UAC) — aceptala.** Con esos permisos:
    - agrega `hub.integra.local` y `mcp.integra.local` al `hosts` (→ IP del piloto);
    - instala el **CA de Caddy** en el trust del sistema (para que el navegador confíe en la UI del Hub).
@@ -153,8 +156,10 @@ por carpeta, licencia por rol — no se pisan. Abrís cada carpeta en su propia 
 > persistida**, no se pierde.
 >
 > **Editá ahí el `project.config.yaml`** — el de la carpeta del room recién creada — con los datos de
-> tu proyecto. Son tres campos: `project.name`, `project.vendor` y `paths.workspace-root`. El rol y la
-> URL del Hub los escribe el instalador: esos no los toques.
+> tu proyecto. Son tres campos: `project.name`, `project.vendor` y `paths.workspace-root`. Los tres
+> vienen con el valor `CAMBIAR-ME`, así que se ven de lejos (TKT-0307); la lista exacta de lo que
+> falta queda además en `.specoe-config-pending`, dentro de la carpeta del room. El rol y la URL del
+> Hub los escribe el instalador: esos no los toques.
 >
 > **La base Progress y la instancia PASOE no hacen falta para un room** (TKT-0309): el flujo SDD no
 > las lee, así que `database.logical-name` y `pasoe.instance-name` pueden quedarse en el valor del
@@ -163,10 +168,20 @@ por carpeta, licencia por rol — no se pisan. Abrís cada carpeta en su propia 
 > PASOE.
 >
 > **Segunda pasada** — volvé a correr **el mismo comando**. Ahora el check pasa y el room queda
-> instalado.
+> instalado. **La license key ya no hace falta** (TKT-0307): la primera pasada la dejó en el keyring
+> y la segunda la lee de ahí, así que `./specoe-room-ccdev.sh` sin argumentos alcanza. Pasarla de
+> nuevo tampoco molesta.
 
-> Opciones: `--dir <carpeta>`, `--hub <url>`. Debajo, `specoe-add-room.sh <ROL> <key>` es el núcleo
-> común (los 4 scripts de arriba son wrappers finos que le fijan el rol).
+> Opciones: `--dir <carpeta>`, `--hub <url>`, `--work-repo <ruta>`. Debajo,
+> `specoe-add-room.sh <ROL> [key]` es el núcleo común (los 4 scripts de arriba son wrappers finos que
+> le fijan el rol).
+
+> **Si el room va a tocar código, declará su repo de trabajo** (TKT-0317):
+> `--work-repo <ruta al checkout local>`. La carpeta del room **no** es ese repo: es un clon shallow
+> del starter, y las herramientas de aislamiento del agente operan sobre la carpeta abierta — sin la
+> declaración apuntan a ese clon y el `git worktree add` termina en el repo equivocado. Queda en
+> `specoe.work-repo` del `project.config.yaml` (se puede agregar a mano después) y cada sesión del
+> room lo verifica al arrancar: si falta, o si apunta a una ruta donde no hay repo, lo dice.
 
 ### Atajo all-in-one (1 rol / 1 máquina)
 
@@ -276,7 +291,7 @@ Los dueños posibles son cuatro:
 | 9   | Registrar el room en el roster del plugin                        | una vez por room                | PLUGIN — **paso ELIMINADO por autodetección**: la carpeta es el roster                                      |
 | 10  | Verificar la identidad SDD / el room servido                     | una vez por room (y ante dudas) | PLUGIN (muestra el resultado) + CLI_PRESERVADO (`specoe-verify-room.sh`)                                    |
 | 11  | Preflight de prerequisitos (Node, Claude Code, Git)              | una vez por máquina             | INSTALADOR_MAQUINA                                                                                          |
-| 12  | Instalar el bundle de hooks + `npm install`                      | una vez por máquina             | INSTALADOR_MAQUINA                                                                                          |
+| 12  | Instalar el bundle de hooks + sus dependencias (vendorizadas)    | una vez por máquina             | INSTALADOR_MAQUINA                                                                                          |
 | 13  | Copiar el CA a `~/.claude` (canal de los hooks)                  | una vez por máquina             | INSTALADOR_MAQUINA                                                                                          |
 | 14  | Verificación del canal del host (ping + fetch con CA)            | una vez por máquina             | INSTALADOR_MAQUINA                                                                                          |
 | 15  | Login SDD (una credencial, una identidad)                        | una vez por máquina y tenant    | PLUGIN (login unificado, «Integra Hub: Login») + CLI_PRESERVADO (`setup.sh --login` / paso 7 del host-flow) |

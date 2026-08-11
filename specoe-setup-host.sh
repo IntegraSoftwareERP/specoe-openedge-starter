@@ -3,7 +3,10 @@
 #
 # Hace lo que NO depende del rol y se comparte entre todos los rooms del dev:
 #   1. Pre-req: Node dentro del rango certificado (ver SPECOE_NODE_*), Claude Code, Git.
-#   2. Instala el bundle de hooks + npm install (setup.sh --host-only).
+#   2. Instala el bundle de hooks + sus dependencias VENDORIZADAS (setup.sh --host-only).
+#      TKT-0314: ya no hay `npm install` en la maquina del cliente salvo en plataformas que el
+#      vendor no cubre — y si ahi tampoco quedan resueltas, setup.sh CORTA (este script tiene
+#      `set -e`, asi que la corrida no llega al banner de 'Host listo').
 #   3. [ELEVADO/UAC] hosts (hub/mcp.integra.local → IP piloto) + CA de Caddy en el trust.
 #   4. Copia el CA a ~/.claude (de ahi lo lee ca-channel.mjs, el canal unico de los hooks).
 #   5. Verificación del host: ping al server + fetch de prueba al Hub con el CA → confirma
@@ -353,7 +356,10 @@ else
   STARTER_DIR="$(cd ./specoe-starter && pwd)"
 fi
 
-# ----- 2. Bundle de hooks + npm install (parte de máquina) -----
+# ----- 2. Bundle de hooks + dependencias vendorizadas (parte de máquina) -----
+# TKT-0314 — si las dependencias de los hooks no quedan resueltas, setup.sh sale != 0 y el
+# `set -e` de arriba corta ACA. Es a proposito: el banner de "Host listo" del final no puede
+# anunciarse sobre una maquina donde el keyring no va a cargar.
 log "Instalando el bundle de hooks (setup.sh --host-only)..."
 ( cd "$STARTER_DIR" && bash setup.sh --host-only )
 

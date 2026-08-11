@@ -4,20 +4,29 @@
 # Núcleo de la parte por-rol. NO toca hosts / CA / pre-req / bundle — eso lo hace
 # specoe-setup-host.sh (1 vez por máquina). Acá solo lo específico del room, EN ESTE ORDEN:
 #   1. Clona/actualiza el starter en la carpeta del room.  2. Fija specoe.role (y specoe.tenant
-#      si se declaro) en su yaml.
+#      y specoe.work-repo si se declararon) en su yaml.
 #   3. Guarda la licencia en el keyring bajo account=<ROL> — o '<tenantSlug>:<ROL>' cuando el
 #      room declara tenant (aislada por rol → multi-rol; por tenant → multi-tenant).
 #   4. Chequea la identidad SDD de la máquina (token + machineId en el keyring).
 #   5. setup.sh --room-only (config + .mcp.json) — ÚLTIMO: su check de config puede cortar.
 #
 # Uso:
-#   ./specoe-add-room.sh <ROL> <LICENSE_KEY> [--tenant <slug>] [--dir <carpeta>] [--hub <url>] [--repo <url>]
+#   ./specoe-add-room.sh <ROL> [LICENSE_KEY] [--tenant <slug>] [--work-repo <ruta>] [--dir <carpeta>] [--hub <url>] [--repo <url>]
 #     <ROL> = DISCOVERY | ENGINEERING | ADVERSARIAL | CC_DEV
+#   La LICENSE_KEY es obligatoria la PRIMERA vez. Despues queda en el keyring y se puede omitir:
+#   la segunda pasada (y cualquier reintento) la lee de ahi por su account (TKT-0307).
 #   Los wrappers specoe-room-<rol>.sh llaman a este núcleo con el rol y el --dir por defecto.
 #
 # SPEC-0187 P7 — `--tenant <slug>` es el slug del tenant del Hub (el `tenantSlug` que devuelve
 # el login SDD, NO el Tenant.id del contrato scoped). Sin el flag, la carpeta queda en modo
 # single-tenant y la licencia va bajo el rol pelado: el piloto instalado no cambia.
+#
+# TKT-0317 — `--work-repo <ruta>` es el checkout LOCAL del repo donde vive el codigo sobre el que
+# trabaja este room. NO es `--repo`, que es la URL del starter que se clona en la carpeta. La
+# distincion es el punto del ticket: la carpeta del room es un clon shallow del starter y las
+# herramientas de aislamiento del agente operan sobre el cwd, asi que sin esta declaracion apuntan
+# a ese clon — repo equivocado. Sin el flag el room no declara repo de trabajo y la sesion lo dice
+# al arrancar (specoe-room-bootstrap.mjs) en vez de dejar que se descubra al primer worktree.
 
 set -euo pipefail
 
@@ -27,6 +36,7 @@ DEST_DIR=""
 ROLE=""
 LICENSE_KEY=""
 TENANT_SLUG=""
+WORK_REPO=""
 
 log()  { echo -e "\033[1;34m[specoe-room]\033[0m $*"; }
 warn() { echo -e "\033[1;33m[specoe-room]\033[0m $*" >&2; }
@@ -45,13 +55,36 @@ specoe_node_bin() {
   fi
 }
 
+# Acceso al keyring en DOS funciones y no inline (TKT-0307): asi la suite
+# (scripts/test-add-room-license.sh) ejerce la resolucion de la key —que es donde estaba el bug—
+# sin tocar el almacen real de la maquina que corre el test.
+#
+# El `node -e` de la lectura va en UNA linea: en Git Bash un -e multilinea no es confiable (misma
+# nota que scripts/check-vendor-drift.sh). getPassword() TIRA cuando la entrada no existe, asi que
+# el try/catch es la unica forma de distinguir "no esta" de "el keyring no anda" sin ruido.
+specoe_keyring_read() { # $1 = account. Imprime la key por stdout; exit != 0 si no hay nada.
+  [ -d "$HOME/.claude/hooks" ] || return 1
+  ( cd "$HOME/.claude/hooks" && "$(specoe_node_bin)" -e "const { Entry } = require('@napi-rs/keyring'); let v = null; try { v = new Entry('specoe-license', process.argv[1]).getPassword(); } catch { process.exit(1); } if (!v) { process.exit(1); } process.stdout.write(v);" "$1" ) 2>/dev/null
+}
+
+specoe_keyring_write() { # $1 = account, $2 = key. Verifica post-escritura: sin eso reporta verde falso.
+  ( cd "$HOME/.claude/hooks" && "$(specoe_node_bin)" -e "
+const { Entry } = require('@napi-rs/keyring');
+const [key, account] = [process.argv[1], process.argv[2]];
+const entry = new Entry('specoe-license', account);
+entry.setPassword(key);
+if (entry.getPassword() !== key) throw new Error('verificacion post-escritura fallo: la key no quedo persistida');
+" "$2" "$1" ) 2>&1
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dir)  DEST_DIR="$2"; shift 2 ;;
     --tenant) TENANT_SLUG="$2"; shift 2 ;;
+    --work-repo) WORK_REPO="$2"; shift 2 ;;
     --hub)  HUB_URL="$2";  shift 2 ;;
     --repo) STARTER_REPO="$2"; shift 2 ;;
-    -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,29p' "$0"; exit 0 ;;
     -*) err "Opción desconocida: $1 (ver --help)" ;;
     *)
       if   [ -z "$ROLE" ];        then ROLE="$1"; shift
@@ -61,14 +94,35 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[ -n "$ROLE" ]        || err "Falta el rol. Uso: ./specoe-add-room.sh <ROL> <LICENSE_KEY>"
-[ -n "$LICENSE_KEY" ] || err "Falta la license key. Uso: ./specoe-add-room.sh <ROL> <LICENSE_KEY>"
+[ -n "$ROLE" ]        || err "Falta el rol. Uso: ./specoe-add-room.sh <ROL> [LICENSE_KEY]"
 case "$ROLE" in
   DISCOVERY|ENGINEERING|ADVERSARIAL|CC_DEV) : ;;
   *) err "Rol inválido: '$ROLE'. Valores: DISCOVERY | ENGINEERING | ADVERSARIAL | CC_DEV" ;;
 esac
 # Default de carpeta según el rol (discovery-room, engineering-room, ...).
 [ -n "$DEST_DIR" ] || DEST_DIR="$(echo "$ROLE" | tr 'A-Z_' 'a-z-')-room"
+
+# ----- 0b. La license key: de argv, o la que una pasada anterior ya dejo en el keyring -----
+# El account bajo el que vive la key: el rol pelado, o '<tenantSlug>:<ROL>' cuando el room declara
+# tenant (SPEC-0187 P7). Se resuelve ACA —antes de tocar el disco— porque de el depende si esta
+# corrida necesita que le pasen la key.
+LICENSE_ACCOUNT="$ROLE"
+[ -z "$TENANT_SLUG" ] || LICENSE_ACCOUNT="$TENANT_SLUG:$ROLE"
+
+# TKT-0307 — la instalacion es de DOS PASADAS (ver el paso 5) y la key la guarda la PRIMERA. Que la
+# segunda la volviera a exigir convertia un reintento en un corte con exit 1 y obligaba al dev a
+# tener la key a mano dos veces. Si el account ya la tiene, se reusa; solo se pide cuando no esta.
+LICENSE_FROM_KEYRING=0
+if [ -z "$LICENSE_KEY" ]; then
+  if LICENSE_KEY="$(specoe_keyring_read "$LICENSE_ACCOUNT")" && [ -n "$LICENSE_KEY" ]; then
+    LICENSE_FROM_KEYRING=1
+    log "License key: reusando la que ya esta en el keyring (account=$LICENSE_ACCOUNT) — no hace falta pasarla de nuevo."
+  else
+    err "Falta la license key y el keyring tampoco la tiene bajo account='$LICENSE_ACCOUNT'.
+  Uso: ./specoe-add-room.sh <ROL> <LICENSE_KEY> [--tenant <slug>]
+  Si ya la habias guardado, revisá que el account coincida: es '<ROL>' cuando el room es single-tenant y '<tenantSlug>:<ROL>' cuando pasás --tenant. Cambiar el --tenant entre pasadas cambia el account."
+  fi
+fi
 
 # Como conseguir el canal de HOST desde una carpeta de room recortada (SPEC-0167 P3): el
 # instalador de maquina (specoe-setup-host.sh, install-specoe.sh, certs/) NO esta dentro de la
@@ -190,8 +244,11 @@ if [ -d "$DEST_DIR/.git" ]; then
   # Lo que el instalador pone es eso y el .mcp.json que genera setup.sh (untracked hasta que la
   # carpeta reciba el .gitignore que lo cubre). CUALQUIER otra entrada es trabajo que el
   # instalador no puso: no se recorta ni se borra nada, se corta y se pide intervencion.
+  # '.specoe-config-pending' lo escribe el check de config de setup.sh cuando corta (TKT-0307) y lo
+  # cubre el .gitignore del starter — pero un room clonado ANTES de esa linea no la tiene todavia,
+  # y ahi el archivo aparece como untracked y frenaria la segunda pasada. Se nombra aca tambien.
   divergence="$(git -C "$DEST_DIR" status --porcelain)"
-  unexpected="$(printf '%s\n' "$divergence" | grep -v -e '^$' -e '^ M project\.config\.yaml$' -e '^?? \.mcp\.json$' || true)"
+  unexpected="$(printf '%s\n' "$divergence" | grep -v -e '^$' -e '^ M project\.config\.yaml$' -e '^?? \.mcp\.json$' -e '^?? \.specoe-config-pending$' || true)"
   if [ -n "$unexpected" ]; then
     err "La carpeta '$DEST_DIR' tiene cambios locales que este instalador no puso:
 $unexpected
@@ -263,6 +320,36 @@ if [ -n "$TENANT_SLUG" ]; then
   specoe_yaml_set "$DEST_DIR/project.config.yaml" specoe.tenant "$TENANT_SLUG"
 fi
 
+# ----- 2b. TKT-0317 — specoe.work-repo: el repo donde vive el CODIGO de este room -----
+# El room sabe su rol y su tenant, pero no sabia cual es su repo de trabajo, y las herramientas de
+# aislamiento del agente asumen que el cwd lo es. El cwd es esta carpeta: un clon shallow del
+# starter. Con la declaracion, el agente sabe donde correr `git worktree add`.
+#
+# Se escribe con specoe_yaml_set por lo mismo que el tenant: el yaml de un room ya instalado es
+# anterior a la clave y un sed de reemplazo no tendria sobre que actuar.
+#
+# NO se corta cuando la ruta todavia no existe: un room se puede instalar antes de clonar el repo
+# del codigo, y cortar ahi por algo recuperable dejaria la carpeta a medio configurar. Se declara
+# igual y se avisa — y el chequeo que importa lo repite cada arranque de sesion el hook
+# specoe-room-bootstrap.mjs, que es donde el dato se consume.
+if [ -n "$WORK_REPO" ]; then
+  [ -f "$SCRIPT_DIR/specoe-yaml.sh" ] || err "Falta $SCRIPT_DIR/specoe-yaml.sh: no puedo declarar specoe.work-repo='$WORK_REPO' en la carpeta.
+  Corto en vez de seguir: el room quedaria sin saber cual es su repo de trabajo, que es justo lo que este flag viene a declarar.
+  Actualizá el starter (git -C \"$SCRIPT_DIR\" pull --ff-only) y volvé a correr el MISMO comando."
+  # shellcheck source=specoe-yaml.sh
+  source "$SCRIPT_DIR/specoe-yaml.sh"
+  # Barras normales: el valor lo consumen Git Bash, node y VSCode, y los tres entienden 'C:/x/y'.
+  # Con backslashes, la ruta pasa por shells que los leen como escapes y llega partida.
+  WORK_REPO_NORM="${WORK_REPO//\\//}"
+  log "Fijando specoe.work-repo='$WORK_REPO_NORM' en project.config.yaml..."
+  specoe_yaml_set "$DEST_DIR/project.config.yaml" specoe.work-repo "$WORK_REPO_NORM"
+  if [ ! -e "$WORK_REPO_NORM/.git" ]; then
+    warn "  ⚠ '$WORK_REPO_NORM' no es un repo git ahora mismo (no tiene .git)."
+    warn "    La declaracion queda escrita igual. Si todavia no clonaste el repo del codigo, clonalo ahi."
+    warn "    Si la ruta esta mal, corregí specoe.work-repo en '$DEST_DIR/project.config.yaml' — cada sesion del room lo vuelve a chequear y lo dice."
+  fi
+fi
+
 # ----- 3. Licencia en el keyring, account = rol (aislada → multi-rol) -----
 # ANTES del --room-only (SPEC-0167 P2 / T2.4, ADR-005): el check de config de setup.sh CORTA
 # cuando el project.config.yaml sigue con los valores del template, y corre dentro del subshell
@@ -277,20 +364,18 @@ fi
 # SPEC-0187 P7 — con tenant declarado el account es '<tenantSlug>:<ROL>': dos tenants en la
 # misma maquina tienen licencias distintas para el MISMO rol, y con el account pelado la segunda
 # pisaba a la primera. Sin --tenant el account sigue siendo el rol pelado (piloto intacto).
-LICENSE_ACCOUNT="$ROLE"
-[ -z "$TENANT_SLUG" ] || LICENSE_ACCOUNT="$TENANT_SLUG:$ROLE"
-log "Guardando la license key en el keyring (account=$LICENSE_ACCOUNT)..."
+# ($LICENSE_ACCOUNT y $LICENSE_KEY quedaron resueltos en el paso 0b, antes de tocar el disco.)
 KEYRING_OK=0
 NODE_BIN="$(specoe_node_bin)"
-# Capturamos stdout+stderr del proceso: NO silenciamos el error (el fallo mudo era el bug).
-# Verificamos post-escritura con getPassword() para no reportar éxito falso.
-if keyring_out="$( ( cd "$HOME/.claude/hooks" && "$NODE_BIN" -e "
-const { Entry } = require('@napi-rs/keyring');
-const [key, account] = [process.argv[1], process.argv[2]];
-const entry = new Entry('specoe-license', account);
-entry.setPassword(key);
-if (entry.getPassword() !== key) throw new Error('verificacion post-escritura fallo: la key no quedo persistida');
-" "$LICENSE_KEY" "$LICENSE_ACCOUNT" ) 2>&1 )"; then
+if [ "$LICENSE_FROM_KEYRING" = 1 ]; then
+  # La key SALIO de este mismo account: reescribirla no agrega nada y el log diria "guardando" una
+  # key que el dev no paso, que es justo la confusion que TKT-0307 cierra.
+  log "License key ya presente en el keyring (account=$LICENSE_ACCOUNT): no se reescribe."
+  KEYRING_OK=1
+elif keyring_out="$(specoe_keyring_write "$LICENSE_ACCOUNT" "$LICENSE_KEY")"; then
+  # Capturamos stdout+stderr del proceso: NO silenciamos el error (el fallo mudo era el bug).
+  # La verificacion post-escritura con getPassword() vive dentro de specoe_keyring_write.
+  log "Guardando la license key en el keyring (account=$LICENSE_ACCOUNT)..."
   log "  License key guardada y verificada en el keyring (account=$LICENSE_ACCOUNT)."
   KEYRING_OK=1
 else
@@ -343,7 +428,17 @@ if ! ( cd "$DEST_DIR" && bash setup.sh --room-only --hub "$HUB_URL" ); then
   else
     warn "  - la license key NO quedo en el keyring (ver el detalle mas arriba y recuperala antes de seguir)."
   fi
-  err "Instalacion de DOS PASADAS: editá '$DEST_DIR/project.config.yaml' y volvé a correr el MISMO comando."
+  # El archivo lo escribe SOLO el corte del check de config; --room-only puede cortar por otras
+  # causas (falta el vendor, etc.), asi que se nombra si esta, no porque el subshell haya fallado.
+  if [ -f "$DEST_DIR/.specoe-config-pending" ]; then
+    warn "  - los campos que faltan editar quedaron ademas en '$DEST_DIR/.specoe-config-pending', uno por linea (de ahi los lee el plugin de VSCode, que no ve esta salida)."
+  fi
+  if [ "$KEYRING_OK" = 1 ]; then
+    err "Instalacion de DOS PASADAS: editá '$DEST_DIR/project.config.yaml' y volvé a correr el MISMO comando.
+  La license key NO hace falta de nuevo: ya quedo en el keyring (account=$LICENSE_ACCOUNT) y la segunda pasada la lee de ahi (TKT-0307)."
+  else
+    err "Instalacion de DOS PASADAS: editá '$DEST_DIR/project.config.yaml' y volvé a correr el MISMO comando, esta vez CON la license key (no quedo en el keyring, ver arriba)."
+  fi
 fi
 
 log ""

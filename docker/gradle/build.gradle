@@ -8,10 +8,11 @@
 // clon de un room (specoe-add-room.sh lo recorta en SPECOE_ROOM_DROP), asi que ningun room los
 // consume. Para el proyecto ERP siguen obligatorios y setup.sh los exige igual que antes.
 //
-// Salvedad anotada, NO resuelta (decision del Arquitecto, 2026-08-10): el valor de template de
-// `pasoe.instance-name` es `oepas1`, que tambien es un valor real plausible. Un dev del proyecto
-// ERP que lo deja porque le sirve sigue contando como "sin editar" para ese check. Deja de
-// importar para rooms SDD; sigue vivo para proyectos ERP.
+// La salvedad que TKT-0309 dejo anotada y sin resolver —el valor de template de
+// `pasoe.instance-name` era `oepas1`, que tambien es un valor real plausible, asi que el dev del
+// proyecto ERP que lo dejaba porque le servia seguia contando como "sin editar"— la cierra
+// TKT-0307: los cinco campos que el gate exige valen `CAMBIAR-ME` en el template, que nadie puede
+// querer de verdad. El valor de ejemplo quedo en el comentario inline del yaml.
 
 plugins {
     id 'base'

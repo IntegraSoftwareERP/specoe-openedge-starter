@@ -10,6 +10,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
 import crypto from 'crypto';
+import { loadKeyring as loadVendoredKeyring } from './vendor-deps.mjs';
 
 const SERVICE = 'integra-hub-claude-code';
 const URL_SUFFIX = ':url';
@@ -56,7 +57,8 @@ let keyringModule; // null=sin cargar, false=no disponible, {Entry}=cargado
 async function loadKeyring() {
   if (keyringModule !== undefined) return keyringModule;
   try {
-    keyringModule = await import('@napi-rs/keyring');
+    // TKT-0314 — vendor primero, node_modules despues. Ver vendor-deps.mjs.
+    keyringModule = await loadVendoredKeyring();
   } catch {
     keyringModule = false;
   }

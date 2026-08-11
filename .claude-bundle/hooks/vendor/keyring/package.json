@@ -1,0 +1,6 @@
+{
+  "name": "@napi-rs/keyring",
+  "version": "1.2.0",
+  "type": "commonjs",
+  "main": "index.js"
+}

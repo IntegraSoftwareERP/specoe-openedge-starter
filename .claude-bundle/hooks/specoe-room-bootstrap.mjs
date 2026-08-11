@@ -30,12 +30,15 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { applyCaChannel, describeNetworkError, DEFAULT_CA_PATH } from './ca-channel.mjs';
+import { loadMcpClient } from './vendor-deps.mjs';
 
 // multi-rol — el cache de licencia vive POR-CARPETA (cwd de la sesion), igual que
 // en specoe-license-check.mjs. Antes era global (~/.claude): con varios roles a la vez el
 // ultimo pisaba a los demas y el bootstrap bajaba el contrato del rol equivocado.
 const PROJECT_DIR = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 const CACHE_FILE = path.join(PROJECT_DIR, '.claude', 'specoe-license-cache.json');
+// TKT-0317 — la declaracion del room vive en su yaml; el repo de trabajo tambien.
+const ROOM_CONFIG_FILE = path.join(PROJECT_DIR, 'project.config.yaml');
 // TKT-0225 — el .mcp.json de la MISMA carpeta: es de donde el cliente MCP de Claude Code
 // saca el token con el que corren los tools, y no tiene por que ser el del cache.
 const MCP_JSON_FILE = path.join(PROJECT_DIR, '.mcp.json');
@@ -126,6 +129,134 @@ export function buildTokenDivergenceWarning(rolDelCache, rolDelMcpJson) {
   );
 }
 
+// ----- TKT-0317 — el repo de trabajo del room -----
+//
+// El room sabe cual es su rol y su tenant, pero no sabia cual es su REPO DE TRABAJO. La carpeta
+// del room ES un repo git —un clon shallow del starter, con sparse-checkout— y no es donde vive
+// el codigo del cliente. Las herramientas de aislamiento del harness operan sobre el repo del
+// cwd, asi que apuntan a ese clon: el `git worktree add` cae en el repo equivocado y falla
+// (`core.worktree redirect`) o, peor, ensucia el clon del starter.
+//
+// El agente no puede deducirlo: no hay nada en la carpeta que nombre el repo del codigo. Por eso
+// la declaracion (`specoe.work-repo` del yaml, o INTEGRA_SDD_WORK_REPO que exporta el launcher) y
+// por eso este aviso, que viaja por el MISMO canal que el contrato del room y por los CUATRO
+// caminos de salida — un room que arranca ungoverned igual va a querer aislar trabajo.
+//
+// El prefijo es OTRO a proposito, como UNGOVERNED y TOKEN-DIVERGENTE: no contiene ni esta
+// contenido en ninguno de los otros, asi que un probe puede afirmar cada uno por separado.
+export const WORK_REPO_PREFIX = 'SPECOE-ROOM-WORK-REPO';
+
+/**
+ * Escalar del `project.config.yaml` ANCLADO a su seccion — mismo criterio que `specoe_yaml_get`
+ * del bundle (specoe-yaml.sh) y que el lector del plugin.
+ *
+ * Los otros lectores de este archivo que hay en los hooks (resolveRole/resolveTenant de
+ * specoe-license-check.mjs) son regex globales sobre el archivo entero: andan porque hoy no hay
+ * una clave homonima antes, no por construccion. Ese es exactamente el defecto que cerro
+ * TKT-0256. `repo` NO es un nombre libre en este yaml —`paths.repos` existe— asi que aca la
+ * lectura va anclada y no se replica el criterio flojo.
+ */
+export function readSpecoeScalar(content, section, key) {
+  let inBlock = false;
+  for (const rawLine of String(content ?? '').split(/\r?\n/)) {
+    // Toda linea sin indentar abre un bloque top-level (y cierra el anterior).
+    if (/^\S/.test(rawLine)) {
+      inBlock = rawLine.startsWith(`${section}:`);
+      continue;
+    }
+    if (!inBlock) continue;
+    const match = rawLine.match(new RegExp(`^\\s+${key}:\\s*(.*)$`));
+    if (!match) continue;
+    const value = match[1];
+    if (value.startsWith("'")) {
+      const end = value.indexOf("'", 1);
+      return end === -1 ? value.slice(1) : value.slice(1, end);
+    }
+    if (value.startsWith('"')) {
+      const end = value.indexOf('"', 1);
+      return end === -1 ? value.slice(1) : value.slice(1, end);
+    }
+    return value.replace(/\s*#.*$/, '').trim();
+  }
+  return undefined;
+}
+
+/**
+ * El repo de trabajo declarado. Precedencia: la env que exporta el launcher > la clave del yaml.
+ * El yaml se lee tambien a proposito: una carpeta abierta a mano (doble click, `code .`) no tiene
+ * la env, y ahi el room igual sabe donde vive su codigo — mismo criterio que el tenant.
+ */
+async function resolveWorkRepo() {
+  const fromEnv = (process.env.INTEGRA_SDD_WORK_REPO ?? '').trim();
+  if (fromEnv) return fromEnv;
+  try {
+    const yaml = await fs.readFile(ROOM_CONFIG_FILE, 'utf8');
+    return (readSpecoeScalar(yaml, 'specoe', 'work-repo') ?? '').trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * El aviso listo para concatenar. `declared` = la ruta declarada (o null), `isRepo` = si HOY hay
+ * un repo git ahi. Funcion pura: la suite la ejercita sin disco ni red.
+ *
+ * Los tres casos dicen la misma cosa de fondo —el cwd NO es el repo del codigo— porque es lo que
+ * el agente no puede ver. La declaracion que apunta a la nada NO se calla: un dato escrito y
+ * falso es peor que la ausencia, que al menos se nota.
+ */
+export function buildWorkRepoNotice(declared, isRepo) {
+  const comun =
+    `La carpeta de este room ES un repo git, pero NO es donde vive el codigo: es un clon shallow ` +
+    `del starter. Las herramientas de aislamiento del harness (EnterWorktree y equivalentes) ` +
+    `operan sobre el repo del cwd, asi que desde aca apuntan a ese clon.`;
+
+  if (!declared) {
+    return (
+      `\n\n[[${WORK_REPO_PREFIX}:sin-declarar]] Este room NO declara su repo de trabajo. ${comun} ` +
+      `Antes de tocar codigo, preguntá al operador cual es el repo y en que ruta local esta. ` +
+      `Para que el room deje de preguntarlo en cada sesion: declaralo en 'specoe.work-repo' del ` +
+      `project.config.yaml de esta carpeta (o reinstalá con ./specoe-add-room.sh <ROL> --work-repo <ruta>).`
+    );
+  }
+
+  if (!isRepo) {
+    return (
+      `\n\n[[${WORK_REPO_PREFIX}:no-existe]] Este room declara su repo de trabajo en '${declared}' ` +
+      `y ahi NO hay un repo git ahora mismo (no existe la ruta, o existe y no tiene .git). ${comun} ` +
+      `No uses esa ruta a ciegas: verificala con el operador —puede faltar el clone, o la ` +
+      `declaracion puede estar mal— y corregí 'specoe.work-repo' en el project.config.yaml.`
+    );
+  }
+
+  return (
+    `\n\n[[${WORK_REPO_PREFIX}:declarado]] El repo de trabajo de este room es '${declared}'. ${comun} ` +
+    `Todo lo que sea codigo va contra ese repo, con git apuntado explicitamente: ` +
+    `git -C '${declared}' worktree add ... (y los commits/PR salen de ahi, no del cwd).`
+  );
+}
+
+/** Resuelve la declaracion, la mide contra el disco y devuelve el aviso ya armado. */
+async function workRepoNotice() {
+  const declared = await resolveWorkRepo();
+  let isRepo = false;
+  if (declared) {
+    try {
+      await fs.stat(path.join(declared, '.git'));
+      isRepo = true;
+    } catch {
+      isRepo = false;
+    }
+  }
+  await logLine({
+    level: declared && isRepo ? 'info' : 'warn',
+    msg: 'repo de trabajo del room',
+    declared,
+    isRepo,
+  });
+  return buildWorkRepoNotice(declared, isRepo);
+}
+
 // Expande `${VAR}` y `${VAR:-default}` como lo hace el cliente MCP al leer el .mcp.json.
 function expandEnvPlaceholders(raw) {
   return String(raw ?? '').replace(
@@ -160,8 +291,10 @@ async function readMcpJsonToken() {
 
 // Cliente MCP/SSE con el SDK oficial. Devuelve el markdown del contrato o null.
 async function fetchRoomContract(url, token, signal) {
-  const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
-  const { SSEClientTransport } = await import('@modelcontextprotocol/sdk/client/sse.js');
+  // TKT-0314 — el SDK sale del bundle vendorizado (vendor/mcp-client.mjs) y solo cae a
+  // node_modules si el vendor no esta. Antes esto dependia de un npm install en la maquina del
+  // cliente que en Windows aborta por una assertion de libuv.
+  const { Client, SSEClientTransport } = await loadMcpClient();
 
   // EventSource nativo no permite headers custom: el SDK acepta un fetch propio para
   // la request SSE inicial (eventSourceInit.fetch) y requestInit para los POST /messages.
@@ -238,6 +371,9 @@ export function buildUngovernedContext(reason, detail) {
 // `extra` (TKT-0225) se CONCATENA al final del additionalContext y nunca lo reemplaza: el
 // sentinel y la declaracion de ungoverned son anclas que ya asserta el probe de T5.3, y
 // buildAdditionalContext/buildUngovernedContext se quedan puras con su firma original.
+// Desde TKT-0317 `extra` lleva DOS avisos independientes (divergencia de tokens + repo de
+// trabajo), por eso el flag de divergencia del JSON viaja aparte y no se deduce de `extra`:
+// deducirlo marcaria divergencia en toda sesion, que es justo lo contrario de discriminar.
 function emitUngoverned(reason, detail, extra = '') {
   console.log(
     JSON.stringify({
@@ -250,14 +386,14 @@ function emitUngoverned(reason, detail, extra = '') {
   );
 }
 
-function emit(role, contract, extra = '') {
+function emit(role, contract, extra = '', divergente = false) {
   console.log(
     JSON.stringify({
       specoeRoomContractStatus: 'injected',
       // El status distingue la sesion coherente de la que arranca con los dos tokens
       // separados: 'injected' sigue significando "el contrato bajo del server", y el
       // sufijo dice que los tools MCP corren con otro JWT.
-      ...(extra ? { specoeTokenDivergence: true } : {}),
+      ...(divergente ? { specoeTokenDivergence: true } : {}),
       hookSpecificOutput: {
         hookEventName: 'SessionStart',
         additionalContext: buildAdditionalContext(role, contract) + extra,
@@ -329,6 +465,10 @@ async function main() {
   // igual cuando el room arranca ungoverned — ahi el .mcp.json puede seguir declarando un
   // token vivo con el que los tools MCP corren, y el dev tiene que saberlo.
   const divergencia = await tokenDivergenceWarning(token);
+  // TKT-0317 — mismo criterio para el repo de trabajo: viaja por los cuatro caminos, porque un
+  // room sin contrato igual va a querer aislar trabajo de codigo. Los dos avisos se concatenan
+  // en `avisos`; `divergencia` se conserva aparte porque de EL depende el flag del JSON.
+  const avisos = divergencia + (await workRepoNotice());
   // Sin token fresco no podemos autenticar. Fail-open, pero YA NO mudo: el license-check
   // explica por que falta el JWT, y este hook declara la consecuencia — el room queda sin
   // gobierno de rol. Las dos mitades juntas son el mensaje completo.
@@ -341,7 +481,7 @@ async function main() {
     emitUngoverned(
       'no-token',
       `no hay JWT de licencia fresco en ${CACHE_FILE} (falta, o el cache tiene mas de 55 min y el token ya no sirve). El hook de licencia, que corre antes que este, dice por que.`,
-      divergencia,
+      avisos,
     );
     return 0;
   }
@@ -354,7 +494,7 @@ async function main() {
     emitUngoverned(
       'no-role',
       'el JWT de licencia no trae el claim sddRole: es una licencia de producto, no de un rol SDD. Si esta carpeta tiene que ser un room, instalala con ./specoe-add-room.sh <ROL> <LICENSE_KEY>.',
-      divergencia,
+      avisos,
     );
     return 0;
   }
@@ -375,7 +515,7 @@ async function main() {
         url: DEFAULT_SKILL_SERVER_URL,
         role,
       });
-      emit(role, contract, divergencia);
+      emit(role, contract, avisos, divergencia !== '');
     } else {
       await logLine({
         level: 'warn',
@@ -386,7 +526,7 @@ async function main() {
       emitUngoverned(
         'no-contract',
         `el skill-server (${DEFAULT_SKILL_SERVER_URL}) respondio, pero no devolvio contrato para el rol ${role}.`,
-        divergencia,
+        avisos,
       );
     }
   } catch (err) {
@@ -406,7 +546,7 @@ async function main() {
     emitUngoverned(
       'network',
       `no se pudo hablar con el skill-server (${DEFAULT_SKILL_SERVER_URL}): errno ${net.code ?? 'desconocido'} — ${net.cause ?? net.message}.`,
-      divergencia,
+      avisos,
     );
   } finally {
     clearTimeout(timer);
