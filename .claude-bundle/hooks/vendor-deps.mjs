@@ -67,6 +67,16 @@ export const loadKeyring = () => load('@napi-rs/keyring', './keyring/index.js', 
 export const loadMachineId = () => load('node-machine-id', './machine-id.mjs', 'node-machine-id');
 
 /**
+ * fastest-levenshtein — el match fuzzy de los tokens `presence` del hook de verificacion de
+ * claims (TKT-0321). Es la unica dep del bundle cuyo consumidor NO nace en este repo: el hook es
+ * de `integra-hub` y viaja vendorizado. Por eso el consumidor la pide con `try/catch` alrededor
+ * de este loader y con el nombre pelado como segunda opcion — en el CI de `integra-hub` corre con
+ * `node_modules` y sin este archivo al lado.
+ */
+export const loadLevenshtein = () =>
+  load('fastest-levenshtein', './fastest-levenshtein.mjs', 'fastest-levenshtein');
+
+/**
  * Cliente MCP (Client + SSEClientTransport). El bundle del vendor reexporta las dos entradas
  * desde un solo archivo; el fallback las trae de los dos subpaths del SDK.
  */
@@ -113,6 +123,14 @@ export async function checkDeps() {
       vendor: './mcp-client.mjs',
       bare: '@modelcontextprotocol/sdk/client/index.js',
     },
+    // TKT-0321 — entra al probe por la misma razon que las otras tres: si no esta, el hook que
+    // la importa falla en la RESOLUCION y el instalador anunciaria "Host listo" sobre una
+    // maquina donde el verificador de claims no arranca.
+    {
+      name: 'fastest-levenshtein',
+      vendor: './fastest-levenshtein.mjs',
+      bare: 'fastest-levenshtein',
+    },
   ];
 
   const results = [];
@@ -135,7 +153,7 @@ export async function checkDeps() {
   return results;
 }
 
-// CLI: `node vendor-deps.mjs --check`. Exit 0 = las tres resuelven; 1 = falta alguna.
+// CLI: `node vendor-deps.mjs --check`. Exit 0 = todas resuelven; 1 = falta alguna.
 // Una linea por dependencia en stdout (`<nombre> <vendor|node_modules|FALTA>`) para que el
 // instalador pueda nombrar cual falto sin re-parsear nada.
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {

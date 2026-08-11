@@ -35,6 +35,7 @@ import path from 'path';
 import os from 'os';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
+import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { applyCaChannel, describeNetworkError, DEFAULT_CA_PATH } from './ca-channel.mjs';
 import {
@@ -1029,6 +1030,128 @@ async function escapeHatchReason(escapeFile = ESCAPE_HATCH_FILE) {
   }
 }
 
+// =====================================================================
+// TKT-0321 — deriva de los hooks del Hub instalados en esta maquina
+// =====================================================================
+//
+// QUE PROBLEMA CIERRA: los cuatro artefactos del Hub (los dos hooks de ack-task, su canal y el
+// verificador de claims) viajan vendorizados en el bundle y los instala la parte de MAQUINA
+// (`specoe-setup-host.sh`). La carpeta del room se actualiza por su lado
+// (`specoe-add-room.sh`). Son dos canales con dos disparadores, asi que una maquina puede
+// quedarse con hooks de una version anterior por tiempo indefinido — y un hook viejo no se cae
+// ni avisa: sigue corriendo, degradado. Ya paso y esta medido (2026-08-04, SPEC-0166 P4b): el
+// enforcer desplegado era de mayo mas un parche local y le faltaba entero el commit de
+// TKT-0233, o sea que el gate corria CIEGO a los tickets standalone. Nadie lo noto porque el
+// hook seguia funcionando para el caso que si cubria.
+//
+// COMO SE DETECTA: el `vendor/MANIFEST.json` que viaja EN LA CARPETA DEL ROOM declara el
+// packageSha256 de cada artefacto. Se compara contra la copia instalada en ~/.claude/. Si
+// difieren, la maquina esta atras de la carpeta.
+//
+// POR QUE BLOQUEA (decision del Operador, 2026-08-11): porque el aviso que no bloquea es el que
+// ya tuvimos — la deriva de agosto vivio meses a la vista de todos. Un gate desactualizado es
+// peor que ninguno: da la sensacion de cobertura que no tiene.
+//
+// LO QUE ESTE CHEQUEO NO PUEDE HACER, y conviene no fingirlo: no alcanza a las maquinas que
+// tienen un bundle ANTERIOR a este ticket. Ahi corre el license-check viejo, que no tiene este
+// codigo. El chequeo protege de la deriva FUTURA, a partir de la primera actualizacion. La
+// primera sigue siendo un acto del Operador avisando.
+//
+// ALCANCE: solo en una carpeta que sea un room (tiene vendor/MANIFEST.json). Este hook corre en
+// TODA sesion de Claude Code de la maquina; una carpeta cualquiera no tiene por que saber nada
+// de esto y no gana ni un aviso.
+const HUB_ARTIFACT_BASES = {
+  '.claude-bundle/hooks': 'hooks',
+  '.claude-bundle/commands': 'commands',
+};
+
+/**
+ * Compara lo instalado contra lo que declara el MANIFEST del room.
+ * Devuelve `{ checked, drifted: [{ name, file, destino, motivo }] }`.
+ * `checked: false` = no habia con que comparar; NUNCA se bloquea con eso.
+ */
+export async function checkHubHooksDrift({
+  projectDir = PROJECT_DIR,
+  claudeHome = path.join(os.homedir(), '.claude'),
+} = {}) {
+  let manifest;
+  try {
+    manifest = JSON.parse(
+      await fs.readFile(path.join(projectDir, 'vendor', 'MANIFEST.json'), 'utf8'),
+    );
+  } catch {
+    // No es un room, o es un room recortado sin vendor/. Nada que comparar.
+    return { checked: false, drifted: [] };
+  }
+
+  const componentes = (manifest.components ?? []).filter((c) => HUB_ARTIFACT_BASES[c.basePath]);
+  if (componentes.length === 0) {
+    // MANIFEST anterior a este ticket: no declara los artefactos del Hub. No hay deriva que
+    // medir — y confundir "no declarado" con "al dia" seria un verde falso.
+    return { checked: false, drifted: [] };
+  }
+
+  const drifted = [];
+  for (const c of componentes) {
+    const destino = path.join(claudeHome, HUB_ARTIFACT_BASES[c.basePath], c.file);
+    let instalado;
+    try {
+      instalado = await fs.readFile(destino);
+    } catch {
+      drifted.push({ name: c.name, file: c.file, destino, motivo: 'no esta instalado' });
+      continue;
+    }
+    const sha = createHash('sha256').update(instalado).digest('hex');
+    if (sha !== c.packageSha256) {
+      drifted.push({
+        name: c.name,
+        file: c.file,
+        destino,
+        motivo: `sha256 instalado ${sha.slice(0, 12)} != declarado ${String(c.packageSha256).slice(0, 12)}`,
+      });
+    }
+  }
+  return { checked: true, drifted };
+}
+
+/**
+ * Segundo punto del archivo que devuelve un exit distinto de 0 (el otro es `blockSession`, por
+ * licencia). Mantiene su misma disciplina: si no puede componer el diagnostico completo, NO
+ * bloquea — un bloqueo mudo deja al dev sin sesion y sin dato.
+ */
+function blockOnHubHooksDrift(drifted) {
+  const detalle = drifted.map((d) => `  - ${d.file} → ${d.motivo}`).join('\n');
+  const context = [
+    'SpecOE — los hooks del Hub de esta MAQUINA estan atras de esta CARPETA.',
+    '',
+    'Que se detecto (comparado contra vendor/MANIFEST.json de este room):',
+    detalle,
+    '',
+    'Por que se corta: dos de esos archivos son gates — el de ack-task bloquea las mutaciones sin',
+    'work item y el de verificacion bloquea los claims sin respaldo. Un gate desactualizado no se',
+    'cae ni avisa: sigue corriendo degradado, y eso ya paso (el enforcer estuvo tres meses ciego a',
+    'los tickets standalone sin que nadie lo notara).',
+    '',
+    'Como salir — actualiza la parte de MAQUINA con el starter con el que la preparaste:',
+    '  ./specoe-setup-host.sh',
+    'El instalador pisa siempre (install_force), asi que alcanza con volver a correrlo.',
+    '',
+    `Via de escape, si necesitas trabajar ya: ${ESCAPE_HATCH_ENV}=1`,
+  ].join('\n');
+
+  console.log(
+    JSON.stringify({
+      specoeStatus: 'blocked',
+      continue: false,
+      stopReason: 'Los hooks del Hub instalados no corresponden a los que declara este room.',
+      systemMessage: context,
+      hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: context },
+    }),
+  );
+  process.stderr.write(context + '\n');
+  return 2;
+}
+
 function emitContext(status, additionalContext) {
   console.log(
     JSON.stringify({
@@ -1075,6 +1198,26 @@ async function blockSession(diag) {
 // ----- main -----
 
 async function main() {
+  // TKT-0321 — la deriva de los hooks del Hub se mira ANTES que la licencia, y no por
+  // importancia sino porque no cuesta red: son cuatro sha256 sobre ~90 KB de disco. Ponerlo
+  // despues lo dejaria compitiendo por el presupuesto del hook con los requests que si lo
+  // necesitan, y la deriva quedaria sin mirar justo en el arranque lento — que es el que mas
+  // se parece a una instalacion en mal estado.
+  //
+  // Respeta la MISMA via de escape que el bloqueo por licencia: un dev que ya declaro que
+  // quiere arrancar degradado no tiene que descubrir una segunda valvula.
+  if (!(await escapeHatchReason())) {
+    const deriva = await checkHubHooksDrift();
+    if (deriva.checked && deriva.drifted.length > 0) {
+      await logLine({
+        level: 'warn',
+        msg: 'arranque BLOQUEADO — hooks del Hub desactualizados en esta maquina',
+        drifted: deriva.drifted.map((d) => `${d.file}: ${d.motivo}`),
+      });
+      return blockOnHubHooksDrift(deriva.drifted);
+    }
+  }
+
   // SPEC-0187 P7 — el tenant del room decide QUE claves se leen (licencia e identidad). Va
   // primero porque la licencia es lo primero que se resuelve.
   const tenantSlug = await resolveTenant();

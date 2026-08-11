@@ -2,6 +2,46 @@
 
 All notable changes to this project. Automatic — regenerado por `./scripts/changelog.sh`.
 
+## 0.2.22 — 2026-08-11 (TKT-0321 — los hooks del Hub llegan por el canal del starter)
+
+**Los tres hooks que gatean las escrituras al Hub no llegaban a la máquina de un dev de un
+tenant.** Se instalaban a mano, copiándolos del repo `integra-hub`, y ese repo el dev de un tenant
+no lo clona: consume el Hub por el MCP vendorizado con el starter. Medido el 2026-08-11 en la
+máquina de un dev del piloto: ninguno de los tres presente y cero entradas en su `settings.json`.
+O sea que el gate de ack-task y el verificador de claims, para él, **no existían** — el backend
+guardaba la política del tenant y registraba el ack, pero quien bloquea es el hook local.
+
+Y transportarlos tal cual no alcanzaba: los cuatro artefactos son hijos del modelo de identidad de
+SPEC-0005 (email/password) y esa máquina corre el de SPEC-0157 (login SDD). Con el hook instalado y
+sin credenciales, el enforcer salía **exit 2 bloqueando todo `Edit`/`Write`/`Bash`** con el mensaje
+`Hub unreachable / timeout` — mandando a revisar la red cuando lo que faltaba era la identidad.
+
+- **Los cuatro artefactos viajan vendorizados** en `.claude-bundle/` (`hub-channel.mjs`,
+  `ack-task-session-init.mjs`, `ack-task-enforcer.mjs`, `executable-verification-hub-mutation.mjs`
+  y el comando `commands/ack-task.md`), con entrada en `vendor/MANIFEST.json`: `sourceRepo`,
+  `sourcePath`, `sourceSha` y `packageSha256`. `check-vendor-drift.sh` los cubre desde el día uno,
+  así que su deriva contra el repo de origen la detecta un verificador y no una auditoría a mano.
+- **`setup.sh` los instala con `install_force`** — el allowlist es por archivo y una omisión ahí es
+  un fallo mudo y permanente (TKT-0232) — y puebla `~/.claude/commands/`, que hasta ahora no
+  poblaba nadie.
+- **Copiar no es activar**: `setup.sh --room-only` escribe las entradas de `SessionStart` y
+  `PreToolUse` en el `.claude/settings.json` del room, con merge idempotente que preserva lo que el
+  dev tenga. Va al settings del **room** y no al de la máquina porque el enforcer no mira el cwd:
+  registrado global gatearía toda sesión de Claude Code de esa computadora, incluidos proyectos que
+  no son de Integra, y es fail-CLOSED.
+- **`fastest-levenshtein` entra al vendor de los hooks.** La importa el verificador de claims y sin
+  ella su import falla en la RESOLUCIÓN, o sea antes de cualquier catch y sin mensaje.
+- **El arranque bloquea si los hooks de la máquina quedaron atrás de la carpeta.**
+  `specoe-license-check.mjs` compara lo instalado contra el `packageSha256` del MANIFEST del room y
+  corta nombrando `./specoe-setup-host.sh`. Respeta la misma vía de escape que el bloqueo por
+  licencia (`SPECOE_ALLOW_DEGRADED_START`) y sólo mira en carpetas que son un room. **Alcance
+  honesto**: no llega a las máquinas con un bundle anterior a este release — ahí corre el
+  `license-check` viejo, que no tiene el chequeo. Protege de la deriva de acá en adelante.
+- El `.gitattributes` cubre `commands/**` con `eol=lf` y el `.prettierignore` excluye los cuatro
+  artefactos: sin eso, el checkout en Windows o un `prettier --write` les cambian los bytes y el
+  `packageSha256` deja de coincidir **en el clon del cliente**, donde ninguna verificación de
+  contenido puede cazarlo.
+
 ## 0.2.21 — 2026-08-11 (TKT-0320 — el hook de arranque deja de exigir act-as en modo USER)
 
 **Toda sesión de room del thin-client arrancaba con una alarma falsa.** `specoe-role-check.mjs`

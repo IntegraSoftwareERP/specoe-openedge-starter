@@ -34,6 +34,16 @@
 .claude-bundle/hooks/vendor/** text eol=lf
 .claude-bundle/hooks/vendor/**/*.node -text
 
+# TKT-0321 — los artefactos del Hub vendorizados en el bundle. Su sha256 esta declarado en
+# vendor/MANIFEST.json y calculado sobre los bytes con LF. Los .mjs ya los cubre la regla de
+# extension de arriba; `commands/ack-task.md` NO estaba cubierto por ninguna: con
+# core.autocrlf=true (default de Git for Windows) el checkout lo convierte a CRLF y su hash deja
+# de coincidir con el declarado EN EL CLON DEL CLIENTE, no en el nuestro. El CI corre en ubuntu,
+# donde el checkout es LF igual, asi que ninguna verificacion de CONTENIDO puede cazar esto: lo
+# unico que lo previene es la regla. Se declara por DIRECTORIO y no por extension por la misma
+# razon que el vendor de TKT-0314 — un archivo nuevo ahi adentro queda cubierto solo.
+.claude-bundle/commands/** text eol=lf
+
 # PowerShell es nativo de Windows: CRLF.
 *.ps1 text eol=crlf
 

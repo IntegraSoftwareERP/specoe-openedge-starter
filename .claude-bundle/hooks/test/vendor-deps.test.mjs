@@ -43,9 +43,22 @@ const VENDOR_DEPS = path.join(HOOKS_DIR, 'vendor-deps.mjs');
 // mide igual. En Windows y macOS corre completo.
 const KEYRING_ROUNDTRIP_DISPONIBLE = process.platform === 'win32' || process.platform === 'darwin';
 
-test('las tres dependencias resuelven por el vendor del bundle, no por node_modules', async () => {
+// TKT-0321 — la cuenta esperada sale de `dependencies` del package.json del bundle y no de un
+// numero escrito a mano. Ese numero era 3 y la dep nueva (fastest-levenshtein) lo puso rojo por
+// la CUENTA, o sea por el lugar donde no estaba el defecto. Derivarlo mantiene vivo lo que el
+// caso mide de verdad —que el probe cubra TODAS las dependencias declaradas— sin pedir que
+// alguien se acuerde de sumar uno.
+const DEPS_DECLARADAS = Object.keys(
+  JSON.parse(fs.readFileSync(path.join(HOOKS_DIR, 'package.json'), 'utf8')).dependencies ?? {},
+);
+
+test('todas las dependencias declaradas resuelven por el vendor del bundle, no por node_modules', async () => {
   const results = await checkDeps();
-  assert.equal(results.length, 3);
+  assert.deepEqual(
+    results.map((r) => r.name).sort(),
+    [...DEPS_DECLARADAS].sort(),
+    'el probe y package.json declaran dependencias distintas: una dep sin probe se instala sin verificarse',
+  );
   for (const r of results) {
     assert.equal(r.ok, true, `${r.name} no resuelve por ningun camino: ${r.error}`);
     assert.equal(
@@ -99,7 +112,11 @@ test(
 test('CLI --check: sale 0 y reporta una linea por dependencia', async () => {
   const { stdout } = await execFileAsync(process.execPath, [VENDOR_DEPS, '--check']);
   const lineas = stdout.trim().split(/\r?\n/);
-  assert.equal(lineas.length, 3, `se esperaban 3 lineas, salieron ${lineas.length}: ${stdout}`);
+  assert.equal(
+    lineas.length,
+    DEPS_DECLARADAS.length,
+    `se esperaba una linea por dependencia declarada (${DEPS_DECLARADAS.length}), salieron ${lineas.length}: ${stdout}`,
+  );
   for (const linea of lineas) {
     assert.match(linea, / vendor$/, `linea sin resolver por vendor: ${linea}`);
   }

@@ -12,9 +12,11 @@
     "test": "node --test"
   },
   "_dependencies_comment": "TKT-0314 — esta lista es EXACTAMENTE lo que los hooks importan, y esta vendorizada en vendor/ (ver vendor/MANIFEST.json). El instalador ya no corre npm install en la maquina del cliente mientras el vendor cubra la plataforma. Se sacaron dos deps que NINGUN hook importaba: `undici` (quedo de cuando el canal TLS se armaba con un dispatcher global, sacado al medir que el fetch de Node 26 lo ignora) y `eventsource` (entra igual como dependencia del SDK del MCP). Agregar una dep aca sin correr scripts/build-hooks-vendor.mjs pone rojo el CI: test-hooks-vendor.sh compara esta lista contra el manifiesto del vendor.",
+  "_fastest_levenshtein_comment": "TKT-0321 — la importa executable-verification-hub-mutation.mjs, el hook que verifica los claims de las mutaciones al Hub. Entra al bundle junto con ese hook: hasta ahora el hook viajaba por el canal manual de integra-hub y su dependencia la resolvia `npm --prefix ~/.claude install fastest-levenshtein` a mano. Sin vendorizarla, el import del hook falla en la RESOLUCION en la maquina del cliente.",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
     "@napi-rs/keyring": "^1.1.7",
+    "fastest-levenshtein": "^1.0.16",
     "node-machine-id": "^1.1.12"
   }
 }

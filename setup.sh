@@ -354,6 +354,31 @@ else
   # specoe-license-check.mjs y specoe-room-bootstrap.mjs: si NO llega al host, esos cuatro
   # fallan en la RESOLUCION del import, o sea antes de su propio catch y sin mensaje.
   install_force "$BUNDLE_DIR/hooks/vendor-deps.mjs"               "$CLAUDE_HOME/hooks/vendor-deps.mjs"
+  # ----- TKT-0321: los hooks del Hub -----
+  #
+  # Estos cuatro archivos son de `integra-hub` y viajan vendorizados (vendor/MANIFEST.json los
+  # declara con su sourceSha). Hasta TKT-0321 se instalaban a mano, con `cp`, y SOLO en maquinas
+  # que tuvieran ese repo clonado. El dev de un tenant no lo clona: consume el Hub por el MCP
+  # vendorizado, asi que en su maquina NO habia ninguno de los tres — medido el 2026-08-11, cero
+  # archivos y cero entradas en su settings.json. O sea que el gate de ack-task y el verificador
+  # de claims, para el, no existian.
+  #
+  # El orden de estas cuatro lineas no importa (son copias), pero la PRESENCIA de cada una si:
+  # el allowlist es POR ARCHIVO y un modulo que no este aca no llega, con el import fallando en
+  # la RESOLUCION — antes del catch del hook, o sea sin mensaje y en cada arranque (TKT-0232).
+  #
+  # `hub-channel.mjs` va PRIMERO en la lista a proposito de lectura: es la dependencia de los
+  # otros dos y la que decide con que identidad se habla al Hub.
+  install_force "$BUNDLE_DIR/hooks/hub-channel.mjs"               "$CLAUDE_HOME/hooks/hub-channel.mjs"
+  install_force "$BUNDLE_DIR/hooks/ack-task-session-init.mjs"     "$CLAUDE_HOME/hooks/ack-task-session-init.mjs"
+  install_force "$BUNDLE_DIR/hooks/ack-task-enforcer.mjs"         "$CLAUDE_HOME/hooks/ack-task-enforcer.mjs"
+  install_force "$BUNDLE_DIR/hooks/executable-verification-hub-mutation.mjs" "$CLAUDE_HOME/hooks/executable-verification-hub-mutation.mjs"
+
+  # El slash command del gate. Sin el, el enforcer bloquea y el dev no tiene con que destrabarse:
+  # el mensaje del bloqueo dice "corre /ack-task" y ese comando no existiria en su Claude Code.
+  # `~/.claude/commands/` no lo poblaba nadie hasta ahora — de ahi el mkdir.
+  mkdir -p "$CLAUDE_HOME/commands"
+  install_force "$BUNDLE_DIR/commands/ack-task.md"                "$CLAUDE_HOME/commands/ack-task.md"
   install_force "$BUNDLE_DIR/scripts/provision-secrets.mjs"       "$CLAUDE_HOME/scripts/provision-secrets.mjs"
   install_force "$BUNDLE_DIR/scripts/sdd-login.mjs"               "$CLAUDE_HOME/scripts/sdd-login.mjs"
   # SPEC-0187 P5: el CLI del canal de identidad. Es la interfaz que consumen los procesos de
@@ -897,6 +922,124 @@ if (existing !== null && existing.trim() !== '') {
 doc['integraHub.baseUrl'] = hubUrl;
 fs.writeFileSync(FILE, JSON.stringify(doc, null, 2) + '\n');
 console.log(`  [WRITE]   integraHub.baseUrl = ${hubUrl}`);
+EOF
+
+# ----- 5.8. Activar los hooks del Hub en el settings del room (TKT-0321) -----
+#
+# COPIAR NO ES ACTIVAR. El bloque de MAQUINA de mas arriba deja los cuatro hooks del Hub en
+# ~/.claude/hooks/, pero un hook que no esta registrado en un settings.json no corre nunca. El
+# `ls` los muestra instalados y el gate no existe: es el modo de falla con mas riesgo de pasar
+# por bueno, y esta medido en la maquina del Staff, donde ack-task-enforcer.mjs esta en disco y
+# NO figura en el settings.
+#
+# POR QUE EN EL SETTINGS DEL ROOM Y NO EN EL DEL HOST: el enforcer no mira el cwd — solo el
+# tool_name y el session_id. Registrado a nivel maquina gatearia TODA sesion de Claude Code de
+# esa computadora, incluidos los proyectos que no son de Integra, y es fail-CLOSED. El settings
+# del room acota el gate a los rooms, que es exactamente su alcance.
+#
+# POR QUE ADEMAS DE VENIR EN EL ARCHIVO VERSIONADO: el .claude/settings.json del starter cubre
+# los rooms NUEVOS. Este merge cubre los que YA existen — el dev re-corre specoe-add-room.sh (que
+# hace el pull y llama a este mismo --room-only) y las entradas aparecen. Si el archivo divergio,
+# el pull --ff-only corta y el archivo versionado no llegaria: el merge es lo que hace que la
+# activacion no dependa de que el clon quede limpio.
+#
+# MERGE, NO REESCRITURA, y por identidad del ARCHIVO del hook: si ya hay una entrada que nombra
+# al hook, no se toca (el dev puede haberle cambiado el timeout). Solo se agregan las que faltan.
+log "Activando los hooks del Hub en .claude/settings.json..."
+mkdir -p .claude
+
+"$NODE_BIN" - <<'EOF'
+const fs = require('fs');
+const FILE = '.claude/settings.json';
+
+// Las tres activaciones. `match` es la subcadena que identifica al hook dentro del `command`:
+// alcanza el nombre del archivo y no hay dos hooks con el mismo.
+const ENTRIES = [
+  {
+    event: 'SessionStart',
+    matcher: null,
+    match: 'ack-task-session-init.mjs',
+    hook: { type: 'command', command: 'node $HOME/.claude/hooks/ack-task-session-init.mjs', timeout: 5, shell: 'bash' },
+  },
+  {
+    event: 'PreToolUse',
+    // IC-08: lista exacta, NO regex libre. El propio hook la re-chequea como cinturon.
+    matcher: 'Edit|Write|Bash|NotebookEdit',
+    match: 'ack-task-enforcer.mjs',
+    hook: { type: 'command', command: 'node $HOME/.claude/hooks/ack-task-enforcer.mjs', timeout: 5, shell: 'bash' },
+  },
+];
+
+// El verificador de claims va por tool del MCP: una entrada por mutacion del Hub que admite
+// tokens de verificacion. Es la misma lista que corre hoy en las maquinas del equipo.
+for (const tool of [
+  'spec_comment',
+  'spec_log_decision',
+  'spec_log_bugfix',
+  'spec_create',
+  'spec_update_phase',
+  'decision_create',
+]) {
+  ENTRIES.push({
+    event: 'PreToolUse',
+    matcher: `mcp__integra-hub__${tool}`,
+    match: 'executable-verification-hub-mutation.mjs',
+    hook: { type: 'command', command: 'node $HOME/.claude/hooks/executable-verification-hub-mutation.mjs', timeout: 15, shell: 'bash' },
+  });
+}
+
+let doc = {};
+let existing = null;
+try {
+  existing = fs.readFileSync(FILE, 'utf8');
+} catch {
+  /* no existe: se crea de cero */
+}
+if (existing !== null && existing.trim() !== '') {
+  try {
+    const parsed = JSON.parse(existing);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('el contenido no es un objeto JSON');
+    doc = parsed;
+  } catch (e) {
+    // Mismo criterio que el settings de VSCode: antes que pisar configuracion ajena, no tocar y
+    // decirlo. Pero aca lo que queda sin activar es un GATE, asi que el mensaje lo nombra.
+    console.error(`  [SKIP]    .claude/settings.json existe y no pude leerlo como JSON (${e.message}).`);
+    console.error('            NO lo toco para no perderte configuracion — pero OJO: sin las entradas de PreToolUse');
+    console.error('            los hooks del Hub estan copiados y NO corren. Arreglale el JSON al archivo y volve a');
+    console.error('            correr el mismo comando, o copiale las entradas del .claude/settings.json del starter.');
+    process.exit(0);
+  }
+}
+
+doc.hooks = doc.hooks && typeof doc.hooks === 'object' && !Array.isArray(doc.hooks) ? doc.hooks : {};
+
+let agregadas = 0;
+for (const entry of ENTRIES) {
+  const grupos = Array.isArray(doc.hooks[entry.event]) ? doc.hooks[entry.event] : [];
+  doc.hooks[entry.event] = grupos;
+
+  const yaEsta = grupos.some(
+    (g) =>
+      (g?.matcher ?? null) === entry.matcher &&
+      Array.isArray(g?.hooks) &&
+      g.hooks.some((h) => typeof h?.command === 'string' && h.command.includes(entry.match)),
+  );
+  if (yaEsta) continue;
+
+  // Se agrega un grupo propio en vez de meter el hook en uno existente: los grupos se
+  // distinguen por `matcher`, y meter un hook con otro matcher adentro de un grupo ajeno le
+  // cambiaria el disparo a los dos.
+  const grupo = entry.matcher === null ? { hooks: [entry.hook] } : { matcher: entry.matcher, hooks: [entry.hook] };
+  grupos.push(grupo);
+  agregadas += 1;
+}
+
+if (agregadas === 0) {
+  console.log('  [OK]      los hooks del Hub ya estaban activados');
+} else {
+  fs.writeFileSync(FILE, JSON.stringify(doc, null, 2) + '\n');
+  console.log(`  [WRITE]   ${agregadas} entrada(s) de hook agregada(s) a .claude/settings.json`);
+}
 EOF
 
 fi # cierra: if DO_ROOM (parte de carpeta — config + .mcp.json + settings de workspace)

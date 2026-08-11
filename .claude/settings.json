@@ -22,6 +22,95 @@
             "shell": "bash"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node $HOME/.claude/hooks/ack-task-session-init.mjs",
+            "timeout": 5,
+            "shell": "bash"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|Bash|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node $HOME/.claude/hooks/ack-task-enforcer.mjs",
+            "timeout": 5,
+            "shell": "bash"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__integra-hub__spec_comment",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node $HOME/.claude/hooks/executable-verification-hub-mutation.mjs",
+            "timeout": 15,
+            "shell": "bash"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__integra-hub__spec_log_decision",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node $HOME/.claude/hooks/executable-verification-hub-mutation.mjs",
+            "timeout": 15,
+            "shell": "bash"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__integra-hub__spec_log_bugfix",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node $HOME/.claude/hooks/executable-verification-hub-mutation.mjs",
+            "timeout": 15,
+            "shell": "bash"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__integra-hub__spec_create",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node $HOME/.claude/hooks/executable-verification-hub-mutation.mjs",
+            "timeout": 15,
+            "shell": "bash"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__integra-hub__spec_update_phase",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node $HOME/.claude/hooks/executable-verification-hub-mutation.mjs",
+            "timeout": 15,
+            "shell": "bash"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__integra-hub__decision_create",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node $HOME/.claude/hooks/executable-verification-hub-mutation.mjs",
+            "timeout": 15,
+            "shell": "bash"
+          }
+        ]
       }
     ]
   },

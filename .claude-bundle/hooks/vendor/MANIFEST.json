@@ -5,6 +5,7 @@
   "packages": {
     "@modelcontextprotocol/sdk": "1.29.0",
     "@napi-rs/keyring": "1.2.0",
+    "fastest-levenshtein": "1.0.16",
     "node-machine-id": "1.1.12"
   },
   "keyringPlatforms": [
@@ -15,6 +16,7 @@
     "linux-x64-gnu"
   ],
   "files": {
+    "fastest-levenshtein.mjs": "79d94e9103f92840971ed3e7208c6ae09161ad045ff5b92f9015ab43fd991198",
     "keyring/LICENSE": "02965ed67e29f871a53f7a7afa593a0ddc8020f86ccce0faaf1aa59215b5269e",
     "keyring/index.d.ts": "304d3cfd843046e095374e0eb3f7bfb682a434061156bbf4131273786a052717",
     "keyring/index.js": "165499f474025db4434eadc3942306906a7fa1b924942d83873daffaf16376ae",
