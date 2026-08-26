@@ -415,6 +415,22 @@ else
     rm -rf "$CLAUDE_HOME/hooks/vendor"
     cp -R "$BUNDLE_DIR/hooks/vendor" "$CLAUDE_HOME/hooks/vendor"
     log "  [FORCE]   $CLAUDE_HOME/hooks/vendor (dependencias vendorizadas)"
+
+    # TKT-0335 — @napi-rs/keyring es el UNICO paquete vendorizado que un consumidor puede pedir
+    # por `require()` PELADO en vez de por el loader de vendor-deps.mjs: specoe-add-room.sh
+    # (specoe_keyring_read/write) hace `require('@napi-rs/keyring')` desde $CLAUDE_HOME/hooks
+    # porque es Bash y no puede importar un modulo ESM con path relativo. Ese require() resuelve
+    # por Node module resolution — sube directorios desde el cwd buscando
+    # node_modules/@napi-rs/keyring — y sin este paso nunca lo encuentra, aunque vendor/keyring/
+    # este completo y su hash sea correcto: el check de vendor-deps.mjs de mas abajo prueba el
+    # import() POR PATH (el camino que usan los hooks .mjs), no el require() pelado, asi que
+    # reportaba "OK" sobre una instalacion que specoe-add-room.sh no podia usar.
+    # Corre SIEMPRE, no solo cuando `uname` da Linux: el gap es de Node module resolution, no de
+    # plataforma — cualquiera de las 5 de vendor/MANIFEST.json lo pisa igual sin este mapeo.
+    rm -rf "$CLAUDE_HOME/hooks/node_modules/@napi-rs/keyring"
+    mkdir -p "$CLAUDE_HOME/hooks/node_modules/@napi-rs"
+    cp -R "$CLAUDE_HOME/hooks/vendor/keyring" "$CLAUDE_HOME/hooks/node_modules/@napi-rs/keyring"
+    log "  [FORCE]   $CLAUDE_HOME/hooks/node_modules/@napi-rs/keyring (mapeo para require() pelado)"
   else
     warn "  [MISSING] $BUNDLE_DIR/hooks/vendor — bundle sin dependencias vendorizadas; queda el npm install de fallback"
   fi
@@ -452,6 +468,25 @@ else
     DEPS_REPORT="$("$DEPS_NODE_BIN" "$CLAUDE_HOME/hooks/vendor-deps.mjs" --check 2>&1)"
     DEPS_STATUS=$?
     set -e
+  fi
+
+  # TKT-0335 — el probe de arriba (vendor-deps.mjs --check) mide el camino de import() POR PATH
+  # que usan los hooks .mjs; NO mide el require() PELADO que usa specoe-add-room.sh (Bash, no
+  # puede importar vendor-deps.mjs). Sin este segundo probe el check reportaba "OK" sobre una
+  # instalacion donde specoe-add-room.sh seguia rompiendo con 'Cannot find module
+  # @napi-rs/keyring': son dos mecanismos de resolucion de Node distintos y el gate terminal
+  # tiene que cubrir los dos, no solo el que los hooks .mjs usan.
+  set +e
+  KEYRING_REQUIRE_REPORT="$(cd "$CLAUDE_HOME/hooks" && "$DEPS_NODE_BIN" -e "require('@napi-rs/keyring').Entry" 2>&1)"
+  KEYRING_REQUIRE_STATUS=$?
+  set -e
+  if [ "$KEYRING_REQUIRE_STATUS" -eq 0 ]; then
+    DEPS_REPORT="$DEPS_REPORT
+@napi-rs/keyring (require pelado, specoe-add-room.sh) node_modules"
+  else
+    DEPS_STATUS=1
+    DEPS_REPORT="$DEPS_REPORT
+@napi-rs/keyring (require pelado, specoe-add-room.sh) FALTA — $KEYRING_REQUIRE_REPORT"
   fi
 
   if [ "$DEPS_STATUS" -ne 0 ]; then

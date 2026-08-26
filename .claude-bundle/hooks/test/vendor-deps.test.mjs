@@ -251,6 +251,57 @@ test('.gitattributes fija el fin de linea de TODO el vendor (o lo marca binario)
   }
 });
 
+// TKT-0335 — specoe-add-room.sh (specoe_keyring_read/write) es Bash y no puede importar
+// vendor-deps.mjs: pide el keyring por `require('@napi-rs/keyring')` PELADO desde
+// $CLAUDE_HOME/hooks. Ese es un mecanismo de resolucion de Node DISTINTO al import() por path
+// que checkDeps() ejerce arriba — resuelve subiendo directorios desde el cwd hasta encontrar
+// node_modules/@napi-rs/keyring. El check del instalador (vendor-deps.mjs --check) reportaba
+// "OK" mientras ese segundo camino seguia roto: setup.sh copiaba vendor/ pero nunca armaba ese
+// node_modules. Las dos pruebas siguientes verifican el mapeo que setup.sh arma ahora (copia de
+// vendor/keyring/ a node_modules/@napi-rs/keyring) y que, sin el, el require() pelado es
+// falsable (control negativo).
+
+test('el require() PELADO que usa specoe-add-room.sh resuelve si node_modules/@napi-rs/keyring existe (mapeo que arma setup.sh)', async () => {
+  const tmp = await fsp.mkdtemp(path.join(os.tmpdir(), 'tkt0335-require-pelado-'));
+  try {
+    const scopeDir = path.join(tmp, 'node_modules', '@napi-rs', 'keyring');
+    await fsp.mkdir(path.dirname(scopeDir), { recursive: true });
+    await fsp.cp(path.join(VENDOR_DIR, 'keyring'), scopeDir, { recursive: true });
+
+    const { stdout } = await execFileAsync(
+      process.execPath,
+      ['-e', "process.stdout.write(typeof require('@napi-rs/keyring').Entry)"],
+      { cwd: tmp },
+    );
+    assert.equal(
+      stdout.trim(),
+      'function',
+      'require("@napi-rs/keyring") pelado no resolvio Entry con node_modules armado como lo arma setup.sh',
+    );
+  } finally {
+    await fsp.rm(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  }
+});
+
+test('CONTROL NEGATIVO — sin node_modules/@napi-rs/keyring, el require() pelado falla', async () => {
+  const tmp = await fsp.mkdtemp(path.join(os.tmpdir(), 'tkt0335-require-pelado-sin-mapeo-'));
+  try {
+    const fallo = await execFileAsync(process.execPath, ['-e', "require('@napi-rs/keyring')"], {
+      cwd: tmp,
+    }).then(
+      () => null,
+      (err) => err,
+    );
+    assert.ok(
+      fallo,
+      'el require() pelado resolvio sin node_modules/@napi-rs/keyring: el gap de TKT-0335 no seria falsable',
+    );
+    assert.match(fallo.stderr ?? '', /Cannot find module/);
+  } finally {
+    await fsp.rm(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  }
+});
+
 test('el vendor trae un .node por cada plataforma que el manifiesto declara cubrir', async () => {
   const manifest = JSON.parse(await fsp.readFile(path.join(VENDOR_DIR, 'MANIFEST.json'), 'utf8'));
   assert.ok(
