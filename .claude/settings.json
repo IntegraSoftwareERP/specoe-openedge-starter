@@ -47,6 +47,23 @@
         ]
       },
       {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node $HOME/.claude/hooks/block-destructive-outside-worktree.mjs",
+            "timeout": 5,
+            "shell": "bash"
+          },
+          {
+            "type": "command",
+            "command": "node $HOME/.claude/hooks/block-no-verify.mjs",
+            "timeout": 5,
+            "shell": "bash"
+          }
+        ]
+      },
+      {
         "matcher": "mcp__integra-hub__spec_comment",
         "hooks": [
           {

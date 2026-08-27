@@ -2,6 +2,38 @@
 
 All notable changes to this project. Automatic — regenerado por `./scripts/changelog.sh`.
 
+## 0.2.23 — 2026-08-12 (TKT-0325 / TKT-0327 — los dos hooks de disciplina de git también viajan)
+
+**Las dos reglas que gobiernan cómo se toca un repo estaban escritas y sin diente en la máquina de
+cualquiera que no fuera el Operador.** TKT-0321 cerró ese agujero para los tres hooks del gate de
+ack-task y el verificador de claims; quedaban afuera los dos que gatean el `git` de todos los días,
+por el mismo motivo: viven en `integra-hub/hooks/`, los instala el `install.mjs` de ese repo, y el
+dev de un tenant no lo clona.
+
+- **`block-destructive-outside-worktree.mjs`** — aborta los destructivos (`rm -r`, `git clean`)
+  cuyo **path resuelto** cae fuera del worktree, y el `git stash` mutador desde un worktree linked.
+  Existía desde TKT-0120 y corría **únicamente en la máquina del Operador**: ningún dev de un
+  tenant lo tuvo nunca, con el `.git` común compartido entre worktrees y el junction de
+  `node_modules` como trampa.
+- **`block-no-verify.mjs`** — aborta `--no-verify`, el `-n` de `git commit` y la manipulación de
+  `core.hooksPath`. Ojo con lo que hace y lo que **no**: `integra-hub` no tiene ningún hook de git,
+  así que saltearlos no saltea ninguna verificación. Lo que evita es el **trail falso** — que
+  alguien declare después que _"lo rehice dejando correr los hooks"_, indistinguible de la verdad
+  porque git calla en los dos casos.
+
+**El de destructivos se vendoriza recién ahora, y no antes, a propósito.** Al traerlo al repo
+(TKT-0325) y escribirle su primera suite aparecieron dos defectos suyos, uno **fail-OPEN**: un path
+nativo de Windows entrecomillado no se bloqueaba, porque su tokenizer trataba el backslash como
+escape dentro de comillas dobles y bash no. **TKT-0327 lo cerró.** Repartirlo antes habría
+distribuido el hueco junto con el freno.
+
+Los dos entran con entrada en `vendor/MANIFEST.json` —`sourceRepo`, `sourcePath`, `sourceSha`,
+`packageSha256`—, con lo cual `check-vendor-drift.sh` y el chequeo de deriva del arranque los
+cubren desde el día uno. `setup.sh` los copia con `install_force` y escribe sus entradas
+`PreToolUse`/`Bash` en el `.claude/settings.json` del **room**, no en el de la máquina: los dos
+miran el comando y no el cwd, así que registrados a nivel global gatearían toda sesión de Claude
+Code de esa computadora, incluidos proyectos que no son de Integra.
+
 ## 0.2.22 — 2026-08-11 (TKT-0321 — los hooks del Hub llegan por el canal del starter)
 
 **Los tres hooks que gatean las escrituras al Hub no llegaban a la máquina de un dev de un

@@ -81,6 +81,28 @@
       "note": "TKT-0321 — hook PreToolUse que verifica los claims de las mutaciones al Hub. Es el unico de los cuatro cuyo sourcePath NO esta en .claude-bundle/: en integra-hub vive en hooks/, con su propia suite y su propio instalador. La union de los dos canales de ese repo no entra en este ticket; lo que si entra es que el artefacto llegue."
     },
     {
+      "name": "block-no-verify",
+      "file": "block-no-verify.mjs",
+      "basePath": ".claude-bundle/hooks",
+      "artifactKind": "file",
+      "sourceRepo": "IntegraSoftwareERP/integra-hub",
+      "sourcePath": "hooks/block-no-verify.mjs",
+      "sourceSha": "88bfc9ec37e8670e9b6c949f1d05a1ec6886b7a4",
+      "packageSha256": "c4bf72c0c7f0b16664932e25d57190aea08cef25440345fb0f3c5c5955245ea5",
+      "note": "TKT-0325 — hook PreToolUse que aborta --no-verify y la manipulacion de core.hooksPath. OJO con lo que hace y lo que NO: integra-hub no tiene ningun hook de git, asi que saltearlos no saltea ninguna verificacion. Lo que evita es el trail falso — que alguien declare despues que 'lo rehizo dejando correr los hooks', que es indistinguible de la verdad porque git calla en los dos casos."
+    },
+    {
+      "name": "block-destructive-outside-worktree",
+      "file": "block-destructive-outside-worktree.mjs",
+      "basePath": ".claude-bundle/hooks",
+      "artifactKind": "file",
+      "sourceRepo": "IntegraSoftwareERP/integra-hub",
+      "sourcePath": "hooks/block-destructive-outside-worktree.mjs",
+      "sourceSha": "88bfc9ec37e8670e9b6c949f1d05a1ec6886b7a4",
+      "packageSha256": "25f901fe6436db67b78824ff560e7cdd6c470595d10f8cd5be71f038f16b1a36",
+      "note": "TKT-0120 el hook, TKT-0325 su versionado, TKT-0327 su arreglo — y recien acá su distribucion. Aborta los destructivos cuyo path RESUELTO escapa del worktree y el git stash mutador desde un worktree linked. Vivia desde TKT-0120 unicamente en la maquina del Operador: ningun dev del tenant lo tuvo nunca. Se vendoriza DESPUES de TKT-0327 a proposito — antes de ese arreglo tenia un fail-OPEN en Windows y mandarlo asi habria repartido el hueco."
+    },
+    {
       "name": "ack-task-command",
       "file": "ack-task.md",
       "basePath": ".claude-bundle/commands",

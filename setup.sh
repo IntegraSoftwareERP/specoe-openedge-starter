@@ -373,6 +373,17 @@ else
   install_force "$BUNDLE_DIR/hooks/ack-task-session-init.mjs"     "$CLAUDE_HOME/hooks/ack-task-session-init.mjs"
   install_force "$BUNDLE_DIR/hooks/ack-task-enforcer.mjs"         "$CLAUDE_HOME/hooks/ack-task-enforcer.mjs"
   install_force "$BUNDLE_DIR/hooks/executable-verification-hub-mutation.mjs" "$CLAUDE_HOME/hooks/executable-verification-hub-mutation.mjs"
+  # ----- TKT-0325 / TKT-0327: los dos hooks de disciplina de git -----
+  #
+  # Mismo agujero que arriba, un ticket despues: los dos vivian SOLO en la maquina del Operador,
+  # que es la unica que clona integra-hub y corre su `hooks/install.mjs`. Para todo el resto la
+  # regla que cada uno hace cumplir estaba escrita y sin diente.
+  #
+  # `block-destructive-outside-worktree.mjs` se vendoriza DESPUES de TKT-0327 a proposito: hasta
+  # ese arreglo tenia un fail-OPEN en Windows (un path nativo entrecomillado no se bloqueaba) y
+  # repartirlo antes habria distribuido el hueco junto con el freno.
+  install_force "$BUNDLE_DIR/hooks/block-destructive-outside-worktree.mjs" "$CLAUDE_HOME/hooks/block-destructive-outside-worktree.mjs"
+  install_force "$BUNDLE_DIR/hooks/block-no-verify.mjs"           "$CLAUDE_HOME/hooks/block-no-verify.mjs"
 
   # El slash command del gate. Sin el, el enforcer bloquea y el dev no tiene con que destrabarse:
   # el mensaje del bloqueo dice "corre /ack-task" y ese comando no existiria en su Claude Code.
@@ -1002,6 +1013,22 @@ const ENTRIES = [
     matcher: 'Edit|Write|Bash|NotebookEdit',
     match: 'ack-task-enforcer.mjs',
     hook: { type: 'command', command: 'node $HOME/.claude/hooks/ack-task-enforcer.mjs', timeout: 5, shell: 'bash' },
+  },
+  // TKT-0325 / TKT-0327 — los dos de disciplina de git, matcher Bash. Van en el settings del
+  // ROOM por el mismo motivo que el enforcer: miran el comando, no el cwd. A nivel maquina
+  // gatearian TODA sesion de Claude Code de esa computadora, incluidos proyectos que no son de
+  // Integra — y las dos reglas que hacen cumplir son de los repos de Integra, no del universo.
+  {
+    event: 'PreToolUse',
+    matcher: 'Bash',
+    match: 'block-destructive-outside-worktree.mjs',
+    hook: { type: 'command', command: 'node $HOME/.claude/hooks/block-destructive-outside-worktree.mjs', timeout: 5, shell: 'bash' },
+  },
+  {
+    event: 'PreToolUse',
+    matcher: 'Bash',
+    match: 'block-no-verify.mjs',
+    hook: { type: 'command', command: 'node $HOME/.claude/hooks/block-no-verify.mjs', timeout: 5, shell: 'bash' },
   },
 ];
 
