@@ -385,6 +385,13 @@ else
   install_force "$BUNDLE_DIR/hooks/block-destructive-outside-worktree.mjs" "$CLAUDE_HOME/hooks/block-destructive-outside-worktree.mjs"
   install_force "$BUNDLE_DIR/hooks/block-no-verify.mjs"           "$CLAUDE_HOME/hooks/block-no-verify.mjs"
 
+  # TKT-0362 — el auditor de los tres de arriba. Un hook puede no correr por tres motivos que
+  # desde adentro de una sesion se ven identicos: no pasa nada. Este los distingue al arrancar.
+  # Lee DOS manifiestos porque hay dos canales: el `integra-hooks-manifest.json` que escribe el
+  # install.mjs de integra-hub (la maquina del Operador) y el `vendor/MANIFEST.json` de ACA, que
+  # es el unico que tiene el dev de un tenant -- no clona integra-hub y nunca corre aquel script.
+  install_force "$BUNDLE_DIR/hooks/hooks-audit.mjs"               "$CLAUDE_HOME/hooks/hooks-audit.mjs"
+
   # El slash command del gate. Sin el, el enforcer bloquea y el dev no tiene con que destrabarse:
   # el mensaje del bloqueo dice "corre /ack-task" y ese comando no existiria en su Claude Code.
   # `~/.claude/commands/` no lo poblaba nadie hasta ahora — de ahi el mkdir.
@@ -1029,6 +1036,15 @@ const ENTRIES = [
     matcher: 'Bash',
     match: 'block-no-verify.mjs',
     hook: { type: 'command', command: 'node $HOME/.claude/hooks/block-no-verify.mjs', timeout: 5, shell: 'bash' },
+  },
+  // TKT-0362 — el auditor de los tres de arriba. `SessionStart` y SIN matcher: ese evento no
+  // acepta ninguno (verificado contra los settings vivos, el global y el de este starter), y
+  // ponerle uno seria declarar un cableado que Claude Code no aplica.
+  {
+    event: 'SessionStart',
+    matcher: null,
+    match: 'hooks-audit.mjs',
+    hook: { type: 'command', command: 'node $HOME/.claude/hooks/hooks-audit.mjs', timeout: 5, shell: 'bash' },
   },
 ];
 

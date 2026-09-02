@@ -18,11 +18,11 @@
       "version": "0.1.2",
       "sourceRepo": "IntegraSoftwareERP/integra-hub",
       "sourcePath": "mcp-server",
-      "sourceSha": "9d627310c395e5352bff0085db61c4ff670663fe",
-      "packageSha256": "212a6b7bb28d2083c9410cf52301caee854604509fa680adf42873d70235b0d5",
+      "sourceSha": "f92cec59e5fc0ec3b0011e8bbf51fdc792adada0",
+      "packageSha256": "d600ef09ea6e43c48fd0c36b07b37db04df2359d8844e43942a294ba74f91add",
       "versionCommand": "node vendor/integra-hub-mcp.mjs --version",
-      "reproducibility": "esbuild sobre el mismo input produce el mismo output: VERIFICADO 2026-08-10 reconstruyendo el bundle desde 974c8b9 dos veces — las dos corridas dieron 78c37134..., byte a byte identicas. Por eso este componente NO necesita contentSha256: su packageSha256 ya identifica el contenido.",
-      "versionNote": "TKT-0306 — la version del paquete sigue siendo 0.1.2 y NO se bumpeo al re-vendorizar: mcp-server no la movio entre a4812ca y 974c8b9. O sea que `--version` devuelve lo mismo para el bundle viejo y el nuevo, y no sirve para distinguirlos desde la VM. Lo que los distingue es el sourceSha declarado aca y su packageSha256."
+      "reproducibility": "esbuild sobre el mismo input produce el mismo output: VERIFICADO 2026-08-10 reconstruyendo el bundle desde 974c8b9 dos veces, y RE-VERIFICADO 2026-09-02 desde f92cec5 — las dos corridas de cada fecha dieron el mismo sha byte a byte. Por eso este componente NO necesita contentSha256: su packageSha256 ya identifica el contenido.",
+      "versionNote": "TKT-0362 — la version del paquete sigue en 0.1.2 y NO se bumpeo al re-vendorizar: mcp-server no la movio entre 9d62731 y f92cec5, igual que en TKT-0306 y TKT-0321. `--version` devuelve 0.1.2 para el bundle viejo y el nuevo, asi que NO sirve para distinguirlos desde la VM. Lo que los distingue es el sourceSha declarado aca y su packageSha256."
     },
     {
       "name": "integra-hub-vscode",
@@ -101,6 +101,17 @@
       "sourceSha": "88bfc9ec37e8670e9b6c949f1d05a1ec6886b7a4",
       "packageSha256": "25f901fe6436db67b78824ff560e7cdd6c470595d10f8cd5be71f038f16b1a36",
       "note": "TKT-0120 el hook, TKT-0325 su versionado, TKT-0327 su arreglo — y recien acá su distribucion. Aborta los destructivos cuyo path RESUELTO escapa del worktree y el git stash mutador desde un worktree linked. Vivia desde TKT-0120 unicamente en la maquina del Operador: ningun dev del tenant lo tuvo nunca. Se vendoriza DESPUES de TKT-0327 a proposito — antes de ese arreglo tenia un fail-OPEN en Windows y mandarlo asi habria repartido el hueco."
+    },
+    {
+      "name": "hooks-audit",
+      "file": "hooks-audit.mjs",
+      "basePath": ".claude-bundle/hooks",
+      "artifactKind": "file",
+      "sourceRepo": "IntegraSoftwareERP/integra-hub",
+      "sourcePath": "hooks/hooks-audit.mjs",
+      "sourceSha": "f92cec59e5fc0ec3b0011e8bbf51fdc792adada0",
+      "packageSha256": "e27e7f74dd531e690b8bba7e105b2a8bbd140cae90ed1e2e4227ab1cb86db3c4",
+      "note": "TKT-0325 el auditor, TKT-0362 su llegada aca. Hook SessionStart: compara lo que DEBERIA estar corriendo contra lo que esta y reporta las tres formas de fantasma (no instalado / instalado pero viejo / instalado y sin cablear). Los tres se ven igual desde adentro de una sesion: no pasa nada. Lo que lo hace util de ESTE lado es que lee DOS manifiestos: el dev de un tenant no clona integra-hub, asi que nunca tiene integra-hooks-manifest.json -- el auditor lee tambien este archivo, filtrando por basePath. La version vendorizada es la del fix del canal (leia una clave inventada y devolvia cero hooks contra el manifiesto real)."
     },
     {
       "name": "ack-task-command",

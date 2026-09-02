@@ -33621,15 +33621,94 @@ function makeIhubGetTicketHandler(client) {
   };
 }
 
+// src/tools/ihub-create-ticket.ts
+var ihubCreateTicketSchema = {
+  subject: external_exports3.string().describe("Ticket subject/title"),
+  description: external_exports3.string().describe("Detailed description (markdown supported)"),
+  clientId: external_exports3.string().describe("Client ID"),
+  priority: external_exports3.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).optional().describe("Priority (default: MEDIUM)"),
+  category: external_exports3.string().optional().describe("Category (e.g. Bug, Feature, Soporte)"),
+  assigneeId: external_exports3.string().optional().describe("User ID to assign the ticket to"),
+  parentId: external_exports3.string().optional().describe("Parent ticket ID (creates a sub-ticket with number TKT-XXXX-N)"),
+  tags: external_exports3.array(external_exports3.string()).optional().describe("Tags for categorization"),
+  dueDate: external_exports3.string().optional().describe("Due date (ISO format)"),
+  workspaceId: external_exports3.string().optional().describe("workspace owner. REQUIRED in NEW Tickets post-F4 (operator correction cmokio7e6003zjzdbnwjhaldc)."),
+  projectId: external_exports3.string().optional().describe("project owner. REQUIRED in NEW Tickets post-F4."),
+  moduleId: external_exports3.string().optional().describe("module owner. REQUIRED in NEW Tickets post-F4."),
+  submoduleId: external_exports3.string().optional().describe("submodule owner. REQUIRED iff the chosen module has submodules defined."),
+  verification_tokens: verificationTokensField
+};
+var ParamsSchema8 = external_exports3.object(ihubCreateTicketSchema).strict();
+function makeIhubCreateTicketHandler(client) {
+  return async (params) => {
+    try {
+      const { verification_tokens, description, ...rest } = ParamsSchema8.parse(params);
+      const verificationTable = renderTokensToMarkdownTable(verification_tokens);
+      const ticket = await client.post("/tickets", {
+        ...rest,
+        // Byte-identico a lo que recibio la tool. Si alguien vuelve a envolver esta
+        // linea en prependTokensHeader, el test de spec-0201-p6 se pone rojo.
+        description,
+        ...verificationTable ? { verificationTable } : {}
+      });
+      return { content: [{ type: "text", text: JSON.stringify(ticket, null, 2) }] };
+    } catch (e) {
+      if (e instanceof external_exports3.ZodError) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: `Schema validation failed: ${formatZodError(e)}` }]
+        };
+      }
+      throw e;
+    }
+  };
+}
+
+// src/tools/spec-create-ticket.ts
+var specCreateTicketSchema = {
+  specId: external_exports3.string(),
+  phaseId: external_exports3.string(),
+  subject: external_exports3.string(),
+  description: external_exports3.string(),
+  priority: external_exports3.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).optional(),
+  assigneeId: external_exports3.string().optional(),
+  clientId: external_exports3.string().optional(),
+  verification_tokens: verificationTokensField
+};
+var ParamsSchema9 = external_exports3.object(specCreateTicketSchema).strict();
+function makeSpecCreateTicketHandler(client) {
+  return async (params) => {
+    try {
+      const { specId, phaseId, verification_tokens, description, ...rest } = ParamsSchema9.parse(params);
+      const verificationTable = renderTokensToMarkdownTable(verification_tokens);
+      const ticket = await client.post(`/specs/${specId}/phases/${phaseId}/tickets`, {
+        ...rest,
+        // Byte-identico a lo que recibio la tool (ver ihub-create-ticket.ts).
+        description,
+        ...verificationTable ? { verificationTable } : {}
+      });
+      return { content: [{ type: "text", text: JSON.stringify(ticket, null, 2) }] };
+    } catch (e) {
+      if (e instanceof external_exports3.ZodError) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: `Schema validation failed: ${formatZodError(e)}` }]
+        };
+      }
+      throw e;
+    }
+  };
+}
+
 // src/tools/spec-block.ts
 var specBlockSchema = {
   specId: external_exports3.string(),
   reason: external_exports3.string().describe("Motivo del bloqueo (obligatorio; vac\xEDo \u2192 400 BLOCK_REASON_REQUIRED).")
 };
-var ParamsSchema8 = external_exports3.object(specBlockSchema).strict();
+var ParamsSchema10 = external_exports3.object(specBlockSchema).strict();
 function makeSpecBlockHandler(client) {
   return async (params) => {
-    const parsed = ParamsSchema8.safeParse(params);
+    const parsed = ParamsSchema10.safeParse(params);
     if (!parsed.success) {
       return {
         isError: true,
@@ -33652,10 +33731,10 @@ var specUnblockSchema = {
   specId: external_exports3.string(),
   resolutionNotes: external_exports3.string().describe("Notas de la resoluci\xF3n del bloqueo (obligatorio; vac\xEDo \u2192 400).")
 };
-var ParamsSchema9 = external_exports3.object(specUnblockSchema).strict();
+var ParamsSchema11 = external_exports3.object(specUnblockSchema).strict();
 function makeSpecUnblockHandler(client) {
   return async (params) => {
-    const parsed = ParamsSchema9.safeParse(params);
+    const parsed = ParamsSchema11.safeParse(params);
     if (!parsed.success) {
       return {
         isError: true,
@@ -33866,16 +33945,24 @@ server.tool(
     description: external_exports3.string().optional(),
     status: external_exports3.enum(["INBOX", "BACKLOG", "IN_PROGRESS", "DONE", "ARCHIVED"]).optional(),
     priority: external_exports3.enum(["NOW", "NEXT", "LATER"]).optional(),
-    areas: external_exports3.array(external_exports3.string()).optional()
+    areas: external_exports3.array(external_exports3.string()).optional(),
+    // SPEC-0208 P2 — `null` limpia la asignacion de repo; un string la fija.
+    repoKey: external_exports3.union([external_exports3.string(), external_exports3.null()]).optional().describe(
+      "SPEC-0208 P2 \u2014 repoKey del ProjectRepo del tenant al que pertenece la task. El valor DEBE existir en ProjectRepo de este tenant: uno inexistente (o que exista solo en otro tenant) devuelve 422 REPO_KEY_NOT_FOUND."
+    )
   },
   async (params) => strictApply(
+    // SPEC-0208 P2 — el shape va DOS veces: aca y en el `.strict()` de abajo.
+    // Declararlo solo arriba hace que la tool anuncie un parametro que ella
+    // misma rechaza.
     external_exports3.object({
       id: external_exports3.string(),
       title: external_exports3.string().optional(),
       description: external_exports3.string().optional(),
       status: external_exports3.enum(["INBOX", "BACKLOG", "IN_PROGRESS", "DONE", "ARCHIVED"]).optional(),
       priority: external_exports3.enum(["NOW", "NEXT", "LATER"]).optional(),
-      areas: external_exports3.array(external_exports3.string()).optional()
+      areas: external_exports3.array(external_exports3.string()).optional(),
+      repoKey: external_exports3.union([external_exports3.string(), external_exports3.null()]).optional()
     }).strict(),
     params,
     ({ id, ...data }) => apiClient.patch(`/tasks/${id}`, data)
@@ -34370,13 +34457,13 @@ server.tool(
     verification_tokens: verificationTokensField
   },
   async (params) => {
-    const ParamsSchema10 = external_exports3.object({
+    const ParamsSchema12 = external_exports3.object({
       id: external_exports3.string(),
       stage: external_exports3.enum(["NEW", "QUALIFIED", "PROPOSAL", "NEGOTIATION", "WON", "LOST"]),
       verification_tokens: verificationTokensField
     }).strict();
     try {
-      const validated = ParamsSchema10.parse(params);
+      const validated = ParamsSchema12.parse(params);
       const result = await apiClient.post(`/leads/${validated.id}/stage`, {
         stage: validated.stage
       });
@@ -34396,61 +34483,9 @@ server.tool(
 );
 server.tool(
   "ihub_create_ticket",
-  "Create a new support ticket. Returns the created ticket with its number (TKT-XXXX). For sub-tickets, provide parentId and the number will follow parent convention (TKT-0001-1). workspaceId+projectId+moduleId are REQUIRED in NEW Tickets once the tenant has Workspaces defined (post-F4) \u2014 backend rejects with 400 BadRequest otherwise. SPEC-0089 v0.3.1: verification_tokens prepended to description as `## Verification` table. Strict-enforced post MCP_SERVER_RELEASE >= 0.2.0.",
-  {
-    subject: external_exports3.string().describe("Ticket subject/title"),
-    description: external_exports3.string().describe("Detailed description (markdown supported)"),
-    clientId: external_exports3.string().describe("Client ID"),
-    priority: external_exports3.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).optional().describe("Priority (default: MEDIUM)"),
-    category: external_exports3.string().optional().describe("Category (e.g. Bug, Feature, Soporte)"),
-    assigneeId: external_exports3.string().optional().describe("User ID to assign the ticket to"),
-    parentId: external_exports3.string().optional().describe("Parent ticket ID (creates a sub-ticket with number TKT-XXXX-N)"),
-    tags: external_exports3.array(external_exports3.string()).optional().describe("Tags for categorization"),
-    dueDate: external_exports3.string().optional().describe("Due date (ISO format)"),
-    workspaceId: external_exports3.string().optional().describe("workspace owner. REQUIRED in NEW Tickets post-F4 (operator correction cmokio7e6003zjzdbnwjhaldc)."),
-    projectId: external_exports3.string().optional().describe("project owner. REQUIRED in NEW Tickets post-F4."),
-    moduleId: external_exports3.string().optional().describe("module owner. REQUIRED in NEW Tickets post-F4."),
-    submoduleId: external_exports3.string().optional().describe("submodule owner. REQUIRED iff the chosen module has submodules defined."),
-    verification_tokens: verificationTokensField
-  },
-  async (params) => {
-    const ParamsSchema10 = external_exports3.object({
-      subject: external_exports3.string(),
-      description: external_exports3.string(),
-      clientId: external_exports3.string(),
-      priority: external_exports3.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).optional(),
-      category: external_exports3.string().optional(),
-      assigneeId: external_exports3.string().optional(),
-      parentId: external_exports3.string().optional(),
-      tags: external_exports3.array(external_exports3.string()).optional(),
-      dueDate: external_exports3.string().optional(),
-      workspaceId: external_exports3.string().optional(),
-      projectId: external_exports3.string().optional(),
-      moduleId: external_exports3.string().optional(),
-      submoduleId: external_exports3.string().optional(),
-      verification_tokens: verificationTokensField
-    }).strict();
-    try {
-      const validated = ParamsSchema10.parse(params);
-      const { verification_tokens, description, ...rest } = validated;
-      const descriptionWithTokens = prependTokensHeader(description, verification_tokens);
-      const ticket = await apiClient.post("/tickets", {
-        ...rest,
-        description: descriptionWithTokens
-      });
-      return { content: [{ type: "text", text: JSON.stringify(ticket, null, 2) }] };
-    } catch (e) {
-      if (e instanceof external_exports3.ZodError) {
-        return {
-          isError: true,
-          content: [
-            { type: "text", text: `Schema validation failed: ${formatZodError(e)}` }
-          ]
-        };
-      }
-      throw e;
-    }
-  }
+  "Create a new support ticket. Returns the created ticket with its number (TKT-XXXX). For sub-tickets, provide parentId and the number will follow parent convention (TKT-0001-1). workspaceId+projectId+moduleId are REQUIRED in NEW Tickets once the tenant has Workspaces defined (post-F4) \u2014 backend rejects with 400 BadRequest otherwise. SPEC-0201 P6: verification_tokens ya NO se anteponen a description \u2014 la tabla renderizada viaja en el campo `verificationTable` del body y el Hub la persiste como comment del ticket, en la misma transaccion. `description` llega al Hub tal cual la escribio el autor.",
+  ihubCreateTicketSchema,
+  makeIhubCreateTicketHandler(apiClient)
 );
 server.tool(
   "ihub_get_ticket",
@@ -34535,14 +34570,14 @@ server.tool(
     stateName: external_exports3.string().optional().describe("Target state name (e.g. EN_PROGRESO). Will be resolved to stateId automatically.")
   },
   async (params) => {
-    const ParamsSchema10 = external_exports3.object({
+    const ParamsSchema12 = external_exports3.object({
       id: external_exports3.string(),
       stateId: external_exports3.string().optional(),
       stateName: external_exports3.string().optional()
     }).strict();
     let validated;
     try {
-      validated = ParamsSchema10.parse(params);
+      validated = ParamsSchema12.parse(params);
     } catch (e) {
       if (e instanceof external_exports3.ZodError) {
         return {
@@ -34683,7 +34718,7 @@ server.tool(
     filename: external_exports3.string().optional().describe("Override filename (default: extracted from source)")
   },
   async (params) => {
-    const ParamsSchema10 = external_exports3.object({
+    const ParamsSchema12 = external_exports3.object({
       ticketId: external_exports3.string().optional(),
       interactionId: external_exports3.string().optional(),
       source: external_exports3.string(),
@@ -34691,7 +34726,7 @@ server.tool(
     }).strict();
     let validated;
     try {
-      validated = ParamsSchema10.parse(params);
+      validated = ParamsSchema12.parse(params);
     } catch (e) {
       if (e instanceof external_exports3.ZodError) {
         return {
@@ -34919,7 +34954,7 @@ server.tool(
     verification_tokens: verificationTokensField
   },
   async (params) => {
-    const ParamsSchema10 = external_exports3.object({
+    const ParamsSchema12 = external_exports3.object({
       title: external_exports3.string(),
       description: external_exports3.string(),
       priority: external_exports3.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).optional(),
@@ -34940,7 +34975,7 @@ server.tool(
       verification_tokens: verificationTokensField
     }).strict();
     try {
-      const validated = ParamsSchema10.parse(params);
+      const validated = ParamsSchema12.parse(params);
       const { verification_tokens, description, ...rest } = validated;
       const descriptionWithTokens = prependTokensHeader(description, verification_tokens);
       const spec = await apiClient.post("/specs", {
@@ -35050,7 +35085,7 @@ server.tool(
     verification_tokens: tokensSchema.nullable().optional()
   },
   async (params) => {
-    const ParamsSchema10 = external_exports3.object({
+    const ParamsSchema12 = external_exports3.object({
       id: external_exports3.string(),
       title: external_exports3.string().optional(),
       description: external_exports3.string().optional(),
@@ -35063,7 +35098,7 @@ server.tool(
       verification_tokens: tokensSchema.nullable().optional()
     }).strict();
     try {
-      const validated = ParamsSchema10.parse(params);
+      const validated = ParamsSchema12.parse(params);
       const { id, verification_tokens, description, ...rest } = validated;
       const descriptionWithTokens = description !== void 0 ? prependTokensHeader(description, verification_tokens) : void 0;
       const body = {
@@ -35132,7 +35167,7 @@ server.tool(
     verification_tokens: tokensSchema.nullable().optional()
   },
   async (params) => {
-    const ParamsSchema10 = external_exports3.object({
+    const ParamsSchema12 = external_exports3.object({
       id: external_exports3.string(),
       content: external_exports3.string(),
       internal: external_exports3.boolean().optional(),
@@ -35142,7 +35177,7 @@ server.tool(
       verification_tokens: tokensSchema.nullable().optional()
     }).strict();
     try {
-      const validated = ParamsSchema10.parse(params);
+      const validated = ParamsSchema12.parse(params);
       const category = validated.category ?? "comment";
       const needsTokens = isStrictPeriod && (category === "decision" || category === "bugfix");
       if (needsTokens && !validated.verification_tokens) {
@@ -35194,7 +35229,7 @@ server.tool(
     internal: external_exports3.boolean().optional().default(false)
   },
   async (params) => {
-    const ParamsSchema10 = external_exports3.object({
+    const ParamsSchema12 = external_exports3.object({
       specId: external_exports3.string(),
       phaseId: external_exports3.string(),
       content: external_exports3.string(),
@@ -35202,7 +35237,7 @@ server.tool(
       internal: external_exports3.boolean().optional()
     }).strict();
     try {
-      const validated = ParamsSchema10.parse(params);
+      const validated = ParamsSchema12.parse(params);
       const contentWithTokens = prependTokensHeader(
         validated.content,
         validated.verification_tokens
@@ -35243,7 +35278,7 @@ server.tool(
     internal: external_exports3.boolean().optional().default(false)
   },
   async (params) => {
-    const ParamsSchema10 = external_exports3.object({
+    const ParamsSchema12 = external_exports3.object({
       specId: external_exports3.string(),
       phaseId: external_exports3.string(),
       content: external_exports3.string(),
@@ -35251,7 +35286,7 @@ server.tool(
       internal: external_exports3.boolean().optional()
     }).strict();
     try {
-      const validated = ParamsSchema10.parse(params);
+      const validated = ParamsSchema12.parse(params);
       const contentWithTokens = prependTokensHeader(
         validated.content,
         validated.verification_tokens
@@ -35330,12 +35365,12 @@ server.tool(
     verification_tokens: verificationTokensField
   },
   async (params) => {
-    const ParamsSchema10 = external_exports3.object({
+    const ParamsSchema12 = external_exports3.object({
       id: external_exports3.string(),
       verification_tokens: verificationTokensField
     }).strict();
     try {
-      const validated = ParamsSchema10.parse(params);
+      const validated = ParamsSchema12.parse(params);
       const spec = await apiClient.patch(`/specs/${validated.id}/approve`, {});
       return { content: [{ type: "text", text: JSON.stringify(spec, null, 2) }] };
     } catch (e) {
@@ -35362,7 +35397,7 @@ server.tool(
     verification_tokens: verificationTokensField
   },
   async (params) => {
-    const ParamsSchema10 = external_exports3.object({
+    const ParamsSchema12 = external_exports3.object({
       id: external_exports3.string(),
       cancellationReason: external_exports3.enum(["SUPERSEDED", "REDISTRIBUTED", "ABANDONED"]),
       supersededBySpecId: external_exports3.string().nullable().optional(),
@@ -35370,7 +35405,7 @@ server.tool(
       verification_tokens: verificationTokensField
     }).strict();
     try {
-      const validated = ParamsSchema10.parse(params);
+      const validated = ParamsSchema12.parse(params);
       const spec = await apiClient.patch(`/specs/${validated.id}/cancel`, {
         cancellationReason: validated.cancellationReason,
         supersededBySpecId: validated.supersededBySpecId ?? null,
@@ -35410,12 +35445,12 @@ server.tool(
     reason: external_exports3.string().min(1).describe("Raz\xF3n del rechazo (obligatoria, min 1).")
   },
   async (params) => {
-    const ParamsSchema10 = external_exports3.object({
+    const ParamsSchema12 = external_exports3.object({
       specId: external_exports3.string(),
       reason: external_exports3.string().min(1)
     }).strict();
     try {
-      const validated = ParamsSchema10.parse(params);
+      const validated = ParamsSchema12.parse(params);
       const spec = await apiClient.patch(`/specs/${validated.specId}/reject`, {
         reason: validated.reason
       });
@@ -35441,12 +35476,12 @@ server.tool(
     phaseIds: external_exports3.array(external_exports3.string()).min(1).describe("Set expl\xEDcito de phaseIds a superseder (no vac\xEDo).")
   },
   async (params) => {
-    const ParamsSchema10 = external_exports3.object({
+    const ParamsSchema12 = external_exports3.object({
       specId: external_exports3.string(),
       phaseIds: external_exports3.array(external_exports3.string()).min(1)
     }).strict();
     try {
-      const validated = ParamsSchema10.parse(params);
+      const validated = ParamsSchema12.parse(params);
       const result = await apiClient.patch(`/specs/${validated.specId}/supersede-phases`, {
         phaseIds: validated.phaseIds
       });
@@ -35483,7 +35518,7 @@ server.tool(
     verification_tokens: verificationTokensField
   },
   async (params) => {
-    const ParamsSchema10 = external_exports3.object({
+    const ParamsSchema12 = external_exports3.object({
       specId: external_exports3.string(),
       name: external_exports3.string(),
       description: external_exports3.string().optional(),
@@ -35493,7 +35528,7 @@ server.tool(
       verification_tokens: verificationTokensField
     }).strict();
     try {
-      const validated = ParamsSchema10.parse(params);
+      const validated = ParamsSchema12.parse(params);
       const { specId, verification_tokens, content, description, ...rest } = validated;
       const contentWithTokens = content !== void 0 ? prependTokensHeader(content, verification_tokens) : void 0;
       const descriptionWithTokens = content === void 0 && description !== void 0 ? prependTokensHeader(description, verification_tokens) : description;
@@ -35543,7 +35578,7 @@ server.tool(
     verification_tokens: tokensSchema.nullable().optional()
   },
   async (params) => {
-    const ParamsSchema10 = external_exports3.object({
+    const ParamsSchema12 = external_exports3.object({
       specId: external_exports3.string(),
       phaseId: external_exports3.string(),
       status: external_exports3.enum(["PENDING", "IN_PROGRESS", "REVIEW", "COMPLETED", "BLOCKED", "SKIPPED"]).optional(),
@@ -35560,7 +35595,7 @@ server.tool(
       verification_tokens: tokensSchema.nullable().optional()
     }).strict();
     try {
-      const validated = ParamsSchema10.parse(params);
+      const validated = ParamsSchema12.parse(params);
       if (isStrictPeriod && validated.status && !validated.verification_tokens) {
         return {
           isError: true,
@@ -35627,49 +35662,9 @@ server.tool(
 );
 server.tool(
   "spec_create_ticket",
-  "Create a ticket from a Spec phase (auto-linked). Subject gets prefixed with [SPEC-XXXX/PhaseName]. SPEC-0089 v0.3.1: verification_tokens prepended to description as `## Verification` table. Strict-enforced post MCP_SERVER_RELEASE >= 0.2.0.",
-  {
-    specId: external_exports3.string(),
-    phaseId: external_exports3.string(),
-    subject: external_exports3.string(),
-    description: external_exports3.string(),
-    priority: external_exports3.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).optional(),
-    assigneeId: external_exports3.string().optional(),
-    clientId: external_exports3.string().optional(),
-    verification_tokens: verificationTokensField
-  },
-  async (params) => {
-    const ParamsSchema10 = external_exports3.object({
-      specId: external_exports3.string(),
-      phaseId: external_exports3.string(),
-      subject: external_exports3.string(),
-      description: external_exports3.string(),
-      priority: external_exports3.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).optional(),
-      assigneeId: external_exports3.string().optional(),
-      clientId: external_exports3.string().optional(),
-      verification_tokens: verificationTokensField
-    }).strict();
-    try {
-      const validated = ParamsSchema10.parse(params);
-      const { specId, phaseId, verification_tokens, description, ...rest } = validated;
-      const descriptionWithTokens = prependTokensHeader(description, verification_tokens);
-      const ticket = await apiClient.post(
-        `/specs/${specId}/phases/${phaseId}/tickets`,
-        { ...rest, description: descriptionWithTokens }
-      );
-      return { content: [{ type: "text", text: JSON.stringify(ticket, null, 2) }] };
-    } catch (e) {
-      if (e instanceof external_exports3.ZodError) {
-        return {
-          isError: true,
-          content: [
-            { type: "text", text: `Schema validation failed: ${formatZodError(e)}` }
-          ]
-        };
-      }
-      throw e;
-    }
-  }
+  "Create a ticket from a Spec phase (auto-linked). Subject gets prefixed with [SPEC-XXXX/PhaseName]. SPEC-0201 P6: verification_tokens ya NO se anteponen a description \u2014 la tabla renderizada viaja en el campo `verificationTable` del body y el Hub la persiste como comment del ticket, en la misma transaccion. `description` llega al Hub tal cual la escribio el autor.",
+  specCreateTicketSchema,
+  makeSpecCreateTicketHandler(apiClient)
 );
 server.tool(
   "spec_create_task",
@@ -35681,20 +35676,24 @@ server.tool(
     description: external_exports3.string().optional(),
     priority: external_exports3.enum(["NOW", "NEXT", "LATER"]).optional(),
     assigneeId: external_exports3.string().optional().describe("User ID to assign. Leave empty for unassigned task."),
+    repoKey: external_exports3.string().optional().describe(
+      "SPEC-0208 P2 \u2014 repoKey del ProjectRepo del tenant al que pertenece la task. El valor DEBE existir en ProjectRepo de este tenant: uno inexistente (o que exista solo en otro tenant) devuelve 422 REPO_KEY_NOT_FOUND."
+    ),
     verification_tokens: verificationTokensField
   },
   async (params) => {
-    const ParamsSchema10 = external_exports3.object({
+    const ParamsSchema12 = external_exports3.object({
       specId: external_exports3.string(),
       phaseId: external_exports3.string(),
       title: external_exports3.string(),
       description: external_exports3.string().optional(),
       priority: external_exports3.enum(["NOW", "NEXT", "LATER"]).optional(),
       assigneeId: external_exports3.string().optional(),
+      repoKey: external_exports3.string().optional(),
       verification_tokens: verificationTokensField
     }).strict();
     try {
-      const validated = ParamsSchema10.parse(params);
+      const validated = ParamsSchema12.parse(params);
       const { specId, phaseId, verification_tokens, description, ...rest } = validated;
       const descriptionWithTokens = description !== void 0 ? prependTokensHeader(description, verification_tokens) : void 0;
       const body = {
@@ -35739,6 +35738,19 @@ server.tool(
     external_exports3.object({ taskId: external_exports3.string(), assigneeId: external_exports3.string() }).strict(),
     params,
     ({ taskId, assigneeId }) => apiClient.patch(`/tasks/${taskId}/assign`, { assigneeId })
+  )
+);
+server.tool(
+  "task_correct_worktree",
+  "TKT-0331 \u2014 corrige el branch can\xF3nico persistido en SpecPhaseTask.worktree cuando diverge del branch real del PR (WORKTREE_BRANCH_MISMATCH al cerrar). El campo se escribe UNA sola vez al tomar la task y hasta este ticket s\xF3lo se correg\xEDa con UPDATE manual en producci\xF3n. OPERATOR-only \u2014 el rol cuyo branch valida este campo (CC_DEV) no puede autocorregirse el gate.",
+  {
+    taskId: external_exports3.string().describe("Task ID cuya SpecPhaseTask.worktree hay que corregir"),
+    worktree: external_exports3.string().describe("Branch real correcto (ej. el headBranch del PR) que el gate de cierre va a exigir a partir de ahora")
+  },
+  async (params) => strictApply(
+    external_exports3.object({ taskId: external_exports3.string(), worktree: external_exports3.string() }).strict(),
+    params,
+    ({ taskId, worktree }) => apiClient.patch(`/tasks/${taskId}/worktree`, { worktree })
   )
 );
 server.tool(
@@ -35817,7 +35829,7 @@ server.tool(
 );
 server.tool(
   "spec_get_documentation",
-  "Get the structured documentation sections of a Spec (technical manual, user manual, implementation detail, informal explanation, SDD kinds, trail). Returns each section with its KbArticle (or null if not yet written). kind filters to a single section; includeHistory defaults to false here (historyCount per kind, no history article.content) \u2014 pass includeHistory=true for the full history with content.",
+  "Get the structured documentation sections of a Spec (technical manual, user manual, implementation detail, informal explanation, SDD kinds, trail). Returns each section with its KbArticle (or null if not yet written). kind filters to a single section; includeHistory defaults to false here (historyCount per kind, no history article.content) \u2014 pass includeHistory=true for the full history with content. TKT-0354 \u2014 `documentation` es UNA sola fila (la vigente m\xE1s reciente del kind) y `coCurrent` son LAS DEM\xC1S vigentes del mismo kind, cada una con su `originCaseId` y su `contentHash`: la lista completa de vigentes es `documentation` + `coCurrent`, y `coCurrentCount` la cuenta. Importa en los kinds per-caso (RISK_ACCEPTANCE / BLOCKED_RESOLUTION), donde una SPEC tiene N artefactos co-vigentes \u2014uno por TestCase\u2014 y hasta este ticket s\xF3lo se ve\xEDa el \xFAltimo. `history` es lo SUPERSEDED: en un kind per-caso queda vac\xEDo aunque haya N artefactos, as\xED que un `history: []` NO prueba ausencia \u2014 eso se lee en `coCurrentCount`.",
   specGetDocumentationSchema,
   makeSpecGetDocumentationHandler(apiClient)
 );
@@ -36121,15 +36133,23 @@ server.tool(
     return formatRead(cases);
   }
 );
+var evidenceRefShape = external_exports3.object({
+  repoKey: external_exports3.string().describe("repoKey de un ProjectRepo del tenant."),
+  path: external_exports3.string().describe("Path relativo a la raiz de ese repo."),
+  line: external_exports3.number().int().optional().describe("Linea dentro del path (opcional).")
+});
 server.tool(
   "spec_test_case_set_result",
-  "Registra el resultado de un TestCase (PASS/FAIL/BLOCKED) aplicando la matriz de evidencia (doc 10 \xA75.3): evidence obligatoria en FAIL y en PASS de scope GROUP/SPEC (opcional en PASS de PHASE); notes obligatorias en BLOCKED. Sin cumplir \u2192 422. Setea result/resultEvidence/resultNotes/resultAt. No setea selfValidated (cuatro ojos = Sprint D).",
+  "Registra el resultado de un TestCase (PASS/FAIL/BLOCKED) aplicando la matriz de evidencia (doc 10 \xA75.3): evidence obligatoria en FAIL y en PASS de scope GROUP/SPEC (opcional en PASS de PHASE); notes obligatorias en BLOCKED. Sin cumplir \u2192 422. Setea result/resultEvidence/resultNotes/resultAt y, con evidenceRefs, REEMPLAZA las filas de evidencia por repo del caso (SPEC-0208 P3). No setea selfValidated (cuatro ojos = Sprint D).",
   {
     specId: external_exports3.string().describe("Spec ID (cuid)"),
     id: external_exports3.string().describe("TestCase ID (cuid)"),
     result: external_exports3.enum(["PASS", "FAIL", "BLOCKED"]).describe("Resultado de la ejecuci\xF3n."),
     evidence: external_exports3.string().optional().describe("Evidencia (obligatoria en FAIL y en PASS de scope GROUP/SPEC)."),
-    notes: external_exports3.string().optional().describe("Notas (obligatorias en BLOCKED).")
+    notes: external_exports3.string().optional().describe("Notas (obligatorias en BLOCKED)."),
+    evidenceRefs: external_exports3.array(evidenceRefShape).optional().describe(
+      "SPEC-0208 P3 \u2014 evidencia por repo, con semantica de REEMPLAZO TOTAL: presente con N elementos deja EXACTAMENTE esas N filas, array vacio las borra, omitir la clave deja las que habia. Cada repoKey debe existir en el ProjectRepo del tenant (FK compuesta (tenantId, repoKey))."
+    )
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -36137,7 +36157,8 @@ server.tool(
       id: external_exports3.string(),
       result: external_exports3.enum(["PASS", "FAIL", "BLOCKED"]),
       evidence: external_exports3.string().optional(),
-      notes: external_exports3.string().optional()
+      notes: external_exports3.string().optional(),
+      evidenceRefs: external_exports3.array(evidenceRefShape).optional()
     }).strict(),
     params,
     ({ specId, id, ...body }) => apiClient.post(`/specs/${specId}/test-cases/${id}/result`, body)
@@ -36320,7 +36341,7 @@ server.tool(
     internal: external_exports3.boolean().optional().default(false)
   },
   async (params) => {
-    const ParamsSchema10 = external_exports3.object({
+    const ParamsSchema12 = external_exports3.object({
       specId: external_exports3.string(),
       phaseId: external_exports3.string(),
       content: external_exports3.string(),
@@ -36328,7 +36349,7 @@ server.tool(
       internal: external_exports3.boolean().optional()
     }).strict();
     try {
-      const validated = ParamsSchema10.parse(params);
+      const validated = ParamsSchema12.parse(params);
       const contentWithTokens = prependTokensHeader(
         validated.content,
         validated.verification_tokens
@@ -36364,14 +36385,14 @@ server.tool(
     internal: external_exports3.boolean().optional().default(false)
   },
   async (params) => {
-    const ParamsSchema10 = external_exports3.object({
+    const ParamsSchema12 = external_exports3.object({
       specId: external_exports3.string(),
       content: external_exports3.string(),
       verification_tokens: verificationTokensField,
       internal: external_exports3.boolean().optional()
     }).strict();
     try {
-      const validated = ParamsSchema10.parse(params);
+      const validated = ParamsSchema12.parse(params);
       const contentWithTokens = prependTokensHeader(
         validated.content,
         validated.verification_tokens
@@ -36408,7 +36429,7 @@ server.tool(
     verification_tokens: verificationTokensField
   },
   async (params) => {
-    const ParamsSchema10 = external_exports3.object({
+    const ParamsSchema12 = external_exports3.object({
       specId: external_exports3.string(),
       dependsOnId: external_exports3.string(),
       type: external_exports3.enum(["BLOCKS", "RELATES_TO"]).optional(),
@@ -36416,7 +36437,7 @@ server.tool(
       verification_tokens: verificationTokensField
     }).strict();
     try {
-      const validated = ParamsSchema10.parse(params);
+      const validated = ParamsSchema12.parse(params);
       const dep = await apiClient.post(`/specs/${validated.specId}/dependencies`, {
         dependsOnId: validated.dependsOnId,
         type: validated.type,
@@ -36494,7 +36515,7 @@ server.tool(
     verification_tokens: verificationTokensField
   },
   async (params) => {
-    const ParamsSchema10 = external_exports3.object({
+    const ParamsSchema12 = external_exports3.object({
       specId: external_exports3.string(),
       phaseId: external_exports3.string(),
       dependsOnPhaseId: external_exports3.string(),
@@ -36503,7 +36524,7 @@ server.tool(
       verification_tokens: verificationTokensField
     }).strict();
     try {
-      const validated = ParamsSchema10.parse(params);
+      const validated = ParamsSchema12.parse(params);
       const dep = await apiClient.post(
         `/specs/${validated.specId}/phases/${validated.phaseId}/dependencies`,
         {
@@ -36676,7 +36697,7 @@ server.tool(
     verification_tokens: verificationTokensField
   },
   async (params) => {
-    const ParamsSchema10 = external_exports3.object({
+    const ParamsSchema12 = external_exports3.object({
       title: external_exports3.string(),
       description: external_exports3.string().optional(),
       promiseType: external_exports3.enum([
@@ -36700,7 +36721,7 @@ server.tool(
       verification_tokens: verificationTokensField
     }).strict();
     try {
-      const validated = ParamsSchema10.parse(params);
+      const validated = ParamsSchema12.parse(params);
       const { verification_tokens, description, ...rest } = validated;
       const descriptionWithTokens = description !== void 0 ? prependTokensHeader(description, verification_tokens) : void 0;
       const body = {
@@ -36831,7 +36852,7 @@ server.tool(
     verification_tokens: verificationTokensField
   },
   async (params) => {
-    const ParamsSchema10 = external_exports3.object({
+    const ParamsSchema12 = external_exports3.object({
       id: external_exports3.string(),
       promotedToSpecId: external_exports3.string().optional(),
       createNewSpec: external_exports3.object({
@@ -36850,7 +36871,7 @@ server.tool(
       verification_tokens: verificationTokensField
     }).strict();
     try {
-      const validated = ParamsSchema10.parse(params);
+      const validated = ParamsSchema12.parse(params);
       const { id, verification_tokens, ...body } = validated;
       const promise2 = await apiClient.post(`/future-promises/${id}/promote`, body);
       return { content: [{ type: "text", text: JSON.stringify(promise2, null, 2) }] };
@@ -36927,7 +36948,7 @@ server.tool(
     verification_tokens: verificationTokensField
   },
   async (params) => {
-    const ParamsSchema10 = external_exports3.object({
+    const ParamsSchema12 = external_exports3.object({
       title: external_exports3.string().min(1).max(200),
       body: external_exports3.string().min(1),
       kind: external_exports3.enum(DECISION_KINDS),
@@ -36945,7 +36966,7 @@ server.tool(
       verification_tokens: verificationTokensField
     }).strict();
     try {
-      const validated = ParamsSchema10.parse(params);
+      const validated = ParamsSchema12.parse(params);
       const { verification_tokens, body, ...rest } = validated;
       const bodyWithTokens = prependTokensHeader(body, verification_tokens);
       const decision = await apiClient.post("/decisions", {
@@ -37029,7 +37050,7 @@ server.tool(
     verification_tokens: tokensSchema.nullable().optional()
   },
   async (params) => {
-    const ParamsSchema10 = external_exports3.object({
+    const ParamsSchema12 = external_exports3.object({
       id: external_exports3.string(),
       title: external_exports3.string().min(1).max(200).optional(),
       body: external_exports3.string().min(1).optional(),
@@ -37042,7 +37063,7 @@ server.tool(
       verification_tokens: tokensSchema.nullable().optional()
     }).strict();
     try {
-      const validated = ParamsSchema10.parse(params);
+      const validated = ParamsSchema12.parse(params);
       if (isStrictPeriod && validated.body !== void 0 && !validated.verification_tokens) {
         return {
           isError: true,
@@ -37661,6 +37682,65 @@ server.tool(
   )
 );
 server.tool(
+  "project_repo_create",
+  "Create a ProjectRepo: a git repo declared by the current tenant. repoKey is unique per tenant (409 on duplicate) and immutable afterwards \u2014 it is the key that Task/TestCase evidence points at. Scoped to current tenant.",
+  {
+    repoKey: external_exports3.string().min(1).max(64).describe('Stable key of the repo within the tenant (e.g. "integra-hub"). Letters, digits, dot, dash, underscore. Immutable after create.'),
+    displayName: external_exports3.string().min(1).max(160).describe('Human-readable name (e.g. "Integra Hub").'),
+    remoteUrl: external_exports3.string().url().optional().describe("Optional. Git remote URL of the repo."),
+    active: external_exports3.boolean().optional().describe("Optional, default true. Set false to retire a repo instead of deleting it.")
+  },
+  async (params) => strictApply(
+    external_exports3.object({
+      repoKey: external_exports3.string().min(1).max(64),
+      displayName: external_exports3.string().min(1).max(160),
+      remoteUrl: external_exports3.string().url().optional(),
+      active: external_exports3.boolean().optional()
+    }).strict(),
+    params,
+    (data) => apiClient.post("/project-repos", data)
+  )
+);
+server.tool(
+  "project_repo_list",
+  "List the ProjectRepos of the current tenant. Optionally narrow by active state or free text on repoKey/displayName.",
+  {
+    active: external_exports3.boolean().optional().describe("true = only active; false = only retired; omitted = both."),
+    q: external_exports3.string().optional().describe("Contains-insensitive on repoKey/displayName."),
+    limit: external_exports3.number().optional(),
+    offset: external_exports3.number().optional()
+  },
+  async (params) => {
+    const qs = new URLSearchParams();
+    if (params.active !== void 0) qs.set("active", String(params.active));
+    if (params.q) qs.set("q", params.q);
+    if (params.limit !== void 0) qs.set("limit", String(params.limit));
+    if (params.offset !== void 0) qs.set("offset", String(params.offset));
+    const result = await apiClient.get(`/project-repos?${qs}`);
+    return formatRead(result);
+  }
+);
+server.tool(
+  "project_repo_update",
+  "Update a ProjectRepo (displayName/remoteUrl/active). repoKey is immutable \u2014 retire a repo with active:false instead of deleting or renaming it.",
+  {
+    id: external_exports3.string(),
+    displayName: external_exports3.string().min(1).max(160).optional(),
+    remoteUrl: external_exports3.string().url().optional(),
+    active: external_exports3.boolean().optional()
+  },
+  async (params) => strictApply(
+    external_exports3.object({
+      id: external_exports3.string(),
+      displayName: external_exports3.string().min(1).max(160).optional(),
+      remoteUrl: external_exports3.string().url().optional(),
+      active: external_exports3.boolean().optional()
+    }).strict(),
+    params,
+    ({ id, ...data }) => apiClient.patch(`/project-repos/${id}`, data)
+  )
+);
+server.tool(
   "module_create",
   "Create a Module under a Project. Project must belong to current tenant. Module name is unique per project.",
   {
@@ -37976,7 +38056,7 @@ server.tool(
     verification_tokens: tokensSchema.nullable().optional()
   },
   async (params) => {
-    const ParamsSchema10 = external_exports3.object({
+    const ParamsSchema12 = external_exports3.object({
       id: external_exports3.string(),
       title: external_exports3.string().max(80).optional(),
       content: external_exports3.string().min(1).optional(),
@@ -37990,7 +38070,7 @@ server.tool(
       verification_tokens: tokensSchema.nullable().optional()
     }).strict();
     try {
-      const validated = ParamsSchema10.parse(params);
+      const validated = ParamsSchema12.parse(params);
       const isVerdictUpdate = validated.content !== void 0 || validated.validationSteps !== void 0;
       if (isStrictPeriod && isVerdictUpdate && !validated.verification_tokens) {
         return {
@@ -38032,12 +38112,12 @@ server.tool(
     verification_tokens: verificationTokensField
   },
   async (params) => {
-    const ParamsSchema10 = external_exports3.object({
+    const ParamsSchema12 = external_exports3.object({
       id: external_exports3.string(),
       verification_tokens: verificationTokensField
     }).strict();
     try {
-      const validated = ParamsSchema10.parse(params);
+      const validated = ParamsSchema12.parse(params);
       const qaSpec = await apiClient.post(`/qa-specs/${validated.id}/transitions`, {
         to: "UNDER_REVIEW"
       });
@@ -38063,12 +38143,12 @@ server.tool(
     verification_tokens: verificationTokensField
   },
   async (params) => {
-    const ParamsSchema10 = external_exports3.object({
+    const ParamsSchema12 = external_exports3.object({
       id: external_exports3.string(),
       verification_tokens: verificationTokensField
     }).strict();
     try {
-      const validated = ParamsSchema10.parse(params);
+      const validated = ParamsSchema12.parse(params);
       const qaSpec = await apiClient.post(`/qa-specs/${validated.id}/transitions`, {
         to: "APPROVED"
       });
@@ -38095,13 +38175,13 @@ server.tool(
     verification_tokens: verificationTokensField
   },
   async (params) => {
-    const ParamsSchema10 = external_exports3.object({
+    const ParamsSchema12 = external_exports3.object({
       id: external_exports3.string(),
       rejectReason: external_exports3.string().min(10).max(2e3),
       verification_tokens: verificationTokensField
     }).strict();
     try {
-      const validated = ParamsSchema10.parse(params);
+      const validated = ParamsSchema12.parse(params);
       const rejectReasonWithTokens = prependTokensHeader(
         validated.rejectReason,
         validated.verification_tokens
@@ -38226,7 +38306,7 @@ server.tool(
     verification_tokens: verificationTokensField
   },
   async (params) => {
-    const ParamsSchema10 = external_exports3.object({
+    const ParamsSchema12 = external_exports3.object({
       id: external_exports3.string(),
       qaRunStepId: external_exports3.string().optional(),
       severity: external_exports3.enum(["BLOCKER", "MAJOR", "MINOR", "INFO"]),
@@ -38236,7 +38316,7 @@ server.tool(
       verification_tokens: verificationTokensField
     }).strict();
     try {
-      const validated = ParamsSchema10.parse(params);
+      const validated = ParamsSchema12.parse(params);
       const { id, verification_tokens, summary, details, ...rest } = validated;
       const detailsWithTokens = details !== void 0 ? prependTokensHeader(details, verification_tokens) : void 0;
       const summaryWithTokens = details === void 0 ? prependTokensHeader(summary, verification_tokens) : summary;
@@ -38270,14 +38350,14 @@ server.tool(
     verification_tokens: verificationTokensField
   },
   async (params) => {
-    const ParamsSchema10 = external_exports3.object({
+    const ParamsSchema12 = external_exports3.object({
       id: external_exports3.string(),
       status: external_exports3.enum(["COMPLETED", "FAILED", "ABORTED"]),
       summary: external_exports3.string().max(5e3).optional(),
       verification_tokens: verificationTokensField
     }).strict();
     try {
-      const validated = ParamsSchema10.parse(params);
+      const validated = ParamsSchema12.parse(params);
       const { id, verification_tokens, summary, ...rest } = validated;
       const summaryWithTokens = summary !== void 0 ? prependTokensHeader(summary, verification_tokens) : void 0;
       const body = {

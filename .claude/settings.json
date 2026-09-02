@@ -20,6 +20,12 @@
             "command": "node $HOME/.claude/hooks/specoe-room-bootstrap.mjs",
             "timeout": 15,
             "shell": "bash"
+          },
+          {
+            "type": "command",
+            "command": "node $HOME/.claude/hooks/hooks-audit.mjs",
+            "timeout": 5,
+            "shell": "bash"
           }
         ]
       },

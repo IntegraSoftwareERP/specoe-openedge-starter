@@ -2,6 +2,31 @@
 
 All notable changes to this project. Automatic — regenerado por `./scripts/changelog.sh`.
 
+## 0.2.26 — 2026-09-02 (TKT-0362 — el auditor de hooks fantasma también viaja)
+
+**Un hook puede no correr por tres motivos distintos, y los tres se ven exactamente igual desde
+adentro de una sesión: no pasa nada.** Está versionado y nunca se instaló; está instalado pero
+quedó viejo; está instalado y al día pero no lo cablea ningún `settings.json`. En los tres casos
+figura en un PR, se lo cita como si fuera un freno, y no frena nada.
+
+`hooks-audit.mjs` los distingue al arrancar. Existía desde TKT-0325 pero vivía en el repo de rooms
+—el único lugar sin CI, sin vendorizado y sin llegada a ninguna máquina que no fuera la del
+Operador—, así que en la práctica nunca corrió.
+
+**Lo que lo hace útil de este lado son los dos manifiestos.** Los hooks llegan a una máquina por dos
+canales que no se cruzan: el `install.mjs` de integra-hub (que escribe
+`~/.claude/hooks/integra-hooks-manifest.json`) y el `setup.sh` de este starter (cuya procedencia
+vive en `vendor/MANIFEST.json`). **El dev de un tenant no clona integra-hub**, así que nunca tiene
+el primero. Un auditor que leyera sólo aquél le diría _"no hay manifiesto"_ en cada arranque, para
+siempre — un falso positivo permanente sobre una máquina con los hooks perfectamente instalados.
+Ahora lee los dos.
+
+Va en `SessionStart` y **sin matcher**: ese evento no acepta ninguno, y ponerle uno sería declarar
+un cableado que Claude Code no aplica.
+
+No bloquea nunca — sale 0 aunque algo reviente. Un auditor que impide arrancar la sesión por un
+problema de instalación es peor que el problema que reporta.
+
 ## 0.2.23 — 2026-08-12 (TKT-0325 / TKT-0327 — los dos hooks de disciplina de git también viajan)
 
 **Las dos reglas que gobiernan cómo se toca un repo estaban escritas y sin diente en la máquina de
