@@ -68,13 +68,29 @@ export INTEGRA_SDD_IDENTITY_MODE="USER"
 # del agente operan sobre el cwd, asi que sin este dato apuntan al repo equivocado. Se exporta
 # como INTEGRA_SDD_WORK_REPO para que el hook de arranque lo tenga aunque el yaml no se pueda
 # leer; sin declarar no se exporta nada y el hook lo dice al arrancar la sesion.
+#
+# SPEC-0208 P5 — la clave admite N rutas (escalar o lista) y la env las lleva TODAS, unidas por
+# el separador declarado en specoe-yaml.sh como SPECOE_WORK_REPO_SEP. Ese separador es `|` y la
+# eleccion no es de estilo: `|` es uno de los caracteres que Windows PROHIBE en un nombre de
+# archivo (junto a \ / : * ? " < >), asi que no puede aparecer dentro de una ruta y no puede
+# partir una al medio — `;` y `,` si son legales en Windows y lo harian. El lector del hook
+# (specoe-room-bootstrap.mjs, WORK_REPO_SEPARATOR) parte por el MISMO caracter: si alguno de los
+# dos lados lo cambia solo, el room lee una ruta sola con basura adentro en vez de N rutas.
 if [ -f "$SCRIPT_DIR/specoe-yaml.sh" ]; then
   source "$SCRIPT_DIR/specoe-yaml.sh"
   ROOM_TENANT="$(specoe_yaml_get "$SCRIPT_DIR/project.config.yaml" specoe.tenant)"
   if [ -n "$ROOM_TENANT" ]; then
     export INTEGRA_SDD_TENANT="$ROOM_TENANT"
   fi
-  ROOM_WORK_REPO="$(specoe_yaml_get "$SCRIPT_DIR/project.config.yaml" specoe.work-repo)"
+  ROOM_WORK_REPO=""
+  while IFS= read -r _room_repo; do
+    [ -n "$_room_repo" ] || continue
+    if [ -n "$ROOM_WORK_REPO" ]; then
+      ROOM_WORK_REPO="${ROOM_WORK_REPO}${SPECOE_WORK_REPO_SEP}${_room_repo}"
+    else
+      ROOM_WORK_REPO="$_room_repo"
+    fi
+  done < <(specoe_yaml_get_list "$SCRIPT_DIR/project.config.yaml" specoe.work-repo)
   if [ -n "$ROOM_WORK_REPO" ]; then
     export INTEGRA_SDD_WORK_REPO="$ROOM_WORK_REPO"
   fi

@@ -144,6 +144,11 @@ export function buildTokenDivergenceWarning(rolDelCache, rolDelMcpJson) {
 //
 // El prefijo es OTRO a proposito, como UNGOVERNED y TOKEN-DIVERGENTE: no contiene ni esta
 // contenido en ninguno de los otros, asi que un probe puede afirmar cada uno por separado.
+//
+// SPEC-0208 P5 — la declaracion pasa de UNA ruta a N. Un room puede trabajar contra varios repos
+// (el caso que la SPEC modela con ProjectRepo del lado del Hub), asi que la clave acepta escalar
+// y lista bajo el MISMO nombre, y el aviso emite un veredicto POR RUTA: una rota no tapa a una
+// valida ni al reves. El escalar sigue valiendo por compatibilidad — ver parseWorkRepoValue.
 export const WORK_REPO_PREFIX = 'SPECOE-ROOM-WORK-REPO';
 
 /**
@@ -182,36 +187,118 @@ export function readSpecoeScalar(content, section, key) {
 }
 
 /**
- * El repo de trabajo declarado. Precedencia: la env que exporta el launcher > la clave del yaml.
- * El yaml se lee tambien a proposito: una carpeta abierta a mano (doble click, `code .`) no tiene
- * la env, y ahi el room igual sabe donde vive su codigo — mismo criterio que el tenant.
+ * Separador con el que el launcher exporta N rutas en INTEGRA_SDD_WORK_REPO, y con el que este
+ * lector las parte (P5.T4, SPEC-0208). Es `|` y no `;` ni `,` por una razon concreta: `|` es uno
+ * de los caracteres que Windows PROHIBE en un nombre de archivo (junto a \ / : * ? " < >), asi que
+ * no puede aparecer dentro de una ruta declarada. `;` y `,` si son legales en Windows y partirian
+ * una ruta al medio. Va declarado aca y en el comentario del launcher: los dos lados tienen que
+ * usar el MISMO, y que se infiera de la lectura del codigo es exactamente como se desincronizan.
  */
-async function resolveWorkRepo() {
+export const WORK_REPO_SEPARATOR = '|';
+
+/**
+ * El valor crudo de `specoe.work-repo` normalizado a lista. Acepta las DOS formas bajo la MISMA
+ * clave (ADR-009 de SPEC-0208):
+ *
+ *   - escalar  `work-repo: 'C:/a'`            -> ['C:/a']
+ *   - lista    `work-repo: ['C:/a', 'C:/b']`  -> ['C:/a', 'C:/b']
+ *   - vacio o ausente                         -> []
+ *
+ * El escalar NO es back-compat opcional: toda carpeta de room ya instalada lo tiene asi, y viven
+ * en maquinas de devs, fuera de este repo. Un lector que solo entienda listas las deja a todas en
+ * el caso `sin-declarar` en su proximo arranque, diciendole al agente que pregunte al operador
+ * cual es su repo -- dano real y silencioso sobre rooms que estan bien configurados.
+ *
+ * La lista se escribe en FLOW (una sola linea) y no en bloque: los tres lectores/escritores de
+ * este archivo (este, `specoe_yaml_get` y `specoe_yaml_set`) estan anclados a la linea de la
+ * clave, y una forma multilinea obligaria a reescribir los tres. Limite conocido y aceptado: una
+ * ruta SIN comillas que contenga una coma se parte al medio. El instalador siempre las escribe
+ * entre comillas simples, que es la forma que el parseo respeta.
+ */
+export function parseWorkRepoValue(raw) {
+  const value = String(raw ?? '').trim();
+  if (!value) return [];
+  if (!value.startsWith('[')) return [value];
+
+  const close = value.lastIndexOf(']');
+  const inner = close === -1 ? value.slice(1) : value.slice(1, close);
+  const items = [];
+  let buf = '';
+  let quote = null;
+  for (const ch of inner) {
+    if (quote) {
+      if (ch === quote) quote = null;
+      else buf += ch;
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      quote = ch;
+      continue;
+    }
+    if (ch === ',') {
+      items.push(buf);
+      buf = '';
+      continue;
+    }
+    buf += ch;
+  }
+  items.push(buf);
+  return items.map((item) => item.trim()).filter(Boolean);
+}
+
+/** Las rutas declaradas en el yaml del room, en cualquiera de las dos formas. */
+export function readSpecoeWorkRepos(content) {
+  return parseWorkRepoValue(readSpecoeScalar(content, 'specoe', 'work-repo'));
+}
+
+/**
+ * Los repos de trabajo declarados. Precedencia: la env que exporta el launcher > la clave del
+ * yaml. El yaml se lee tambien a proposito: una carpeta abierta a mano (doble click, `code .`) no
+ * tiene la env, y ahi el room igual sabe donde vive su codigo -- mismo criterio que el tenant.
+ *
+ * La env gana ENTERA: si trae rutas, el yaml no se mezcla. Mezclarlas obligaria a definir orden y
+ * deduplicacion entre dos fuentes que pueden contradecirse, y la env existe justo para el caso en
+ * que el yaml quedo viejo.
+ */
+async function resolveWorkRepos() {
   const fromEnv = (process.env.INTEGRA_SDD_WORK_REPO ?? '').trim();
-  if (fromEnv) return fromEnv;
+  if (fromEnv) {
+    return fromEnv
+      .split(WORK_REPO_SEPARATOR)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
   try {
     const yaml = await fs.readFile(ROOM_CONFIG_FILE, 'utf8');
-    return (readSpecoeScalar(yaml, 'specoe', 'work-repo') ?? '').trim() || null;
+    return readSpecoeWorkRepos(yaml);
   } catch {
-    return null;
+    return [];
   }
 }
 
 /**
- * El aviso listo para concatenar. `declared` = la ruta declarada (o null), `isRepo` = si HOY hay
- * un repo git ahi. Funcion pura: la suite la ejercita sin disco ni red.
+ * El aviso listo para concatenar. `entries` = la lista de rutas declaradas CON su veredicto:
+ * `[{ path, isRepo }]`, donde `isRepo` dice si HOY hay un repo git ahi. Lista vacia = sin declarar.
  *
- * Los tres casos dicen la misma cosa de fondo —el cwd NO es el repo del codigo— porque es lo que
+ * Sigue siendo funcion pura --la suite la ejercita sin disco ni red-- y por eso recibe el veredicto
+ * por ruta ya medido en vez de tocar ella el filesystem.
+ *
+ * Cada ruta tiene su propio veredicto y NINGUNA tapa a otra: una lista con un repo valido y otro
+ * roto dice las DOS cosas. Con una sola ruta el texto es IDENTICO al de antes de SPEC-0208 P5, que
+ * es lo que garantiza que un room ya instalado (clave escalar) no note el cambio.
+ *
+ * Los tres casos dicen la misma cosa de fondo --el cwd NO es el repo del codigo-- porque es lo que
  * el agente no puede ver. La declaracion que apunta a la nada NO se calla: un dato escrito y
  * falso es peor que la ausencia, que al menos se nota.
  */
-export function buildWorkRepoNotice(declared, isRepo) {
+export function buildWorkRepoNotice(entries) {
+  const lista = Array.isArray(entries) ? entries.filter(Boolean) : [];
   const comun =
     `La carpeta de este room ES un repo git, pero NO es donde vive el codigo: es un clon shallow ` +
     `del starter. Las herramientas de aislamiento del harness (EnterWorktree y equivalentes) ` +
     `operan sobre el repo del cwd, asi que desde aca apuntan a ese clon.`;
 
-  if (!declared) {
+  if (lista.length === 0) {
     return (
       `\n\n[[${WORK_REPO_PREFIX}:sin-declarar]] Este room NO declara su repo de trabajo. ${comun} ` +
       `Antes de tocar codigo, preguntá al operador cual es el repo y en que ruta local esta. ` +
@@ -220,41 +307,65 @@ export function buildWorkRepoNotice(declared, isRepo) {
     );
   }
 
-  if (!isRepo) {
-    return (
-      `\n\n[[${WORK_REPO_PREFIX}:no-existe]] Este room declara su repo de trabajo en '${declared}' ` +
-      `y ahi NO hay un repo git ahora mismo (no existe la ruta, o existe y no tiene .git). ${comun} ` +
-      `No uses esa ruta a ciegas: verificala con el operador —puede faltar el clone, o la ` +
-      `declaracion puede estar mal— y corregí 'specoe.work-repo' en el project.config.yaml.`
-    );
+  const declarados = lista.filter((e) => e.isRepo).map((e) => e.path);
+  const rotos = lista.filter((e) => !e.isRepo).map((e) => e.path);
+  const nombrar = (rutas) => rutas.map((r) => `'${r}'`).join(', ');
+  let aviso = '';
+
+  if (declarados.length === 1) {
+    aviso +=
+      `\n\n[[${WORK_REPO_PREFIX}:declarado]] El repo de trabajo de este room es '${declarados[0]}'. ${comun} ` +
+      `Todo lo que sea codigo va contra ese repo, con git apuntado explicitamente: ` +
+      `git -C '${declarados[0]}' worktree add ... (y los commits/PR salen de ahi, no del cwd).`;
+  } else if (declarados.length > 1) {
+    aviso +=
+      `\n\n[[${WORK_REPO_PREFIX}:declarado]] Este room declara ${declarados.length} repos de trabajo: ` +
+      `${nombrar(declarados)}. ${comun} Todo lo que sea codigo va contra ESOS repos, con git ` +
+      `apuntado explicitamente al que corresponda: ` +
+      `${declarados.map((r) => `git -C '${r}' worktree add ...`).join(' / ')} ` +
+      `(y los commits/PR salen de ahi, no del cwd). Si no sabés cual de los ${declarados.length} ` +
+      `corresponde al trabajo que te pidieron, preguntá al operador antes de empezar.`;
   }
 
-  return (
-    `\n\n[[${WORK_REPO_PREFIX}:declarado]] El repo de trabajo de este room es '${declared}'. ${comun} ` +
-    `Todo lo que sea codigo va contra ese repo, con git apuntado explicitamente: ` +
-    `git -C '${declared}' worktree add ... (y los commits/PR salen de ahi, no del cwd).`
-  );
+  if (rotos.length === 1) {
+    aviso +=
+      `\n\n[[${WORK_REPO_PREFIX}:no-existe]] Este room declara su repo de trabajo en '${rotos[0]}' ` +
+      `y ahi NO hay un repo git ahora mismo (no existe la ruta, o existe y no tiene .git). ${comun} ` +
+      `No uses esa ruta a ciegas: verificala con el operador —puede faltar el clone, o la ` +
+      `declaracion puede estar mal— y corregí 'specoe.work-repo' en el project.config.yaml.`;
+  } else if (rotos.length > 1) {
+    aviso +=
+      `\n\n[[${WORK_REPO_PREFIX}:no-existe]] Este room declara ${rotos.length} repos de trabajo en ` +
+      `${nombrar(rotos)} y en NINGUNO de ellos hay un repo git ahora mismo (no existe la ruta, o ` +
+      `existe y no tiene .git). ${comun} No uses esas rutas a ciegas: verificalas con el operador ` +
+      `—puede faltar el clone, o la declaracion puede estar mal— y corregí 'specoe.work-repo' en ` +
+      `el project.config.yaml.`;
+  }
+
+  return aviso;
 }
 
-/** Resuelve la declaracion, la mide contra el disco y devuelve el aviso ya armado. */
+/** Resuelve las declaraciones, las mide contra el disco y devuelve el aviso ya armado. */
 async function workRepoNotice() {
-  const declared = await resolveWorkRepo();
-  let isRepo = false;
-  if (declared) {
+  const declared = await resolveWorkRepos();
+  const entries = [];
+  for (const declaredPath of declared) {
+    let isRepo = false;
     try {
-      await fs.stat(path.join(declared, '.git'));
+      await fs.stat(path.join(declaredPath, '.git'));
       isRepo = true;
     } catch {
       isRepo = false;
     }
+    entries.push({ path: declaredPath, isRepo });
   }
   await logLine({
-    level: declared && isRepo ? 'info' : 'warn',
+    level: entries.length > 0 && entries.every((e) => e.isRepo) ? 'info' : 'warn',
     msg: 'repo de trabajo del room',
     declared,
-    isRepo,
+    entries,
   });
-  return buildWorkRepoNotice(declared, isRepo);
+  return buildWorkRepoNotice(entries);
 }
 
 // Expande `${VAR}` y `${VAR:-default}` como lo hace el cliente MCP al leer el .mcp.json.

@@ -11,7 +11,7 @@
 #   5. setup.sh --room-only (config + .mcp.json) — ÚLTIMO: su check de config puede cortar.
 #
 # Uso:
-#   ./specoe-add-room.sh <ROL> [LICENSE_KEY] [--tenant <slug>] [--work-repo <ruta>] [--dir <carpeta>] [--hub <url>] [--repo <url>]
+#   ./specoe-add-room.sh <ROL> [LICENSE_KEY] [--tenant <slug>] [--work-repo <ruta>]... [--dir <carpeta>] [--hub <url>] [--repo <url>]
 #     <ROL> = DISCOVERY | ENGINEERING | ADVERSARIAL | CC_DEV
 #   La LICENSE_KEY es obligatoria la PRIMERA vez. Despues queda en el keyring y se puede omitir:
 #   la segunda pasada (y cualquier reintento) la lee de ahi por su account (TKT-0307).
@@ -27,6 +27,10 @@
 # herramientas de aislamiento del agente operan sobre el cwd, asi que sin esta declaracion apuntan
 # a ese clon — repo equivocado. Sin el flag el room no declara repo de trabajo y la sesion lo dice
 # al arrancar (specoe-room-bootstrap.mjs) en vez de dejar que se descubra al primer worktree.
+#
+# SPEC-0208 P5 — `--work-repo` es REPETIBLE: un room puede trabajar contra varios repos. Cada
+# aparicion suma una ruta en vez de pisar la anterior. Con una sola el yaml queda con el escalar
+# de siempre; con dos o mas queda una lista en flow. Las dos formas las lee el hook de arranque.
 
 set -euo pipefail
 
@@ -36,7 +40,7 @@ DEST_DIR=""
 ROLE=""
 LICENSE_KEY=""
 TENANT_SLUG=""
-WORK_REPO=""
+WORK_REPOS=()
 
 log()  { echo -e "\033[1;34m[specoe-room]\033[0m $*"; }
 warn() { echo -e "\033[1;33m[specoe-room]\033[0m $*" >&2; }
@@ -81,10 +85,10 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --dir)  DEST_DIR="$2"; shift 2 ;;
     --tenant) TENANT_SLUG="$2"; shift 2 ;;
-    --work-repo) WORK_REPO="$2"; shift 2 ;;
+    --work-repo) WORK_REPOS+=("$2"); shift 2 ;;   # repetible (SPEC-0208 P5): acumula, no pisa
     --hub)  HUB_URL="$2";  shift 2 ;;
     --repo) STARTER_REPO="$2"; shift 2 ;;
-    -h|--help) sed -n '2,29p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,33p' "$0"; exit 0 ;;
     -*) err "Opción desconocida: $1 (ver --help)" ;;
     *)
       if   [ -z "$ROLE" ];        then ROLE="$1"; shift
@@ -332,22 +336,32 @@ fi
 # del codigo, y cortar ahi por algo recuperable dejaria la carpeta a medio configurar. Se declara
 # igual y se avisa — y el chequeo que importa lo repite cada arranque de sesion el hook
 # specoe-room-bootstrap.mjs, que es donde el dato se consume.
-if [ -n "$WORK_REPO" ]; then
-  [ -f "$SCRIPT_DIR/specoe-yaml.sh" ] || err "Falta $SCRIPT_DIR/specoe-yaml.sh: no puedo declarar specoe.work-repo='$WORK_REPO' en la carpeta.
+#
+# SPEC-0208 P5 — el flag es REPETIBLE y acumula. El aviso de ruta sin `.git` se emite POR RUTA:
+# una rota no puede tapar a una valida ni al reves, ni del lado del instalador ni del lado del
+# aviso de arranque. Con una sola ruta se escribe el escalar de siempre y con dos o mas una lista
+# en flow — lo decide specoe_yaml_set_list, y la suite del lector de yaml lo fija.
+if [ "${#WORK_REPOS[@]}" -gt 0 ]; then
+  [ -f "$SCRIPT_DIR/specoe-yaml.sh" ] || err "Falta $SCRIPT_DIR/specoe-yaml.sh: no puedo declarar specoe.work-repo en la carpeta.
   Corto en vez de seguir: el room quedaria sin saber cual es su repo de trabajo, que es justo lo que este flag viene a declarar.
   Actualizá el starter (git -C \"$SCRIPT_DIR\" pull --ff-only) y volvé a correr el MISMO comando."
   # shellcheck source=specoe-yaml.sh
   source "$SCRIPT_DIR/specoe-yaml.sh"
   # Barras normales: el valor lo consumen Git Bash, node y VSCode, y los tres entienden 'C:/x/y'.
   # Con backslashes, la ruta pasa por shells que los leen como escapes y llega partida.
-  WORK_REPO_NORM="${WORK_REPO//\\//}"
-  log "Fijando specoe.work-repo='$WORK_REPO_NORM' en project.config.yaml..."
-  specoe_yaml_set "$DEST_DIR/project.config.yaml" specoe.work-repo "$WORK_REPO_NORM"
-  if [ ! -e "$WORK_REPO_NORM/.git" ]; then
-    warn "  ⚠ '$WORK_REPO_NORM' no es un repo git ahora mismo (no tiene .git)."
-    warn "    La declaracion queda escrita igual. Si todavia no clonaste el repo del codigo, clonalo ahi."
-    warn "    Si la ruta esta mal, corregí specoe.work-repo en '$DEST_DIR/project.config.yaml' — cada sesion del room lo vuelve a chequear y lo dice."
-  fi
+  WORK_REPOS_NORM=()
+  for _wr in "${WORK_REPOS[@]}"; do
+    WORK_REPOS_NORM+=("${_wr//\\//}")
+  done
+  log "Fijando specoe.work-repo (${#WORK_REPOS_NORM[@]}) en project.config.yaml: ${WORK_REPOS_NORM[*]}"
+  specoe_yaml_set_list "$DEST_DIR/project.config.yaml" specoe.work-repo "${WORK_REPOS_NORM[@]}"
+  for _wr in "${WORK_REPOS_NORM[@]}"; do
+    if [ ! -e "$_wr/.git" ]; then
+      warn "  ⚠ '$_wr' no es un repo git ahora mismo (no tiene .git)."
+      warn "    La declaracion queda escrita igual. Si todavia no clonaste el repo del codigo, clonalo ahi."
+      warn "    Si la ruta esta mal, corregí specoe.work-repo en '$DEST_DIR/project.config.yaml' — cada sesion del room lo vuelve a chequear y lo dice."
+    fi
+  done
 fi
 
 # ----- 3. Licencia en el keyring, account = rol (aislada → multi-rol) -----

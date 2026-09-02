@@ -110,9 +110,19 @@ hub:
 # repo equivocado. Path absoluto al checkout local (no una URL). Lo fija
 # `specoe-add-room.sh --work-repo <ruta>` y lo exporta el launcher como
 # INTEGRA_SDD_WORK_REPO. Vacío = room que no toca código.
+#
+# SPEC-0208 P5 — admite UNA ruta o VARIAS, bajo esta misma clave, en cualquiera de
+# las dos formas. El escalar sigue siendo válido y no está deprecado:
+#
+#     work-repo: 'C:/Integra/VSCode/Webservices'
+#     work-repo: ['C:/Integra/VSCode/Webservices', 'C:/Integra/integra-hub']
+#
+# La lista va en UNA sola línea (flow), con cada ruta entre comillas simples — así
+# se escribe también con `--work-repo` repetido. Cada ruta se evalúa por separado
+# al arrancar la sesión: una que no exista se avisa sin tapar a las que sí están.
 specoe:
   role: '' # DISCOVERY | ENGINEERING | ADVERSARIAL | CC_DEV
-  work-repo: '' # Ruta absoluta al repo del código (ej. C:/Integra/VSCode/Webservices)
+  work-repo: '' # Ruta(s) absoluta(s) al repo del código — escalar o lista (ej. C:/Integra/VSCode/Webservices)
 
 frontend:
   enabled: false # true si el cliente tiene frontend React
