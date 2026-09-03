@@ -2983,7 +2983,7 @@ var require_compile = __commonJS({
       const schOrFunc = root.refs[ref];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve.call(this, root, ref);
+      let _sch = resolve2.call(this, root, ref);
       if (_sch === void 0) {
         const schema = (_a2 = root.localRefs) === null || _a2 === void 0 ? void 0 : _a2[ref];
         const { schemaId } = this.opts;
@@ -3010,7 +3010,7 @@ var require_compile = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve(root, ref) {
+    function resolve2(root, ref) {
       let sch;
       while (typeof (sch = this.refs[ref]) == "string")
         ref = sch;
@@ -3585,7 +3585,7 @@ var require_fast_uri = __commonJS({
       }
       return uri;
     }
-    function resolve(baseURI, relativeURI, options) {
+    function resolve2(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
       const resolved = resolveComponent(parse3(baseURI, schemelessOptions), parse3(relativeURI, schemelessOptions), schemelessOptions, true);
       schemelessOptions.skipEscape = true;
@@ -3812,7 +3812,7 @@ var require_fast_uri = __commonJS({
     var fastUri = {
       SCHEMES,
       normalize,
-      resolve,
+      resolve: resolve2,
       resolveComponent,
       equal,
       serialize,
@@ -30510,7 +30510,7 @@ var Protocol = class {
           return;
         }
         const pollInterval = task2.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1e3;
-        await new Promise((resolve) => setTimeout(resolve, pollInterval));
+        await new Promise((resolve2) => setTimeout(resolve2, pollInterval));
         options?.signal?.throwIfAborted();
       }
     } catch (error48) {
@@ -30527,7 +30527,7 @@ var Protocol = class {
    */
   request(request2, resultSchema, options) {
     const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve2, reject) => {
       const earlyReject = (error48) => {
         reject(error48);
       };
@@ -30605,7 +30605,7 @@ var Protocol = class {
           if (!parseResult.success) {
             reject(parseResult.error);
           } else {
-            resolve(parseResult.data);
+            resolve2(parseResult.data);
           }
         } catch (error48) {
           reject(error48);
@@ -30866,12 +30866,12 @@ var Protocol = class {
       }
     } catch {
     }
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve2, reject) => {
       if (signal.aborted) {
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
         return;
       }
-      const timeoutId = setTimeout(resolve, interval);
+      const timeoutId = setTimeout(resolve2, interval);
       signal.addEventListener("abort", () => {
         clearTimeout(timeoutId);
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
@@ -31971,7 +31971,7 @@ var McpServer = class {
     let task = createTaskResult.task;
     const pollInterval = task.pollInterval ?? 5e3;
     while (task.status !== "completed" && task.status !== "failed" && task.status !== "cancelled") {
-      await new Promise((resolve) => setTimeout(resolve, pollInterval));
+      await new Promise((resolve2) => setTimeout(resolve2, pollInterval));
       const updatedTask = await extra.taskStore.getTask(taskId);
       if (!updatedTask) {
         throw new McpError(ErrorCode.InternalError, `Task ${taskId} not found during polling`);
@@ -32620,12 +32620,12 @@ var StdioServerTransport = class {
     this.onclose?.();
   }
   send(message) {
-    return new Promise((resolve) => {
+    return new Promise((resolve2) => {
       const json2 = serializeMessage(message);
       if (this._stdout.write(json2)) {
-        resolve();
+        resolve2();
       } else {
-        this._stdout.once("drain", resolve);
+        this._stdout.once("drain", resolve2);
       }
     });
   }
@@ -33409,10 +33409,63 @@ function makeSpecPhaseUnlinkHandler(client) {
   };
 }
 
+// src/read-by-reference.ts
+import { writeFileSync, mkdirSync } from "node:fs";
+import { createHash as createHash3 } from "node:crypto";
+import { dirname, isAbsolute, resolve } from "node:path";
+var readOutputPathSchema = {
+  outputPath: external_exports3.string().optional().describe(
+    "Ruta ABSOLUTA terminada en .json. Si viene, el resultado NO se devuelve inline: el mcp-server (que corre local) lo escribe indentado en esa ruta y responde s\xF3lo {outputPath, bytes, lines, sha256}. Usalo cuando el artefacto es grande \u2014 la respuesta inline es una sola l\xEDnea y no se puede paginar. Despu\xE9s le\xE9 el archivo con tu capacidad de lectura de archivos."
+  )
+};
+function toolError(text) {
+  return { isError: true, content: [{ type: "text", text }] };
+}
+function writeReadByReference(data, outputPath) {
+  if (!isAbsolute(outputPath)) {
+    throw new Error(
+      `OUTPUT_PATH_NOT_ABSOLUTE: outputPath debe ser una ruta absoluta \u2014 el cwd del mcp-server no es el tuyo. Recib\xED ${outputPath}. Nada se escribi\xF3.`
+    );
+  }
+  if (!outputPath.toLowerCase().endsWith(".json")) {
+    throw new Error(
+      `OUTPUT_PATH_NOT_JSON: outputPath debe terminar en .json (el payload es json, y el sufijo evita pisar un fuente por un typo). Recib\xED ${outputPath}. Nada se escribi\xF3.`
+    );
+  }
+  const absolute = resolve(outputPath);
+  const raw = Buffer.from(JSON.stringify(data, null, 2), "utf8");
+  try {
+    mkdirSync(dirname(absolute), { recursive: true });
+    writeFileSync(absolute, raw);
+  } catch (e) {
+    throw new Error(
+      `OUTPUT_PATH_UNWRITABLE: no se pudo escribir ${absolute}: ${e.message}. Nada se escribi\xF3.`
+    );
+  }
+  return {
+    outputPath: absolute,
+    bytes: raw.length,
+    // El archivo termina sin newline final: las líneas son los saltos + 1.
+    lines: raw.toString("utf8").split("\n").length,
+    sha256: createHash3("sha256").update(raw).digest("hex"),
+    note: "Contenido NO incluido en esta respuesta a prop\xF3sito \u2014 le\xE9 el archivo (paginando si hace falta). El sha256 es el de los bytes en disco: verificable con sha256sum / Get-FileHash."
+  };
+}
+function formatReadMaybeByReference(data, outputPath) {
+  if (outputPath === void 0) return formatRead(data);
+  try {
+    return formatRead(writeReadByReference(data, outputPath));
+  } catch (e) {
+    return toolError(e.message);
+  }
+}
+
 // src/tools/spec-get-phase.ts
 var specGetPhaseSchema = {
   specId: external_exports3.string().describe("Spec ID (cuid) or number SPEC-XXXX"),
-  phaseId: external_exports3.string().describe("Phase ID (cuid)")
+  phaseId: external_exports3.string().describe("Phase ID (cuid)"),
+  // TKT-0368 — transporte por referencia en lectura (ver read-by-reference.ts).
+  ...readOutputPathSchema
 };
 var ParamsSchema2 = external_exports3.object(specGetPhaseSchema).strict();
 function makeSpecGetPhaseHandler(client) {
@@ -33429,9 +33482,9 @@ function makeSpecGetPhaseHandler(client) {
         ]
       };
     }
-    const { specId, phaseId } = parsed.data;
+    const { specId, phaseId, outputPath } = parsed.data;
     const phase = await client.get(`/specs/${specId}/phases/${phaseId}`);
-    return formatRead(phase);
+    return formatReadMaybeByReference(phase, outputPath);
   };
 }
 
@@ -33491,7 +33544,9 @@ var specGetSchema = {
   comments: external_exports3.enum(["all", "recent", "none"]).optional().describe(
     "Proyecci\xF3n de comments[] de spec y de cada fase. Default all (shape completo, requerido por inbox-check). recent acota a commentsLimit (los m\xE1s recientes) + agrega commentCount. none omite comments[] (sin commentCount)."
   ),
-  commentsLimit: external_exports3.number().int().min(1).optional().describe("M\xE1ximo de comments[] por spec/fase cuando comments=recent. Default 10.")
+  commentsLimit: external_exports3.number().int().min(1).optional().describe("M\xE1ximo de comments[] por spec/fase cuando comments=recent. Default 10."),
+  // TKT-0368 — transporte por referencia en lectura (ver read-by-reference.ts).
+  ...readOutputPathSchema
 };
 var ParamsSchema4 = external_exports3.object(specGetSchema).strict();
 function makeSpecGetHandler(client) {
@@ -33508,12 +33563,12 @@ function makeSpecGetHandler(client) {
         ]
       };
     }
-    const { id, comments, commentsLimit } = parsed.data;
+    const { id, comments, commentsLimit, outputPath } = parsed.data;
     const query = new URLSearchParams();
     query.set("comments", comments ?? "all");
     if (commentsLimit !== void 0) query.set("commentsLimit", String(commentsLimit));
     const spec = await client.get(`/specs/${id}?${query.toString()}`);
-    return formatRead(spec);
+    return formatReadMaybeByReference(spec, outputPath);
   };
 }
 
@@ -33522,7 +33577,9 @@ var meetingGetSchema = {
   id: external_exports3.string().describe("Meeting id."),
   includeTranscript: external_exports3.boolean().optional().describe(
     "true = incluye rawTranscript completo en la respuesta. Default false (omitido) \u2014 evita el costo de tokens del transcript completo salvo pedido expl\xEDcito."
-  )
+  ),
+  // TKT-0368 — transporte por referencia en lectura (ver read-by-reference.ts).
+  ...readOutputPathSchema
 };
 var ParamsSchema5 = external_exports3.object(meetingGetSchema).strict();
 function makeMeetingGetHandler(client) {
@@ -33539,11 +33596,11 @@ function makeMeetingGetHandler(client) {
         ]
       };
     }
-    const { id, includeTranscript } = parsed.data;
+    const { id, includeTranscript, outputPath } = parsed.data;
     const meeting = await client.get(
       `/meetings/${id}?includeTranscript=${includeTranscript === true}`
     );
-    return formatRead(meeting);
+    return formatReadMaybeByReference(meeting, outputPath);
   };
 }
 
@@ -33567,7 +33624,9 @@ var specGetDocumentationSchema = {
   kind: SPEC_DOC_KIND_ENUM.optional().describe("Filter to a single documentation kind. Omitted \u2192 all 12 kinds."),
   includeHistory: external_exports3.boolean().optional().describe(
     "true = include full history per kind (with article.content). Default false (omitted) \u2014 returns historyCount per kind instead, avoiding the token cost of past revisions unless explicitly requested."
-  )
+  ),
+  // TKT-0368 — transporte por referencia en lectura (ver read-by-reference.ts).
+  ...readOutputPathSchema
 };
 var ParamsSchema6 = external_exports3.object(specGetDocumentationSchema).strict();
 function makeSpecGetDocumentationHandler(client) {
@@ -33584,12 +33643,12 @@ function makeSpecGetDocumentationHandler(client) {
         ]
       };
     }
-    const { specId, kind, includeHistory } = parsed.data;
+    const { specId, kind, includeHistory, outputPath } = parsed.data;
     const query = new URLSearchParams();
     if (kind) query.set("kind", kind);
     query.set("includeHistory", String(includeHistory === true));
     const doc = await client.get(`/specs/${specId}/documentation?${query.toString()}`);
-    return formatRead(doc);
+    return formatReadMaybeByReference(doc, outputPath);
   };
 }
 
@@ -33598,7 +33657,9 @@ var ihubGetTicketSchema = {
   id: external_exports3.string().describe("Ticket ID"),
   comments: external_exports3.enum(["recent", "all", "none"]).optional().describe(
     "recent (default) = \xFAltimos 10 comments/interactions(+replies)/children + commentCount/interactionCount. all = shape completo (comments/interactions/replies/children sin cotar). none = arrays vac\xEDos + counts."
-  )
+  ),
+  // TKT-0368 — transporte por referencia en lectura (ver read-by-reference.ts).
+  ...readOutputPathSchema
 };
 var ParamsSchema7 = external_exports3.object(ihubGetTicketSchema).strict();
 function makeIhubGetTicketHandler(client) {
@@ -33615,9 +33676,9 @@ function makeIhubGetTicketHandler(client) {
         ]
       };
     }
-    const { id, comments } = parsed.data;
+    const { id, comments, outputPath } = parsed.data;
     const ticket = await client.get(`/tickets/${id}?comments=${comments ?? "recent"}`);
-    return formatRead(ticket);
+    return formatReadMaybeByReference(ticket, outputPath);
   };
 }
 
@@ -34744,7 +34805,7 @@ server.tool(
         isError: true
       };
     }
-    const { readFileSync: readFileSync3, existsSync, writeFileSync, unlinkSync } = await import("fs");
+    const { readFileSync: readFileSync3, existsSync, writeFileSync: writeFileSync2, unlinkSync } = await import("fs");
     const { basename, extname, join } = await import("path");
     const { tmpdir } = await import("os");
     const mimeTypes = {
@@ -34786,7 +34847,7 @@ server.tool(
       const urlPath = new URL(validated.source).pathname;
       fileName = validated.filename || basename(urlPath) || "download";
       filePath = join(tmpdir(), `ihub-${Date.now()}-${fileName}`);
-      writeFileSync(filePath, buffer);
+      writeFileSync2(filePath, buffer);
       tempFile = true;
     } else {
       filePath = validated.source;

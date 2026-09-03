@@ -1,7 +1,7 @@
 {
-  "starterVersion": "0.2.22",
+  "starterVersion": "0.2.29",
   "schemaVersion": 2,
-  "generatedAt": "2026-08-11",
+  "generatedAt": "2026-09-03",
   "hashPolicy": {
     "note": "TKT-0252 — dos hashes con dos propositos distintos. Ninguno reemplaza al otro: el que verifica procedencia mira contentSha256, el que verifica la copia mira packageSha256.",
     "packageSha256": "sha256 del archivo tal cual quedo en vendor/. CHECKSUM DE COPIA: detecta corrupcion en el canal de publicacion (clon, normalizacion de fin de linea, transferencia). NO prueba procedencia cuando el artefacto es un contenedor: vsce escribe timestamps dentro del .vsix, asi que empaquetar el MISMO commit dos veces da dos valores distintos.",
@@ -18,11 +18,11 @@
       "version": "0.1.2",
       "sourceRepo": "IntegraSoftwareERP/integra-hub",
       "sourcePath": "mcp-server",
-      "sourceSha": "f92cec59e5fc0ec3b0011e8bbf51fdc792adada0",
-      "packageSha256": "d600ef09ea6e43c48fd0c36b07b37db04df2359d8844e43942a294ba74f91add",
+      "sourceSha": "08dfddb55771aaba51991979917d5ed8cfa08ca2",
+      "packageSha256": "06990142cc1e10b560d424cc3405bb6f612449abad8dff07a638f0f84d196a3f",
       "versionCommand": "node vendor/integra-hub-mcp.mjs --version",
-      "reproducibility": "esbuild sobre el mismo input produce el mismo output: VERIFICADO 2026-08-10 reconstruyendo el bundle desde 974c8b9 dos veces, y RE-VERIFICADO 2026-09-02 desde f92cec5 — las dos corridas de cada fecha dieron el mismo sha byte a byte. Por eso este componente NO necesita contentSha256: su packageSha256 ya identifica el contenido.",
-      "versionNote": "TKT-0362 — la version del paquete sigue en 0.1.2 y NO se bumpeo al re-vendorizar: mcp-server no la movio entre 9d62731 y f92cec5, igual que en TKT-0306 y TKT-0321. `--version` devuelve 0.1.2 para el bundle viejo y el nuevo, asi que NO sirve para distinguirlos desde la VM. Lo que los distingue es el sourceSha declarado aca y su packageSha256."
+      "reproducibility": "esbuild sobre el mismo input produce el mismo output: VERIFICADO 2026-08-10 reconstruyendo el bundle desde 974c8b9, RE-VERIFICADO 2026-09-02 desde f92cec5 y RE-VERIFICADO 2026-09-03 desde 08dfddb — las dos corridas de cada fecha dieron el mismo sha byte a byte. Por eso este componente NO necesita contentSha256: su packageSha256 ya identifica el contenido.",
+      "versionNote": "TKT-0362 / TKT-0368 — la version del paquete sigue en 0.1.2 y NO se bumpea al re-vendorizar: mcp-server no la movio entre 9d62731, f92cec5 y 08dfddb. `--version` devuelve 0.1.2 para el bundle viejo y el nuevo, asi que NO sirve para distinguirlos desde la VM. Lo que los distingue es el sourceSha declarado aca y su packageSha256."
     },
     {
       "name": "integra-hub-vscode",

@@ -2,6 +2,33 @@
 
 All notable changes to this project. Automatic — regenerado por `./scripts/changelog.sh`.
 
+## 0.2.29 - 2026-09-03 (TKT-0368 - re-vendorizado del bundle MCP con `outputPath`)
+
+El fix de TKT-0368 esta mergeado en `integra-hub` (PR #680, merge `08dfddb`), pero **mergearlo no
+lo pone en ningun room**: el room no corre el checkout, corre el bundle vendorizado que le copia
+`setup.sh` — `.mcp.json` queda con `node --use-system-ca vendor/integra-hub-mcp.mjs`. Mientras el
+bundle no se rehaga, `outputPath` no existe del lado del room y el muro del artefacto ilegible
+sigue igual de alto.
+
+`vendor/integra-hub-mcp.mjs` estaba buildeado desde `f92cec5`. Entre ese sha y el master actual hay
+**un solo commit que toca `mcp-server/`**: `a2d9702`, que es justamente TKT-0368. Drift real y de
+causa unica.
+
+Rebuildeado con `npm run build:bundle` desde `08dfddb`. Reproducibilidad re-verificada como manda
+la nota del propio manifiesto: dos corridas seguidas dieron `06990142...` byte a byte identicas, y
+difiere del vendorizado previo (`d600ef09...`) — o sea que el drift era de contenido y no un
+sourceSha desactualizado sobre bytes iguales.
+
+**La version del paquete sigue en 0.1.2 y no se bumpea** (igual que en TKT-0306, TKT-0321 y
+TKT-0362): `mcp-server` no la movio. `--version` devuelve 0.1.2 para el bundle viejo y el nuevo,
+asi que **no sirve para distinguirlos desde la VM**. Lo que los distingue es el `sourceSha` del
+MANIFEST y su `packageSha256`.
+
+**Lo que este release todavia NO hace:** publicar. `sync-starter.yml` no dispara al mergear a
+`main` — necesita un tag `starter-vX.Y.Z` o un `workflow_dispatch`. Y un room YA instalado tampoco
+se actualiza solo: hay que hacerle `git pull --ff-only` y volver a correr `setup.sh` para que se
+lleve el `vendor/` nuevo.
+
 ## 0.2.28 - 2026-09-03 (TKT-0367 ronda 2 - salen `docker compose *` y `git diff *`)
 
 La ronda 1 acoto `Bash(npx *)` y dejo escrito el criterio en `.claude/PERMISSIONS.md`. Esa misma
