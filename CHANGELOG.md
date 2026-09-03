@@ -2,6 +2,62 @@
 
 All notable changes to this project. Automatic — regenerado por `./scripts/changelog.sh`.
 
+## 0.2.28 - 2026-09-03 (TKT-0367 ronda 2 - salen `docker compose *` y `git diff *`)
+
+La ronda 1 acoto `Bash(npx *)` y dejo escrito el criterio en `.claude/PERMISSIONS.md`. Esa misma
+revision nombro **otras dos entradas que cumplian la misma vara y no se habian tocado**, a la
+espera de que el Operador decidiera. Decidio: salen las dos.
+
+- **`Bash(docker compose *)`** - `docker compose run -v /:/host <img> sh -c '...'` monta el
+  filesystem del host completo y corre con los privilegios del daemon: tan amplio como `npx`, o
+  mas. El relevamiento ademas mostro que **ningun flujo del room la usa**: las apariciones de
+  `docker compose` en el starter son documentacion de deploy on-premise del tier Suite, que corre
+  el DevOps del cliente en su infra. El `docker/` del starter son artefactos de build de PASOE, y
+  el README dice explicito que **no** incluye el `docker-compose.yml` del Hub. Sale sin costo.
+- **`Bash(git diff *)`** - `git diff --output=<archivo>` **escribe**: crea o pisa un archivo
+  arbitrario desde una entrada que se lee como de lectura. Ningun script ni hook del starter
+  invoca `git diff` (cero apariciones); lo usa el agente a mano.
+
+**Costo asumido a sabiendas:** `git diff` es lectura casi siempre y ahora pide confirmacion cada
+vez. La friccion es real y se acepto igual - una entrada que escribe archivos no puede estar
+auto-aprobada por la comodidad del caso feliz.
+
+Quedan **nueve** entradas. Y `scripts/test-permissions-allowlist.sh` suma un cuarto bloque: la
+lista de entradas **retiradas a proposito**, con el motivo de cada una. Hacia falta un diente
+propio - medido en vivo, reponer `docker compose *` pasaba los tres bloques anteriores en
+silencio: el primero no la caza (no es interprete ni lanzador de paquetes) y el tercero tampoco,
+porque PERMISSIONS.md la nombra en su seccion "Retiradas".
+
+Precision sobre el `node -e` que la ronda 1 nombro: el problema no es `node -e` en general - un
+`-e` de UNA linea imprime bien, y varios scripts de `scripts/` lo usan asi sin problema. Lo que
+termina con exit 0 y sin ninguna salida es pasarle un script MULTILINEA. Corregido el comentario
+del guard, que lo decia de mas.
+
+## 0.2.27 - 2026-09-02 (TKT-0367 - el allowlist se clasifica por lo que habilita)
+
+`Bash(npx *)` estaba en una lista que se lee entera como minimo privilegio: `git status`, `git log`,
+`git diff`, `git show`, `npm test`, `docker compose`. Se leyo como "correr una herramienta de npm",
+vecino inocente de `npm test`. **Lo que habilita es descargar y ejecutar cualquier paquete del
+registry** - ejecucion de codigo arbitraria, y auto-aprobada, en la maquina de todo room instanciado
+desde el template. ADVERSARIAL incluido, que por su funcion deberia tener los permisos mas chicos.
+
+En su lugar quedan las dos invocaciones concretas que el starter efectivamente instruye:
+`npx specoe-validate *` (la forma de `docs/CONFIGURATION.md` y de la cabecera de
+`project.config.yaml`) y `npx --no-install specoe-validate *` (la de `scripts/smoke-test.sh`). Son
+dos y no una porque el prefijo se matchea textual y los flags van antes del nombre del paquete.
+
+**Relevamiento previo, que es lo que el ticket pedia hacer antes de tocar nada:** ninguno de los
+rooms instanciados accesibles hereda la entrada - los seis de `IntegraSuiteAI` no declaran bloque
+`permissions`. El unico portador era el template. Y el unico `npx` que el starter instruye es
+`specoe-validate`; los `npx prisma` de `docs/TROUBLESHOOTING.md` son del repo de producto, no del
+room.
+
+**El criterio queda escrito al lado del archivo**, en `.claude/PERMISSIONS.md`: una entrada se
+clasifica por lo que habilita, nunca por lo que aparenta. Con la revision de las diez entradas
+vigentes, incluidas las dos que cumplen el mismo criterio y NO se tocaron en este ticket
+(`docker compose *`, y el `--output` de `git diff *`, que escribe archivos desde una entrada que se
+lee como de lectura). Acotarlas exige su propio relevamiento; sacarlas a ciegas rompe rooms en uso.
+
 ## 0.2.26 — 2026-09-02 (TKT-0362 — el auditor de hooks fantasma también viaja)
 
 **Un hook puede no correr por tres motivos distintos, y los tres se ven exactamente igual desde

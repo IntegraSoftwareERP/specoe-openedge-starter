@@ -147,11 +147,10 @@
       "Glob(**)",
       "Bash(git status)",
       "Bash(git log *)",
-      "Bash(git diff *)",
       "Bash(git show *)",
       "Bash(npm test *)",
-      "Bash(npx *)",
-      "Bash(docker compose *)"
+      "Bash(npx specoe-validate *)",
+      "Bash(npx --no-install specoe-validate *)"
     ]
   }
 }
