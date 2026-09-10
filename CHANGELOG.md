@@ -2,6 +2,67 @@
 
 All notable changes to this project. Automatic — regenerado por `./scripts/changelog.sh`.
 
+## 0.2.31 - 2026-09-09 (SPEC-0223 P5 - re-vendorizado del plugin VSCode 0.3.0)
+
+SPEC-0223 P5 esta mergeada en `integra-hub-vscode` (PR #20, merge `43533dc`), pero **mergearla no la
+pone en ninguna maquina**: el dev no instala desde el repo, instala el `.vsix` que le copia
+`setup.sh` desde `vendor/`. Mientras el artefacto no se rehaga, el disparador programado y el
+encadenamiento de tasks no existen del lado del dev.
+
+Y hay algo peor que la ausencia: el aviso de actualizacion del propio plugin diria **"estas al dia"**
+sobre un artefacto distinto, porque su capa 1 compara la version del MANIFEST contra la instalada y
+las dos decian 0.2.0 (TKT-0319).
+
+Rebuildeado con `npm run release:vsix` desde `fec7d97` (el merge del bump a 0.3.0, PR #21). El
+release verifica ANTES de empaquetar: CHANGELOG con la version movida, `compile` con el verificador
+read-only, la suite entera (240 casos) y que el commit sea ancestro de `origin/main` refrescado.
+Salio `publishable: true`.
+
+**La version del paquete SI se movio: 0.2.0 -> 0.3.0.** Es el caso contrario al del bundle MCP
+(TKT-0368, donde la version se dejo quieta a proposito): aca la version ES el discriminador de la
+capa 1 del aviso, asi que tenia que moverse para que el dev con 0.2.0 instalado vea que hay algo
+nuevo.
+
+Que trae 0.3.0 (detalle en el CHANGELOG del plugin):
+
+- El disparador programado que abre una sesion de agente sin humano presente, segun la
+  `PhaseSchedule` de la fase. Una ventana perdida NO se recupera fuera de su horario.
+- El encadenamiento de tasks por polling al Hub: la task siguiente arranca porque cambio lo que
+  contesta el Hub, no porque el plugin haya leido el terminal.
+- El unico POST autenticado que el plugin necesita, con el verificador read-only del build ampliado
+  a DOS rutas exactas y ni una mas. Un tercer POST pone el build en rojo.
+- Activacion en `onStartupFinished`: una ventana programada para las 22:00 no puede depender de que
+  alguien abra la vista del plugin.
+
+Los dos hashes se recalcularon con `scripts/vendor-hashes.mjs --zip` (la implementacion del
+CONSUMIDOR) y coinciden con los que emitio `scripts/vsix-content-hash.js` (la del PRODUCTOR), que es
+exactamente el cruce que verifica `test-vendor-manifest.sh`.
+
+## 0.2.30 - 2026-09-07 (TKT-0375 - re-vendorizado de `block-destructive-outside-worktree.mjs` + split de matcher)
+
+El fix de TKT-0374 esta mergeado en `integra-hub` (PR #716, merge `25b7e396`), pero mergearlo **no
+lo pone en ningun room**: el room no clona `integra-hub` ni corre su `install.mjs`, corre el bundle
+vendorizado que le copia `setup.sh` — mismo patron que TKT-0368.
+
+`.claude-bundle/hooks/block-destructive-outside-worktree.mjs` estaba vendorizado desde `88bfc9e`
+(TKT-0325/0327), **antes** de que TKT-0374 le agregara la rama que bloquea `Edit`/`Write`/
+`NotebookEdit` directo en el checkout principal de un repo con worktrees (antes solo `Bash` entraba
+a este hook). Rebuildeado 1:1 desde `25b7e396` (`sha256 bdefdf39...`, difiere del vendorizado previo
+`25f901fe...` — el drift era de contenido).
+
+**El settings versionado tenia el mismo agujero que ya se habia visto en la maquina del Operador
+(TKT-0374): el bloque `PreToolUse` con `matcher: "Bash"` corria juntos este hook y
+`block-no-verify.mjs`.** Separados en dos entradas — `block-destructive-outside-worktree.mjs` pasa a
+`matcher: "Bash|Edit|Write|NotebookEdit"`, `block-no-verify.mjs` se queda en `"Bash"` (no necesita
+mas: no mira archivos editados). Mismo split en el `ENTRIES` del merge de `setup.sh` que cubre los
+rooms ya existentes, aunque ahi el efecto practico queda acotado: el merge es ADD-ONLY por nombre de
+archivo y nunca reescribe una entrada que ya existe, asi que un room onboardeado desde TKT-0325
+(12-ago) no recupera la proteccion ampliada por esta via — solo un clon nuevo post-release la tiene
+completa desde el dia uno via el `.claude/settings.json` versionado.
+
+**Lo que este release todavia NO hace:** publicar. `sync-starter.yml` no dispara al mergear a `main`
+— necesita un tag `starter-vX.Y.Z` o un `workflow_dispatch`.
+
 ## 0.2.29 - 2026-09-03 (TKT-0368 - re-vendorizado del bundle MCP con `outputPath`)
 
 El fix de TKT-0368 esta mergeado en `integra-hub` (PR #680, merge `08dfddb`), pero **mergearlo no

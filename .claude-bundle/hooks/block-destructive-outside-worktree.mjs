@@ -2,13 +2,15 @@
 /**
  * block-destructive-outside-worktree.mjs
  *
- * PreToolUse hook (matcher: Bash) que ABORTA comandos destructivos cuyo PATH
- * RESUELTO cae FUERA del working dir del propio worktree, y `git stash`
- * mutador desde un worktree LINKED.
+ * PreToolUse hook (matcher: Bash|Edit|Write|NotebookEdit) que ABORTA:
+ *  - comandos Bash destructivos cuyo PATH RESUELTO cae FUERA del working dir
+ *    del propio worktree, y `git stash` mutador desde un worktree LINKED;
+ *  - Edit/Write/NotebookEdit directo en el checkout PRINCIPAL de un repo que
+ *    ya usa el patron de worktrees (TKT-0374).
  *
- * Discriminador = PATH RESUELTO (realpath siguiendo junctions/symlinks), NO el
- * nombre del comando. Regla firmada por el Arquitecto (TKT-0120,
- * comment cmr0si9gh00191257kd4x0qij).
+ * Discriminador de la parte Bash = PATH RESUELTO (realpath siguiendo
+ * junctions/symlinks), NO el nombre del comando. Regla firmada por el
+ * Arquitecto (TKT-0120, comment cmr0si9gh00191257kd4x0qij).
  *
  * Incidente origen: worktrees de C:\Integra\integra-hub comparten .git comun.
  *  - refs/stash es GLOBAL -> `git stash pop` desde un linked agarro el WIP del
@@ -16,13 +18,27 @@
  *  - node_modules del backend es junction -> principal -> `rm -rf node_modules`
  *    desde un worktree borro el .bin del principal (153 shims).
  *
+ * TKT-0374 — segundo incidente, mismo repo: nada bloqueaba un `Edit` nativo
+ * directo en el checkout principal (solo Bash entraba a este hook). Una
+ * sesion escribio 38 lineas ahi; otra, con su flujo normal de `checkout
+ * master` + `reset --hard origin/master`, las piso sin aviso (TKT-0373).
+ * `ack-task-enforcer.mjs` si mira Edit/Write/NotebookEdit pero valida otra
+ * cosa (ack de task activa), no el directorio. Este hook agrega esa pata:
+ * mismo discriminador de PATH RESUELTO, ahora sobre el archivo editado.
+ *
  * Reglas implementadas:
  *  1. git stash MUTADOR (push/save/pop/apply/drop/clear/store/branch/create o
  *     pelado): BLOQUEA si worktree LINKED (git-dir != git-common-dir).
  *     READ-ONLY (list/show): SIEMPRE PERMITE. En el principal: PERMITE todo.
  *  2. rm recursivo (-r/-R/--recursive, incl -rf) y git clean: resuelve cada
  *     path objetivo con realpath; si ALGUNO escapa del worktree root -> BLOQUEA.
- *  3. Cualquier otra cosa -> passthrough (exit 0).
+ *  3. Edit/Write/NotebookEdit: resuelve el directorio del archivo con
+ *     realpath; si el repo resultante NO esta linked (es el checkout
+ *     PRINCIPAL) Y ese repo ya tiene mas de un worktree registrado
+ *     (`git worktree list`) -> BLOQUEA. Un repo que nunca adopto el patron de
+ *     worktrees (una sola entrada) no se ve afectado — no le impone el
+ *     patron a nadie que no lo usa. Read/Grep/Glob no pasan por este hook.
+ *  4. Cualquier otra cosa -> passthrough (exit 0).
  *
  * Tratamiento de paths inexistentes: fs.realpathSync tira ENOENT en un path que
  * no existe (ej. `rm -rf no-existe`). Se resuelve el ANCESTRO EXISTENTE mas
@@ -53,12 +69,25 @@
  *  - Si un check destructivo lanza error inesperado -> BLOQUEA (falla-cerrado).
  * En todos los casos el bloqueo trae mensaje claro: correr standalone o desde
  * el principal. Mejor falla-cerrado avisando que romper el flujo normal.
+ *
+ * La rama Edit/Write/NotebookEdit (TKT-0374) es la EXCEPCION deliberada a ese
+ * criterio: corre en CADA edicion de CADA sesion (no detras de un fast-path
+ * por keyword como el Bash de arriba), asi que un falla-cerrado ahi bloquea
+ * el flujo normal de trabajo todo el tiempo, no solo ante un destructivo
+ * ocasional. Por eso, ante cualquier imposibilidad de determinar el contexto
+ * (no es repo git, `git worktree list` no corre) -> PERMITE (fail-OPEN). El
+ * unico camino a BLOQUEA es la confirmacion positiva: repo git, checkout
+ * NO linked (principal), y `git worktree list` devuelve mas de una entrada.
  */
 
 import { readFileSync, realpathSync, existsSync, lstatSync, readdirSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import path from 'node:path';
 import os from 'node:os';
+
+// TKT-0374 — tools que escriben archivo directo (vs. Bash, que llega en su
+// propia rama). Mismo set que el matcher de `ack-task-enforcer.mjs`.
+const EDIT_TOOLS = new Set(['Edit', 'Write', 'NotebookEdit']);
 
 // ---------------------------------------------------------------------------
 // I/O helpers (calcado de pre-mutation-validator.mjs)
@@ -112,6 +141,26 @@ function blockFailClosed(reason, cmd) {
       `\n` +
       `Corre el comando standalone (sin subshell/encadenamiento ni \`git -C\`),\n` +
       `o desde el repo principal.\n`,
+  );
+  process.exit(2);
+}
+
+// TKT-0374 — Edit/Write/NotebookEdit directo en el checkout PRINCIPAL de un
+// repo que ya usa worktrees.
+function blockEdit(toolName, filePath, top) {
+  process.stderr.write(
+    `BLOQUEADO: ${toolName} directo en el checkout PRINCIPAL de un repo con worktrees.\n` +
+      `\n` +
+      `Archivo: ${filePath}\n` +
+      `Repo: ${top}\n` +
+      `\n` +
+      `Este repo ya usa el patron de worktrees (\`git worktree list\` tiene mas de\n` +
+      `una entrada) — el checkout principal es base limpia compartida por otras\n` +
+      `sesiones/procesos, no banco de trabajo: un checkout/reset ajeno puede pisar\n` +
+      `esta edicion sin aviso.\n` +
+      `Crea tu propio worktree antes de editar:\n` +
+      `  git worktree add .worktrees/<slug> -b <branch> origin/master\n` +
+      `y edita ahi.\n`,
   );
   process.exit(2);
 }
@@ -333,6 +382,24 @@ function gitContext(cwd) {
   }
 }
 
+// TKT-0374 — cuantos worktrees tiene registrados el repo cuyo toplevel es
+// `top`. Fail-OPEN a proposito (ver nota de cabecera): si el comando falla,
+// devuelve 1 (como si no hubiera ninguno mas alla del principal) para que el
+// caller nunca bloquee por no poder medir.
+function countWorktrees(top) {
+  try {
+    const out = execSync('git worktree list --porcelain', {
+      cwd: top,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    const n = (out.match(/^worktree /gm) || []).length;
+    return n || 1;
+  } catch {
+    return 1;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // git subcommand detection
 // ---------------------------------------------------------------------------
@@ -428,6 +495,31 @@ function main() {
   try {
     payload = JSON.parse(raw);
   } catch {
+    process.exit(0);
+  }
+
+  // TKT-0374 — Edit/Write/NotebookEdit directo en el checkout principal.
+  // Rama independiente de la de Bash de mas abajo: distinto payload shape,
+  // distinto criterio (fail-OPEN, ver nota de cabecera), y sale antes de
+  // llegar al filtro que descarta todo lo que no sea Bash.
+  if (EDIT_TOOLS.has(payload.tool_name)) {
+    const filePath =
+      payload.tool_name === 'NotebookEdit'
+        ? payload.tool_input?.notebook_path
+        : payload.tool_input?.file_path;
+    if (!filePath) process.exit(0);
+
+    const cwd = payload.cwd || process.cwd();
+    const abs = path.isAbsolute(filePath) ? filePath : path.resolve(cwd, filePath);
+    const dir = realpathNearestExisting(path.dirname(abs));
+
+    const git = gitContext(dir);
+    if (!git) process.exit(0); // no es repo git -> permite
+    if (git.linked) process.exit(0); // ya esta en un worktree linked -> permite
+
+    if (countWorktrees(git.top) > 1) {
+      blockEdit(payload.tool_name, filePath, git.top);
+    }
     process.exit(0);
   }
 

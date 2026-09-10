@@ -1,7 +1,7 @@
 {
-  "starterVersion": "0.2.29",
+  "starterVersion": "0.2.30",
   "schemaVersion": 2,
-  "generatedAt": "2026-09-03",
+  "generatedAt": "2026-09-09",
   "hashPolicy": {
     "note": "TKT-0252 — dos hashes con dos propositos distintos. Ninguno reemplaza al otro: el que verifica procedencia mira contentSha256, el que verifica la copia mira packageSha256.",
     "packageSha256": "sha256 del archivo tal cual quedo en vendor/. CHECKSUM DE COPIA: detecta corrupcion en el canal de publicacion (clon, normalizacion de fin de linea, transferencia). NO prueba procedencia cuando el artefacto es un contenedor: vsce escribe timestamps dentro del .vsix, asi que empaquetar el MISMO commit dos veces da dos valores distintos.",
@@ -28,12 +28,12 @@
       "name": "integra-hub-vscode",
       "file": "integra-hub-vscode.vsix",
       "artifactKind": "zip",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "sourceRepo": "IntegraSoftwareERP/integra-hub-vscode",
       "sourcePath": ".",
-      "sourceSha": "0e8761d948db7f49d85d0806d31fd70c985ced9d",
-      "packageSha256": "09579eafc0c8ed0ac90c1561cf793768fcb332f501f7c0b44ae9f3a288ab0902",
-      "contentSha256": "bac716df71a163cf3f7e33e5f746cb8419d906ef66a02e19246f4133a62ed406",
+      "sourceSha": "fec7d97fadb6201ae0d69da8f260feb0dd5efede",
+      "packageSha256": "94533525faaa02f215e3ad21989d5e595a885604b0155fb9b06ebe4e5d987f69",
+      "contentSha256": "5a7b669b086b6527b6970be8032d0322afd3ad02402292a2d10ea5a37938c59c",
       "reproducibility": "vsce NO es determinista: dos corridas del commit dcb3790 dieron dos packageSha256 distintos (952d5b3f... y 4fdc4fd8...) con el mismo contenido — las dos dan el mismo contentSha256 797c0cd9... VERIFICADO 2026-08-10 empaquetando dos veces desde dcb3790, que reproduce lo medido el 2026-07-31 sobre 7c58a55 (tres corridas, tres packageSha256, un solo contentSha256)."
     },
     {
@@ -98,9 +98,9 @@
       "artifactKind": "file",
       "sourceRepo": "IntegraSoftwareERP/integra-hub",
       "sourcePath": "hooks/block-destructive-outside-worktree.mjs",
-      "sourceSha": "88bfc9ec37e8670e9b6c949f1d05a1ec6886b7a4",
-      "packageSha256": "25f901fe6436db67b78824ff560e7cdd6c470595d10f8cd5be71f038f16b1a36",
-      "note": "TKT-0120 el hook, TKT-0325 su versionado, TKT-0327 su arreglo — y recien acá su distribucion. Aborta los destructivos cuyo path RESUELTO escapa del worktree y el git stash mutador desde un worktree linked. Vivia desde TKT-0120 unicamente en la maquina del Operador: ningun dev del tenant lo tuvo nunca. Se vendoriza DESPUES de TKT-0327 a proposito — antes de ese arreglo tenia un fail-OPEN en Windows y mandarlo asi habria repartido el hueco."
+      "sourceSha": "25b7e396745b7120818a318b2469ab13065d4e01",
+      "packageSha256": "bdefdf391922e4f5369f18395971f27cea398851de991ae6f58e9fbff97dbedd",
+      "note": "TKT-0120 el hook, TKT-0325 su versionado, TKT-0327 su arreglo, TKT-0362 el sourceSha corregido al merge — y recien acá su distribucion. Aborta los destructivos cuyo path RESUELTO escapa del worktree y el git stash mutador desde un worktree linked. Vivia desde TKT-0120 unicamente en la maquina del Operador: ningun dev del tenant lo tuvo nunca. Se vendoriza DESPUES de TKT-0327 a proposito — antes de ese arreglo tenia un fail-OPEN en Windows y mandarlo asi habria repartido el hueco. TKT-0374 agrega una rama independiente: bloquea tambien Edit/Write/NotebookEdit directo en el checkout PRINCIPAL de un repo con worktrees (antes solo Bash entraba a este hook) — TKT-0375 revendoriza ese fix a este canal."
     },
     {
       "name": "hooks-audit",

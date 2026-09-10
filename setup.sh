@@ -1021,13 +1021,17 @@ const ENTRIES = [
     match: 'ack-task-enforcer.mjs',
     hook: { type: 'command', command: 'node $HOME/.claude/hooks/ack-task-enforcer.mjs', timeout: 5, shell: 'bash' },
   },
-  // TKT-0325 / TKT-0327 — los dos de disciplina de git, matcher Bash. Van en el settings del
-  // ROOM por el mismo motivo que el enforcer: miran el comando, no el cwd. A nivel maquina
-  // gatearian TODA sesion de Claude Code de esa computadora, incluidos proyectos que no son de
-  // Integra — y las dos reglas que hacen cumplir son de los repos de Integra, no del universo.
+  // TKT-0325 / TKT-0327 — los dos de disciplina de git. Van en el settings del ROOM por el
+  // mismo motivo que el enforcer: block-no-verify mira el comando (matcher Bash); desde
+  // TKT-0374/0375 block-destructive-outside-worktree ademas mira el archivo editado (matcher
+  // Bash|Edit|Write|NotebookEdit). A nivel maquina gatearian TODA sesion de Claude Code de esa
+  // computadora, incluidos proyectos que no son de Integra — y las reglas que hacen cumplir son
+  // de los repos de Integra, no del universo.
   {
     event: 'PreToolUse',
-    matcher: 'Bash',
+    // TKT-0375 — TKT-0374 le agrego a este hook una rama independiente que bloquea
+    // Edit/Write/NotebookEdit directo en el checkout principal (antes solo Bash entraba).
+    matcher: 'Bash|Edit|Write|NotebookEdit',
     match: 'block-destructive-outside-worktree.mjs',
     hook: { type: 'command', command: 'node $HOME/.claude/hooks/block-destructive-outside-worktree.mjs', timeout: 5, shell: 'bash' },
   },
