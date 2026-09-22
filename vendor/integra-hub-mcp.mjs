@@ -33245,6 +33245,559 @@ async function strictApply(schema, params, body) {
   }
 }
 
+// src/typed-content.ts
+var TYPED_CONTENT_CATALOG_PATH = "/typed-content/types?detail=full";
+function applyLimits(schema, limits) {
+  const copy = JSON.parse(JSON.stringify(schema));
+  if (!limits) return copy;
+  const walk = (node, path3) => {
+    if (node.type === "object" && node.properties && typeof node.properties === "object") {
+      for (const [key, child] of Object.entries(node.properties)) {
+        if (!path3 && key === "type") continue;
+        walk(child, path3 ? `${path3}.${key}` : key);
+      }
+    } else if (node.type === "array") {
+      const max = limits.maxItems[path3];
+      if (max !== void 0) node.maxItems = max;
+      if (node.items && typeof node.items === "object") walk(node.items, `${path3}[]`);
+    } else if (node.type === "string") {
+      const max = limits.maxLength[path3];
+      if (max !== void 0 && "maxLength" in node) node.maxLength = max;
+    }
+  };
+  walk(copy, "");
+  return copy;
+}
+var GateRequiredNotPersistableError = class extends Error {
+  constructor() {
+    super(
+      "verification_tokens.gate_required no se persiste en un valor tipado: Evidence no tiene ese tipo (backend pieces.ts). Un claim sin verificar mecanicamente no se registra como verificado \u2014 el hook de verificacion ejecutable lo bloquea igual (fail-closed, seccion 5.4). Resolv\xE9 el claim con otro token o sacalo del contenido."
+    );
+  }
+};
+function tokensToEvidence(tokens) {
+  if (!tokens) return [];
+  if (tokens.gate_required) throw new GateRequiredNotPersistableError();
+  const out = [];
+  if (tokens.presence) out.push({ type: "presence", claim: tokens.presence.claim, src: tokens.presence.src, quote: tokens.presence.quote });
+  if (tokens.absence) {
+    out.push({ type: "absence", claim: tokens.absence.claim, src: tokens.absence.target, confirmedBy: tokens.absence.confirmedBy });
+  }
+  if (tokens.absence_at) {
+    out.push({ type: "absence_at", claim: tokens.absence_at.claim, src: tokens.absence_at.target, quote: tokens.absence_at.asOf });
+  }
+  if (tokens.external) {
+    out.push({
+      type: "external",
+      claim: tokens.external.claim,
+      src: tokens.external.src,
+      ...tokens.external.quote ? { quote: tokens.external.quote } : {}
+    });
+  }
+  if (tokens.operator_decision) {
+    out.push({
+      type: "operator_decision",
+      claim: tokens.operator_decision.claim,
+      src: tokens.operator_decision.date,
+      quote: tokens.operator_decision.quote
+    });
+  }
+  return out;
+}
+function hasTokens(tokens) {
+  return !!tokens && Object.values(tokens).some((v) => v !== void 0 && v !== null);
+}
+var TypedContentCatalog = class _TypedContentCatalog {
+  constructor(entries, loadError = null) {
+    this.loadError = loadError;
+    this.entries = new Map((entries ?? []).map((e) => [e.typeKey, e]));
+  }
+  loadError;
+  entries;
+  zodCache = /* @__PURE__ */ new Map();
+  /**
+   * Una sola request al backend. Nunca tira: si falla (red, auth, timeout, respuesta sin `types`),
+   * devuelve un catalogo vacio con `loadError`, y cada tool cae a su schema minimo.
+   */
+  static async load(client, opts = {}) {
+    const timeoutMs = opts.timeoutMs ?? 1e4;
+    let timer;
+    try {
+      const timeout = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`timeout de ${timeoutMs} ms`)), timeoutMs);
+      });
+      const res = await Promise.race([client.get(TYPED_CONTENT_CATALOG_PATH), timeout]);
+      if (!res || !Array.isArray(res.types)) {
+        return new _TypedContentCatalog(null, "la respuesta no trae `types`");
+      }
+      return new _TypedContentCatalog(res.types);
+    } catch (err) {
+      return new _TypedContentCatalog(null, err instanceof Error ? err.message : String(err));
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+  get available() {
+    return this.loadError === null;
+  }
+  entry(typeKey) {
+    return this.entries.get(typeKey);
+  }
+  /** Por que el schema de `typeKey` no se pudo anunciar, o null si se anuncia entero. */
+  unavailableReason(typeKey) {
+    if (this.loadError) return `catalogo no cargado al arrancar el MCP: ${this.loadError}`;
+    const e = this.entries.get(typeKey);
+    if (!e) return `el backend no declara el typeKey '${typeKey}'`;
+    if (e.error) return `${e.error.code}: ${e.error.message}`;
+    if (!e.schema) return `el backend no devolvio el esquema de '${typeKey}'`;
+    return null;
+  }
+  /** ¿El valor tipado de `typeKey` tiene el campo `verification: Evidence[]`? */
+  supportsVerification(typeKey) {
+    const props = this.entries.get(typeKey)?.schema?.properties;
+    return !!props && "verification" in props;
+  }
+  /** El valor tipado COMPLETO de `typeKey` — `{ type, ...campos }` — con los topes del tenant. */
+  value(typeKey) {
+    const cached2 = this.zodCache.get(typeKey);
+    if (cached2) return cached2;
+    const reason = this.unavailableReason(typeKey);
+    const e = this.entries.get(typeKey);
+    const schema = reason || !e?.schema ? minimalValue(typeKey, reason ?? "sin esquema") : external_exports3.fromJSONSchema(applyLimits(e.schema, e.limits));
+    this.zodCache.set(typeKey, schema);
+    return schema;
+  }
+  /** Uno de varios valores tipados, discriminado por `type`. */
+  oneOf(typeKeys) {
+    if (typeKeys.length === 1) return this.value(typeKeys[0]);
+    const options = typeKeys.map((k) => this.value(k));
+    try {
+      return external_exports3.discriminatedUnion("type", options);
+    } catch {
+      return external_exports3.union(options);
+    }
+  }
+  /**
+   * La PARTE `path` (primer nivel) del valor de `typeKey`: el campo que el DTO recibe y el server
+   * compone en el valor completo (`reason` de comment.system, `justification` de
+   * doc.RISK_ACCEPTANCE, `resolution` de doc.BLOCKED_RESOLUTION — ADR-013 punto 9).
+   */
+  part(typeKey, path3) {
+    const key = `${typeKey}#${path3}`;
+    const cached2 = this.zodCache.get(key);
+    if (cached2) return cached2;
+    const e = this.entries.get(typeKey);
+    const reason = this.unavailableReason(typeKey);
+    const node = e?.schema ? applyLimits(e.schema, e.limits).properties?.[path3] : void 0;
+    const schema = reason || !node ? external_exports3.record(external_exports3.string(), external_exports3.unknown()).describe(`Parte '${path3}' de ${typeKey}. Schema no disponible (${reason ?? "path ausente"}): el backend valida la forma.`) : external_exports3.fromJSONSchema(node);
+    this.zodCache.set(key, schema);
+    return schema;
+  }
+};
+function minimalValue(typeKey, reason) {
+  return external_exports3.object({ type: external_exports3.literal(typeKey) }).catchall(external_exports3.unknown()).describe(
+    `Valor tipado ${typeKey}. El schema completo no se pudo anunciar (${reason}); el backend valida la forma y los topes igual (422 TYPED_CONTENT_*). Reinici\xE1 el MCP para ver los campos.`
+  );
+}
+function attachVerification(catalog, values, tokens) {
+  if (!hasTokens(tokens)) return { persisted: false, requested: false };
+  const target = values.find(
+    (v) => !!v && typeof v.type === "string" && catalog.supportsVerification(v.type)
+  );
+  if (!target) return { persisted: false, requested: true };
+  const evidence = tokensToEvidence(tokens);
+  const current = Array.isArray(target.verification) ? target.verification : [];
+  target.verification = [...current, ...evidence];
+  return { persisted: true, requested: true };
+}
+var TOKENS_NOT_PERSISTED_NOTICE = "NOTA: los verification_tokens no se persistieron: ningun valor tipado de este request declara `verification` (o el request no lleva contenido). Sirvieron para el hook de verificacion ejecutable; si tienen que quedar en el Hub, van en un valor cuyo tipo declare `verification`.";
+var TypedToolInputError = class extends Error {
+};
+async function runTypedTool(schema, params, body) {
+  try {
+    return await body(schema.parse(params));
+  } catch (e) {
+    if (e instanceof external_exports3.ZodError) return typedToolError(`Schema validation failed: ${formatZodError(e)}`);
+    if (e instanceof GateRequiredNotPersistableError || e instanceof TypedToolInputError) return typedToolError(e.message);
+    throw e;
+  }
+}
+function requireTypeIn(value, allowed, field, why) {
+  if (!value) return;
+  if (typeof value.type !== "string" || !allowed.includes(value.type)) {
+    throw new TypedToolInputError(
+      `${field}.type='${String(value.type)}' no corresponde: ${why} exige ${allowed.map((k) => `'${k}'`).join(" | ")}.`
+    );
+  }
+}
+function typedToolResult(result, notices3 = []) {
+  return {
+    content: [
+      { type: "text", text: JSON.stringify(result, null, 2) },
+      ...notices3.map((text) => ({ type: "text", text }))
+    ]
+  };
+}
+function typedToolError(text) {
+  return { isError: true, content: [{ type: "text", text }] };
+}
+function typedFieldDescription(typeKeys, extra = "") {
+  const list = typeKeys.map((k) => `'${k}'`).join(" | ");
+  return `Valor tipado del registro typed-content: un objeto { type: ${list}, ...campos } (SPEC-0220). Un string plano rebota 422 TYPED_CONTENT_LEGACY_SHAPE. Los verification_tokens de la tool viajan como su campo \`verification\` cuando el tipo lo declara.` + (extra ? ` ${extra}` : "");
+}
+
+// src/tools/typed-comment-tools.ts
+var COMMENT_CATEGORY_TYPE_KEYS = {
+  decision: ["comment.decision"],
+  bugfix: ["comment.bugfix"],
+  handoff: ["comment.handoff"],
+  comment: [
+    "comment.OPERATOR_CORRECTION",
+    "comment.RETRACTION",
+    "comment.CONTENT_NOTICE",
+    "comment.STATUS",
+    "comment.ROUTE",
+    "comment.ROUTE_ACK",
+    "comment.REVIEW"
+  ]
+};
+var COMMENT_TYPE_KEYS = Object.values(COMMENT_CATEGORY_TYPE_KEYS).flat();
+var CATEGORIES = ["comment", "decision", "bugfix", "handoff"];
+function withNotice(persisted) {
+  return persisted.requested && !persisted.persisted ? [TOKENS_NOT_PERSISTED_NOTICE] : [];
+}
+var SPEC_COMMENT_DESCRIPTION = 'Add a comment to a Spec (spec-level) or to a Phase within the Spec (phase-level). When `phaseId` is provided, routes to POST /specs/:specId/phases/:phaseId/comments (SpecPhaseComment); when omitted, to POST /specs/:specId/comments (SpecComment). SPEC-0220: `content` is a TYPED value, not markdown: category=decision \u2192 { type: "comment.decision", ... }, bugfix \u2192 "comment.bugfix", handoff \u2192 "comment.handoff", comment \u2192 one of the seven comment.<PURPOSE> (OPERATOR_CORRECTION, RETRACTION, CONTENT_NOTICE, STATUS, ROUTE, ROUTE_ACK, REVIEW). A plain string gets 422 TYPED_CONTENT_LEGACY_SHAPE (rebuild the role MCP). verification_tokens travel as `content.verification` (Evidence[]), never as a `## Verification` table. Strict-required for decision/bugfix once MCP_SERVER_RELEASE >= 0.2.0; comment/handoff never require tokens. category=closeout goes through spec_closeout / phase_closeout; operator_correction was deprecated by ADR-023 (use decision_supersede).';
+function specCommentShape(catalog) {
+  return {
+    id: external_exports3.string().describe("Spec ID (cuid) \u2014 always required, identifies the parent Spec regardless of routing."),
+    content: catalog.oneOf(COMMENT_TYPE_KEYS).describe(
+      typedFieldDescription(
+        COMMENT_TYPE_KEYS,
+        "category=decision|bugfix|handoff exige comment.<esa>; category=comment acepta los siete comment.<PURPOSE>."
+      )
+    ),
+    internal: external_exports3.boolean().optional(),
+    // El enum va en las DOS capas (shape externo + .strict() interno) o el SDK lo stripea — aca es
+    // un solo objeto para las dos (ParamsSchema = z.object(specCommentShape(...)).strict()).
+    category: external_exports3.enum(CATEGORIES).optional(),
+    phaseId: external_exports3.string().optional().describe("Optional Phase ID (cuid). When provided, the comment targets the phase instead of the spec."),
+    verification_tokens: tokensSchema.nullable().optional()
+  };
+}
+function makeSpecCommentHandler(client, catalog) {
+  const ParamsSchema17 = external_exports3.object(specCommentShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema17, params, async (validated) => {
+    const category = validated.category ?? "comment";
+    if (isStrictPeriod && (category === "decision" || category === "bugfix") && !validated.verification_tokens) {
+      return typedToolError(
+        `Schema validation failed: verification_tokens object required when category="${category}" post MCP_SERVER_RELEASE>=0.2.0 (skill staff-verification-protocol).`
+      );
+    }
+    const content = validated.content;
+    requireTypeIn(content, COMMENT_CATEGORY_TYPE_KEYS[category], "content", `category='${category}'`);
+    const tokens = attachVerification(catalog, [content], validated.verification_tokens);
+    const path3 = validated.phaseId ? `/specs/${validated.id}/phases/${validated.phaseId}/comments` : `/specs/${validated.id}/comments`;
+    const comment = await client.post(path3, { content, internal: validated.internal, category });
+    return typedToolResult(comment, withNotice(tokens));
+  });
+}
+var SPEC_LOG_DECISION_DESCRIPTION = 'Log a technical decision in a Spec phase (category=decision, fixed). SPEC-0220: `content` is a typed comment.decision value ({ type: "comment.decision", title, decisions[{ title, decision, alternatives[] , ... }], ... }), not markdown \u2014 a plain string gets 422 TYPED_CONTENT_LEGACY_SHAPE. verification_tokens travel as `content.verification` (Evidence[]). Strict-enforced once MCP_SERVER_RELEASE >= 0.2.0.';
+var SPEC_LOG_BUGFIX_DESCRIPTION = 'Log a bug found and its fix in a Spec phase (category=bugfix, fixed). SPEC-0220: `content` is a typed comment.bugfix value ({ type: "comment.bugfix", ... bugs[{ title, symptom, rootCause, fix }] ... }), not markdown \u2014 a plain string gets 422 TYPED_CONTENT_LEGACY_SHAPE. verification_tokens travel as `content.verification` (Evidence[]). Strict-enforced once MCP_SERVER_RELEASE >= 0.2.0.';
+function specLogDecisionShape(catalog) {
+  return {
+    specId: external_exports3.string(),
+    phaseId: external_exports3.string(),
+    content: catalog.value("comment.decision").describe(typedFieldDescription(["comment.decision"])),
+    verification_tokens: verificationTokensField,
+    internal: external_exports3.boolean().optional()
+  };
+}
+function specLogBugfixShape(catalog) {
+  return {
+    specId: external_exports3.string(),
+    phaseId: external_exports3.string(),
+    content: catalog.value("comment.bugfix").describe(typedFieldDescription(["comment.bugfix"])),
+    verification_tokens: verificationTokensField,
+    internal: external_exports3.boolean().optional()
+  };
+}
+function makeSpecLogDecisionHandler(client, catalog) {
+  const ParamsSchema17 = external_exports3.object(specLogDecisionShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema17, params, async (validated) => {
+    const content = validated.content;
+    requireTypeIn(content, COMMENT_CATEGORY_TYPE_KEYS.decision, "content", "spec_log_decision");
+    const tokens = attachVerification(catalog, [content], validated.verification_tokens);
+    const comment = await client.post(`/specs/${validated.specId}/phases/${validated.phaseId}/comments`, {
+      content,
+      internal: validated.internal,
+      category: "decision"
+    });
+    return typedToolResult(comment, withNotice(tokens));
+  });
+}
+function makeSpecLogBugfixHandler(client, catalog) {
+  const ParamsSchema17 = external_exports3.object(specLogBugfixShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema17, params, async (validated) => {
+    const content = validated.content;
+    requireTypeIn(content, COMMENT_CATEGORY_TYPE_KEYS.bugfix, "content", "spec_log_bugfix");
+    const tokens = attachVerification(catalog, [content], validated.verification_tokens);
+    const comment = await client.post(`/specs/${validated.specId}/phases/${validated.phaseId}/comments`, {
+      content,
+      internal: validated.internal,
+      category: "bugfix"
+    });
+    return typedToolResult(comment, withNotice(tokens));
+  });
+}
+var PHASE_CLOSEOUT_DESCRIPTION = "Post a canonical phase-level closeout (category=closeout) summarising a phase being COMPLETED. SPEC-0220: `content` is a typed comment.closeout value \u2014 the five canonical sections (built, decisions, bugs, operatorCorrections, metrics) are FIELDS of the type, not markdown headers; a plain string gets 422 TYPED_CONTENT_LEGACY_SHAPE. Allowed on COMPLETED/SKIPPED phases (append-only-on-completion). verification_tokens travel as `content.verification` (Evidence[]). Strict-enforced once MCP_SERVER_RELEASE >= 0.2.0.";
+var SPEC_CLOSEOUT_DESCRIPTION = "Post a spec-level closeout (category=closeout) \u2014 the executive audit summary written when a SPEC is being closed. SPEC-0220: `content` is a typed comment.closeout value, not markdown; a plain string gets 422 TYPED_CONTENT_LEGACY_SHAPE. Does NOT enforce the 3-mandatory-docs guard: that lives in the COMPLETED transition (PATCH :id/complete \u2192 422 CLOSEOUT_DOCS_MISSING). verification_tokens travel as `content.verification` (Evidence[]). Strict-enforced once MCP_SERVER_RELEASE >= 0.2.0.";
+function phaseCloseoutShape(catalog) {
+  return {
+    specId: external_exports3.string(),
+    phaseId: external_exports3.string(),
+    content: catalog.value("comment.closeout").describe(typedFieldDescription(["comment.closeout"])),
+    verification_tokens: verificationTokensField,
+    internal: external_exports3.boolean().optional()
+  };
+}
+function specCloseoutShape(catalog) {
+  return {
+    specId: external_exports3.string(),
+    content: catalog.value("comment.closeout").describe(typedFieldDescription(["comment.closeout"])),
+    verification_tokens: verificationTokensField,
+    internal: external_exports3.boolean().optional()
+  };
+}
+function makePhaseCloseoutHandler(client, catalog) {
+  const ParamsSchema17 = external_exports3.object(phaseCloseoutShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema17, params, async (validated) => {
+    const content = validated.content;
+    requireTypeIn(content, ["comment.closeout"], "content", "phase_closeout");
+    const tokens = attachVerification(catalog, [content], validated.verification_tokens);
+    const comment = await client.post(`/specs/${validated.specId}/phases/${validated.phaseId}/closeout`, {
+      content,
+      internal: validated.internal
+    });
+    return typedToolResult(comment, withNotice(tokens));
+  });
+}
+function makeSpecCloseoutHandler(client, catalog) {
+  const ParamsSchema17 = external_exports3.object(specCloseoutShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema17, params, async (validated) => {
+    const content = validated.content;
+    requireTypeIn(content, ["comment.closeout"], "content", "spec_closeout");
+    const tokens = attachVerification(catalog, [content], validated.verification_tokens);
+    const comment = await client.post(`/specs/${validated.specId}/closeout`, { content, internal: validated.internal });
+    return typedToolResult(comment, withNotice(tokens));
+  });
+}
+
+// src/tools/typed-spec-tools.ts
+function notices(t) {
+  return t.requested && !t.persisted ? [TOKENS_NOT_PERSISTED_NOTICE] : [];
+}
+var PRIORITY = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
+var PHASE_STATUS = ["PENDING", "IN_PROGRESS", "REVIEW", "COMPLETED", "BLOCKED", "SKIPPED"];
+var TASK_PRIORITY = ["NOW", "NEXT", "LATER"];
+var SPEC_CREATE_DESCRIPTION = "Create a new Spec (initiative/project) with optional initial phases. workspaceId+projectId+moduleId are REQUIRED in NEW Specs once the tenant has Workspaces defined (post-F4) \u2014 backend rejects with 400 BadRequest otherwise. SPEC-0220: `description` is a typed spec.description value and each `phases[].description` a typed specPhase.description value \u2014 not markdown; a plain string gets 422 TYPED_CONTENT_LEGACY_SHAPE. verification_tokens travel as `description.verification` (Evidence[]). Strict-enforced once MCP_SERVER_RELEASE >= 0.2.0.";
+function specCreateShape(catalog) {
+  return {
+    title: external_exports3.string().describe("Spec title"),
+    description: catalog.value("spec.description").describe(typedFieldDescription(["spec.description"])),
+    priority: external_exports3.enum(PRIORITY).optional(),
+    category: external_exports3.string().optional().describe("Category: feature, migration, productization, bugfix-epic"),
+    tags: external_exports3.array(external_exports3.string()).optional(),
+    clientId: external_exports3.string().optional(),
+    targetDate: external_exports3.string().optional().describe("Target date ISO"),
+    phases: external_exports3.array(
+      external_exports3.object({
+        name: external_exports3.string(),
+        description: catalog.value("specPhase.description").optional()
+      }).strict()
+    ).optional().describe("Initial phases to create. `description` of each one is a typed specPhase.description value."),
+    workspaceId: external_exports3.string().optional().describe("workspace owner. REQUIRED in NEW Specs post-F4 (operator correction cmokio7e6003zjzdbnwjhaldc)."),
+    projectId: external_exports3.string().optional().describe("project owner. REQUIRED in NEW Specs post-F4."),
+    moduleId: external_exports3.string().optional().describe("module owner. REQUIRED in NEW Specs post-F4."),
+    submoduleId: external_exports3.string().optional().describe("submodule owner. REQUIRED iff the chosen module has submodules defined."),
+    verification_tokens: verificationTokensField
+  };
+}
+function makeSpecCreateHandler(client, catalog) {
+  const ParamsSchema17 = external_exports3.object(specCreateShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema17, params, async ({ verification_tokens, ...body }) => {
+    const tokens = attachVerification(catalog, [body.description], verification_tokens);
+    const spec = await client.post("/specs", body);
+    return typedToolResult(spec, notices(tokens));
+  });
+}
+var SPEC_UPDATE_DESCRIPTION = "Update Spec title, description, priority, targetDate. stateId REMOVIDO \u2014 spec_update ya NO transiciona el estado de una SPEC por ning\xFAn target; toda transici\xF3n va por su tool/endpoint dedicado (approve/start/complete/block/cancel/start-discovery/approve-adversarial/handoff/request-engineering-review/reject). SPEC-0220: `description` is a typed spec.description value, not markdown; a plain string gets 422 TYPED_CONTENT_LEGACY_SHAPE. verification_tokens travel as `description.verification` (Evidence[]).";
+function specUpdateShape(catalog) {
+  return {
+    id: external_exports3.string(),
+    title: external_exports3.string().optional(),
+    description: catalog.value("spec.description").optional().describe(typedFieldDescription(["spec.description"])),
+    priority: external_exports3.enum(PRIORITY).optional(),
+    targetDate: external_exports3.string().optional(),
+    // SPEC-0099 A.1 / TKT-0028 — engineeringStep nullable (limpiar el campo con null real).
+    engineeringStep: external_exports3.string().nullable().optional(),
+    verification_tokens: tokensSchema.nullable().optional()
+  };
+}
+function makeSpecUpdateHandler(client, catalog) {
+  const ParamsSchema17 = external_exports3.object(specUpdateShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema17, params, async ({ id, verification_tokens, ...body }) => {
+    const tokens = attachVerification(catalog, [body.description], verification_tokens);
+    const spec = await client.patch(`/specs/${id}`, body);
+    return typedToolResult(spec, notices(tokens));
+  });
+}
+var SPEC_ADVERSARIAL_REJECT_DESCRIPTION = "Rechazo adversarial a nivel SPEC. Ante un ADVERSARIAL_VERDICT vigente con verdictStatus=REJECTED, rutea la SPEC a la fase que produjo el artefacto rechazado (DISCOVERY_REPORT\u2192IN_DISCOVERY, ENGINEERING_PLAN\u2192IN_PROGRESS/ENGINEERING) y registra la raz\xF3n (denormalizada en Spec.rejectionReason; la fuente de verdad es el verdict). SPEC-0220: `reason` es un valor tipado spec.rejectionReason (obligatorio), no texto libre; un string rebota 422 TYPED_CONTENT_LEGACY_SHAPE. 422 si el verdict vigente no est\xE1 en REJECTED o el artefacto no est\xE1 soportado.";
+function specAdversarialRejectShape(catalog) {
+  return {
+    specId: external_exports3.string(),
+    reason: catalog.value("spec.rejectionReason").describe(typedFieldDescription(["spec.rejectionReason"]))
+  };
+}
+function makeSpecAdversarialRejectHandler(client, catalog) {
+  const ParamsSchema17 = external_exports3.object(specAdversarialRejectShape(catalog)).strict();
+  return async (params) => runTypedTool(
+    ParamsSchema17,
+    params,
+    async ({ specId, reason }) => typedToolResult(await client.patch(`/specs/${specId}/reject`, { reason }))
+  );
+}
+var SPEC_SET_TAXONOMY_DESCRIPTION = "Asignar/reasignar taxonomy (workspace+project+module+submodule?) a un Spec EXISTENTE. Distinto de spec_update (solo title/description/priority/targetDate). Validation cross-field: workspace/project/module/submodule deben pertenecer al tenant del JWT y a la cadena correcta (TaxonomyValidatorService propaga 400). Side-effect: SpecComment audit autom\xE1tico (comment.system) describiendo first-assignment vs reassignment + reason. SPEC-0220: `reason` es la PARTE `reason` del comment.system que compone el server (un objeto tipado, no texto); un string rebota 422 TYPED_CONTENT_LEGACY_SHAPE. id puede ser cuid o number SPEC-XXXX.";
+function specSetTaxonomyShape(catalog) {
+  return {
+    id: external_exports3.string().describe("Spec ID (cuid) o number SPEC-XXXX."),
+    workspaceId: external_exports3.string().describe("Workspace ID. OBLIGATORIO. Debe pertenecer al tenant del JWT."),
+    projectId: external_exports3.string().describe("Project ID. OBLIGATORIO. Debe pertenecer al workspace."),
+    moduleId: external_exports3.string().describe("Module ID. OBLIGATORIO. Debe pertenecer al project."),
+    submoduleId: external_exports3.string().optional().describe("Submodule ID. Requerido s\xF3lo si el module elegido tiene submodules definidos."),
+    reason: catalog.part("comment.system", "reason").optional().describe("Raz\xF3n opcional del assignment: la parte `reason` del comment.system de auditor\xEDa (objeto tipado).")
+  };
+}
+function makeSpecSetTaxonomyHandler(client, catalog) {
+  const ParamsSchema17 = external_exports3.object(specSetTaxonomyShape(catalog)).strict();
+  return async (params) => runTypedTool(
+    ParamsSchema17,
+    params,
+    async ({ id, ...body }) => typedToolResult(await client.post(`/specs/${id}/taxonomy`, body))
+  );
+}
+var SPEC_ADD_PHASE_DESCRIPTION = "Add a phase to a Spec. SPEC-0220: `description` is a typed specPhase.description value and `content` a typed specPhase.content value (PhaseContract) \u2014 not markdown; a plain string gets 422 TYPED_CONTENT_LEGACY_SHAPE. verification_tokens travel as `content.verification` (Evidence[]) when content is present \u2014 specPhase.description does not declare verification. New phase introduces scope/intent \u2014 strict-enforced post MCP_SERVER_RELEASE >= 0.2.0.";
+function specAddPhaseShape(catalog) {
+  return {
+    specId: external_exports3.string(),
+    name: external_exports3.string(),
+    description: catalog.value("specPhase.description").optional().describe(typedFieldDescription(["specPhase.description"])),
+    content: catalog.value("specPhase.content").optional().describe(typedFieldDescription(["specPhase.content"])),
+    assigneeId: external_exports3.string().optional(),
+    dueDate: external_exports3.string().optional(),
+    verification_tokens: verificationTokensField
+  };
+}
+function makeSpecAddPhaseHandler(client, catalog) {
+  const ParamsSchema17 = external_exports3.object(specAddPhaseShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema17, params, async ({ specId, verification_tokens, ...body }) => {
+    const tokens = attachVerification(
+      catalog,
+      [body.content, body.description],
+      verification_tokens
+    );
+    const phase = await client.post(`/specs/${specId}/phases`, body);
+    return typedToolResult(phase, notices(tokens));
+  });
+}
+var SPEC_UPDATE_PHASE_DESCRIPTION = "Update phase status, content, description, assignee. SPEC-0089 v0.3.1: when `status` is provided (phase transition \u2014 a structural verdict), verification_tokens is required post MCP_SERVER_RELEASE >= 0.2.0. SPEC-0220: `content` (specPhase.content, PhaseContract), `description` (specPhase.description) and `skipJustification` (specPhase.skipJustification) are TYPED values, not markdown \u2014 a plain string gets 422 TYPED_CONTENT_LEGACY_SHAPE. verification_tokens travel as `content.verification` (Evidence[]) when content is present; a status-only transition validates them for the verification hook and does not persist them (the response says so). TKT-0300: transicionar a IN_PROGRESS o COMPLETED rebota 422 PHASE_CONTRACT_MISALIGNED si la fase tiene el contrato can\xF3nico reescrito sin realign (v\xE1lvula: phase realign de Engineering, o force con state.force_transition). TKT-0380: `description` NO viaja por el PATCH multiprop\xF3sito \u2014 sale por su ruta dedicada `PATCH /specs/:specId/phases/:phaseId/description`, gateada con `phase.write_description` (ENGINEERING + OPERATOR) y con work-context EXCLUSIVO de ENGINEERING; el resto de los campos sigue exigiendo `phase.transition`. Mandar `description` junto a otros campos son DOS requests no at\xF3micos (la descripci\xF3n primero). TKT-0425: `force` + `forceReason` viajan por esta tool. `force: true` saltea el gate CONTEXTUAL de la transici\xF3n \u2014el PhaseWorkflowGate, el gate de contrato desalineado y el de dependencia supersedida\u2014, NUNCA el validador estructural de la m\xE1quina de estados. Exige `phase.force_transition` (OPERATOR) o `state.force_transition` (TENANT_ADMIN); sin ninguno rebota 403 PERMISSION_DENIED. `forceReason` se guarda en PhaseStateHistory.comment junto con `forced=true`.";
+function specUpdatePhaseShape(catalog) {
+  return {
+    specId: external_exports3.string(),
+    phaseId: external_exports3.string(),
+    status: external_exports3.enum(PHASE_STATUS).optional(),
+    content: catalog.value("specPhase.content").optional().describe(typedFieldDescription(["specPhase.content"])),
+    // TKT-0379/TKT-0380 — sale por su ruta dedicada (ver el handler).
+    description: catalog.value("specPhase.description").optional().describe(typedFieldDescription(["specPhase.description"])),
+    name: external_exports3.string().optional(),
+    assigneeId: external_exports3.string().optional(),
+    // TKT-0029 — el backend lo exige al transicionar a SKIPPED (422 PHASE_SKIPPED_NO_JUSTIFICATION).
+    skipJustification: catalog.value("specPhase.skipJustification").optional().describe(typedFieldDescription(["specPhase.skipJustification"], "Obligatorio al transicionar a SKIPPED.")),
+    // SPEC-0099 A.1 / TKT-0028 — nullable para limpiar con null real.
+    sddStep: external_exports3.string().nullable().optional(),
+    pendingAdversarialPostMerge: external_exports3.boolean().optional(),
+    // TKT-0425 — válvula de force (ver la descripción).
+    force: external_exports3.boolean().optional(),
+    forceReason: external_exports3.string().optional(),
+    verification_tokens: tokensSchema.nullable().optional()
+  };
+}
+function makeSpecUpdatePhaseHandler(client, catalog) {
+  const ParamsSchema17 = external_exports3.object(specUpdatePhaseShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema17, params, async (validated) => {
+    if (isStrictPeriod && validated.status && !validated.verification_tokens) {
+      return typedToolError(
+        "Schema validation failed: verification_tokens object required when status is set (phase transition is a structural verdict) post MCP_SERVER_RELEASE>=0.2.0 (skill staff-verification-protocol)."
+      );
+    }
+    const { specId, phaseId, verification_tokens, description, ...body } = validated;
+    const tokens = attachVerification(
+      catalog,
+      [body.content, body.skipJustification, description],
+      verification_tokens
+    );
+    let phase;
+    if (description !== void 0) {
+      phase = await client.patch(`/specs/${specId}/phases/${phaseId}/description`, { description });
+    }
+    if (description === void 0 || Object.keys(body).length > 0) {
+      phase = await client.patch(`/specs/${specId}/phases/${phaseId}`, body);
+    }
+    return typedToolResult(phase, notices(tokens));
+  });
+}
+var SPEC_PHASE_SET_CANONICAL_CONTRACT_DESCRIPTION = "Setea el contrato can\xF3nico tipado de una fase. SPEC-0220 (T3.11): `canonicalContract` es un valor tipado specPhase.canonicalContract (PhaseContract): queHace { summary, points[] }, queProduce[{ deliverable }], precondiciones[{ condition }], postcondiciones[{ condition, check }] y, opcionales, noCodeLayer { declared, rationale } (TKT-0231: exime a sus tasks del gate de cierre de worktree) y postconditionDeliverables[{ deliverable, phase }] (TKT-0268). El server persiste el valor tipado y lo proyecta a los cuatro strings que lee el gate de engineering-review (item c). Un objeto con los cuatro componentes como string plano rebota 422 TYPED_CONTENT_LEGACY_SHAPE / TYPED_CONTENT_INVALID. Si un postconditionDeliverable vive en una fase POSTERIOR, rebota 422 PHASE_CONTRACT_POSTCONDITION_UNSATISFIABLE.";
+function specPhaseSetCanonicalContractShape(catalog) {
+  return {
+    specId: external_exports3.string().describe("Spec ID (cuid) or SPEC-XXXX number"),
+    phaseId: external_exports3.string().describe("SpecPhase ID (cuid)"),
+    canonicalContract: catalog.value("specPhase.canonicalContract").describe(typedFieldDescription(["specPhase.canonicalContract"]))
+  };
+}
+function makeSpecPhaseSetCanonicalContractHandler(client, catalog) {
+  const ParamsSchema17 = external_exports3.object(specPhaseSetCanonicalContractShape(catalog)).strict();
+  return async (params) => runTypedTool(
+    ParamsSchema17,
+    params,
+    async ({ specId, phaseId, canonicalContract }) => typedToolResult(await client.put(`/specs/${specId}/phases/${phaseId}/canonical-contract`, { canonicalContract }))
+  );
+}
+var SPEC_CREATE_TASK_DESCRIPTION = "Create a task from a Spec phase (auto-linked). Leave assigneeId empty to create an unassigned task that anyone can take. SPEC-0220: `description` is a typed task.description value, not markdown; a plain string gets 422 TYPED_CONTENT_LEGACY_SHAPE. task.description does not declare `verification`: verification_tokens are validated for the verification hook and not persisted (the response says so). Strict-enforced post MCP_SERVER_RELEASE >= 0.2.0. SPEC-0223 P3: `automatable` opcional (default false) \u2014 marca la task como elegible para la corrida automatica de su fase.";
+function specCreateTaskShape(catalog) {
+  return {
+    specId: external_exports3.string(),
+    phaseId: external_exports3.string(),
+    title: external_exports3.string(),
+    description: catalog.value("task.description").optional().describe(typedFieldDescription(["task.description"])),
+    priority: external_exports3.enum(TASK_PRIORITY).optional(),
+    assigneeId: external_exports3.string().optional().describe("User ID to assign. Leave empty for unassigned task."),
+    repoKey: external_exports3.string().optional().describe(
+      "SPEC-0208 P2 \u2014 repoKey del ProjectRepo del tenant al que pertenece la task. El valor DEBE existir en ProjectRepo de este tenant: uno inexistente (o que exista solo en otro tenant) devuelve 422 REPO_KEY_NOT_FOUND."
+    ),
+    automatable: external_exports3.boolean().optional().describe(
+      "SPEC-0223 P3 (RE-018) \u2014 true marca la task como elegible para la corrida automatica de su fase. Omitido persiste false. Corregirla despues va por PATCH /tasks/:id/automatable."
+    ),
+    verification_tokens: verificationTokensField
+  };
+}
+function makeSpecCreateTaskHandler(client, catalog) {
+  const ParamsSchema17 = external_exports3.object(specCreateTaskShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema17, params, async ({ specId, phaseId, verification_tokens, ...body }) => {
+    const tokens = attachVerification(catalog, [body.description], verification_tokens);
+    const task = await client.post(`/specs/${specId}/phases/${phaseId}/tasks`, body);
+    return typedToolResult(task, notices(tokens));
+  });
+}
+
 // src/content-by-reference.ts
 import { readFileSync as readFileSync2 } from "node:fs";
 import { createHash as createHash2 } from "node:crypto";
@@ -33296,6 +33849,496 @@ function resolveContentByReference({
     }
   }
   return content;
+}
+
+// src/tools/typed-documentation-tools.ts
+var DOCUMENTATION_KINDS = [
+  "MANUAL_TECHNICAL",
+  "MANUAL_USER",
+  "IMPLEMENTATION_DETAIL",
+  "INFORMAL_EXPLANATION",
+  "PROBLEM_STATEMENT",
+  "DISCOVERY_REPORT",
+  "DISCOVERY_AMENDMENT",
+  "ENGINEERING_PLAN",
+  "ADVERSARIAL_VERDICT",
+  "CLOSEOUT_DECISION",
+  "SDD_DESIGN",
+  "SCHEMA_CONTRACT",
+  "SDD_TASKS"
+];
+var DOCUMENTATION_TYPE_KEYS = DOCUMENTATION_KINDS.map((k) => `doc.${k}`);
+var SPEC_SET_DOCUMENTATION_DESCRIPTION = 'Upsert a structured documentation section on a Spec. Creates a KbArticle the first time (auto-slug, auto-tagged with spec:<number> and doc:<kind>) and records subsequent edits as KbRevisions. Each (spec, kind) pair has at most one section. SPEC-0220: the section body is a TYPED value { type: "doc.<KIND>", ... } whose type matches `kind` \u2014 markdown or a JSON string gets 422 TYPED_CONTENT_LEGACY_SHAPE. Pass it inline in `content`, or by reference with `contentPath` (a local file holding the JSON of the typed value) + `expectedSha256` over its raw bytes (TKT-0274).';
+function specSetDocumentationShape(catalog) {
+  return {
+    specId: external_exports3.string().describe("Spec ID (cuid) or SPEC-XXXX number"),
+    kind: external_exports3.enum(DOCUMENTATION_KINDS).describe(
+      "Documentation section kind. MANUAL_TECHNICAL, MANUAL_USER, IMPLEMENTATION_DETAIL, INFORMAL_EXPLANATION; SDD kinds (SPEC-0096): PROBLEM_STATEMENT, DISCOVERY_REPORT, DISCOVERY_AMENDMENT, ENGINEERING_PLAN, ADVERSARIAL_VERDICT, CLOSEOUT_DECISION; documentos largos del plan (SPEC-0220 P3, APPEND): SDD_DESIGN, SDD_TASKS y SCHEMA_CONTRACT. `content.type` tiene que ser doc.<kind>."
+    ),
+    content: catalog.oneOf(DOCUMENTATION_TYPE_KEYS).optional().describe(
+      typedFieldDescription(
+        DOCUMENTATION_TYPE_KEYS,
+        "Inline. Opcional si pas\xE1s contentPath + expectedSha256 (TKT-0274). Exactamente UNA de las dos v\xEDas."
+      )
+    ),
+    contentPath: external_exports3.string().optional().describe(
+      "TKT-0274 \u2014 ruta local (absoluta) a un archivo con el JSON del valor tipado doc.<KIND>. El mcp-server lo lee, verifica expectedSha256 sobre los bytes crudos, lo parsea y lo valida contra el mismo schema que la v\xEDa inline. Mutuamente excluyente con content; exige expectedSha256."
+    ),
+    expectedSha256: external_exports3.string().optional().describe(
+      "TKT-0274 \u2014 sha256 hex esperado. OBLIGATORIO con contentPath (sobre los bytes crudos del archivo, el mismo que sha256sum / Get-FileHash). Opcional con content inline: ah\xED se computa sobre JSON.stringify(content). Si difiere, la tool rechaza sin escribir."
+    ),
+    title: external_exports3.string().optional().describe('Optional override; defaults to "[SPEC-XXXX] <kind label>"'),
+    summary: external_exports3.string().optional().describe("Optional short summary visible in KB search"),
+    tags: external_exports3.array(external_exports3.string()).optional().describe("Extra tags on top of the auto-applied spec:<number> and doc:<kind>"),
+    changeLog: external_exports3.string().optional().describe("Optional change log entry for this revision"),
+    // SPEC-0100 F5 — requerido por el backend (422) al registrar un ADVERSARIAL_VERDICT sobre una
+    // SPEC con ENGINEERING_PLAN.
+    instantiationCheck: external_exports3.record(external_exports3.string(), external_exports3.unknown()).optional().describe("SPEC-0100 F4 \u2014 { item: resultado discreto }. Requerido al registrar ADVERSARIAL_VERDICT sobre una SPEC con ENGINEERING_PLAN."),
+    // SPEC-0168 P1 — declaracion de cobertura del verdict.
+    coverageDeclaration: external_exports3.record(external_exports3.string(), external_exports3.unknown()).optional().describe(
+      "SPEC-0168 \u2014 { reviewedArtifactContentHash, outputUnits[], outputFamilies[], inputSources[] }. El hash sale del contentHash que spec_get_documentation expone por secci\xF3n. La granularidad de salida la fija VERDICT_COVERAGE_MODE del servidor (TKT-0388): per-family (default) o per-item. Si no sab\xE9s en qu\xE9 modo corre el Hub, mand\xE1 la declaraci\xF3n vac\xEDa: el 422 VERDICT_COVERAGE_REQUIRED devuelve expectedFamilies."
+    ),
+    // SPEC-0109 P3 — trail append-only.
+    round: external_exports3.number().int().optional().describe("n\xFAmero de ronda del trail (kinds APPEND)."),
+    artifactReviewed: external_exports3.enum(DOCUMENTATION_KINDS).optional().describe("kind del artefacto revisado (kinds APPEND)."),
+    // SPEC-0123 F1 / SPEC-0139 P2 — signal estructurado y alcance del veredicto.
+    verdictStatus: external_exports3.enum(["APPROVED", "REJECTED"]).optional().describe("status estructurado del ADVERSARIAL_VERDICT (APPROVED|REJECTED)."),
+    verdictScope: external_exports3.enum(["FULL", "PARTIAL"]).optional().describe("alcance del ADVERSARIAL_VERDICT (FULL|PARTIAL)."),
+    // SPEC-0172 P3 — findings estructurados del verdict + marcador de schema.
+    findingsSchemaVersion: external_exports3.string().optional().describe("SPEC-0172 P3 \u2014 marcador de schema de findings ('v1' activa el umbral de severidad sobre este verdict)."),
+    findings: external_exports3.array(
+      external_exports3.object({
+        findingKey: external_exports3.string(),
+        // Literales a proposito: los guards de SPEC-0172 P3 leen la escala en el fuente del shape.
+        severity: external_exports3.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"]),
+        findingClass: external_exports3.enum(["CONTRADICTION", "GAP", "UNSUPPORTED_CLAIM", "REPO_EVIDENCE_UNVERIFIABLE", "VERIFIED_CLAIM_UNVERIFIABLE", "OTHER"]),
+        status: external_exports3.enum(["OPEN", "ADDRESSED", "NOT_APPLICABLE", "DEFERRED", "ACCEPTED_KNOWN_RISK"]).optional(),
+        title: external_exports3.string(),
+        description: external_exports3.string(),
+        // TKT-0430 — las tres claves que el DTO acepta desde TKT-0266/TKT-0267 y este shape no
+        // declaraba. No rebotaban: el z.object interno no era estricto, asi que el SDK las
+        // stripeaba antes del PUT y el eje gateante quedaba inalcanzable desde cualquier room.
+        resolutionRequired: external_exports3.string().min(1).optional().describe(
+          "TKT-0266 \u2014 que debe resolverse antes del cierre. Sobre un finding CONTRADICTION su presencia GATEA la transicion con independencia de la severidad (ADVERSARIAL_CONTRADICTION_GATING): se resuelve, o se acepta el riesgo con firma."
+        ),
+        referenceType: external_exports3.enum(["SPEC", "PHASE", "TASK", "ACCEPTANCE_CRITERION", "TEST_CASE", "SPEC_DOCUMENTATION"]).optional().describe("TKT-0267 \u2014 tipo del objeto que el finding nombra. Va JUNTO con referenceId: un tipo sin id no direcciona."),
+        referenceId: external_exports3.string().min(1).max(64).optional().describe("TKT-0267 \u2014 cuid del objeto referenciado. Se valida que resuelva a un objeto de ESTA SPEC; si no resuelve, el registro del verdict rebota.")
+      }).strict()
+    ).optional().describe("SPEC-0172 P3 \u2014 findings estructurados del ADVERSARIAL_VERDICT (exige findingsSchemaVersion).")
+  };
+}
+function resolveDocumentationContent(catalog, kind, input) {
+  let text;
+  try {
+    text = resolveContentByReference({
+      content: input.content === void 0 ? void 0 : JSON.stringify(input.content),
+      contentPath: input.contentPath,
+      expectedSha256: input.expectedSha256
+    });
+  } catch (e) {
+    throw new TypedToolInputError(e.message);
+  }
+  if (input.content !== void 0) return input.content;
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new TypedToolInputError(
+      `CONTENT_NOT_JSON: ${input.contentPath} no es JSON. Desde SPEC-0220 el archivo tiene que tener el JSON del valor tipado doc.${kind}, no markdown. Nada se escribi\xF3.`
+    );
+  }
+  return catalog.value(`doc.${kind}`).parse(parsed);
+}
+function makeSpecSetDocumentationHandler(client, catalog) {
+  const ParamsSchema17 = external_exports3.object(specSetDocumentationShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema17, params, async ({ specId, kind, content, contentPath, expectedSha256, ...body }) => {
+    const resolved = resolveDocumentationContent(catalog, kind, { content, contentPath, expectedSha256 });
+    requireTypeIn(resolved, [`doc.${kind}`], "content", `kind='${kind}'`);
+    return typedToolResult(await client.put(`/specs/${specId}/documentation/${kind}`, { ...body, content: resolved }));
+  });
+}
+var SPEC_EMIT_RESOLUTION_DESCRIPTION = 'Emit a governed resolution artifact (RISK_ACCEPTANCE or BLOCKED_RESOLUTION) for a BLOCKED test case of a SPEC in IN_PROGRESS or IN_REVIEW (TKT-0230). RISK_ACCEPTANCE accepts the risk WITHOUT re-execution (requires justification); BLOCKED_RESOLUTION removes the block and re-enables the Tester re-run (requires resolutionNotes). SPEC-0220: `justification` is the typed `justification` part of doc.RISK_ACCEPTANCE ({ summary, evidence?, refs? }) and `resolutionNotes` the typed `resolution` part of doc.BLOCKED_RESOLUTION ({ summary, actions, replacement?, evidence?, refs? }) \u2014 the server composes the full document with the case; a plain string gets 422 TYPED_CONTENT_LEGACY_SHAPE. TKT-0215 \u2014 RISK_ACCEPTANCE is a HUMAN decision the Operator declared non-delegable: the canonical path is the UI (SPEC detail \u2192 TestCases tab \u2192 "Aceptar riesgo"); do NOT sign a risk acceptance from a room on your own initiative. 422 RESOLUTION_WRONG_STATE if the SPEC is outside {IN_PROGRESS, IN_REVIEW}, 422 if the case is not BLOCKED or the required field per kind is missing.';
+function specEmitResolutionShape(catalog) {
+  return {
+    specId: external_exports3.string().describe("Spec ID (cuid)"),
+    caseId: external_exports3.string().describe("TestCase ID (cuid) \u2014 must belong to the spec and be BLOCKED"),
+    kind: external_exports3.enum(["RISK_ACCEPTANCE", "BLOCKED_RESOLUTION"]).describe("RISK_ACCEPTANCE = accept the risk without re-execution; BLOCKED_RESOLUTION = remove the block and re-enable re-execution."),
+    justification: catalog.part("doc.RISK_ACCEPTANCE", "justification").optional().describe("Required for RISK_ACCEPTANCE (typed { summary, evidence?, refs? }) \u2014 else 422 JUSTIFICATION_REQUIRED."),
+    resolutionNotes: catalog.part("doc.BLOCKED_RESOLUTION", "resolution").optional().describe("Required for BLOCKED_RESOLUTION (typed { summary, actions, replacement?, evidence?, refs? }) \u2014 else 422."),
+    originPhaseId: external_exports3.string().optional().describe("Optional origin phase; if omitted the service derives it from the case. Stored inside the caseSnapshot."),
+    riskAcceptanceReasonId: external_exports3.string().optional().describe("SPEC-0219 P4 \u2014 id of the RiskAcceptanceReason from the tenant catalog. Required for RISK_ACCEPTANCE \u2014 else 422 RISK_REASON_REQUIRED."),
+    deferralTargetType: external_exports3.string().optional().describe("SPEC-0219 P4 \u2014 SPEC, TASK or TICKET. Required when the chosen reason has baseAction=DEFERRAL \u2014 else 422 DEFERRAL_TARGET_REQUIRED."),
+    deferralTargetId: external_exports3.string().optional().describe("SPEC-0219 P4 \u2014 cuid of the deferral target entity (must resolve and not be closed).")
+  };
+}
+function makeSpecEmitResolutionHandler(client, catalog) {
+  const ParamsSchema17 = external_exports3.object(specEmitResolutionShape(catalog)).strict();
+  return async (params) => runTypedTool(
+    ParamsSchema17,
+    params,
+    async ({ specId, caseId, ...body }) => typedToolResult(await client.post(`/specs/${specId}/test-cases/${caseId}/resolution`, body))
+  );
+}
+
+// src/tools/typed-test-case-tools.ts
+var evidenceRefShape = external_exports3.object({
+  repoKey: external_exports3.string().describe("repoKey de un ProjectRepo del tenant."),
+  path: external_exports3.string().describe("Path relativo a la raiz de ese repo."),
+  line: external_exports3.number().int().optional().describe("Linea dentro del path (opcional).")
+});
+var SPEC_TEST_CASE_ADD_DESCRIPTION = "Crea un TestCase sobre una SPEC. SPEC-0220: successCriterion es un valor tipado testCase.successCriterion (no texto libre; un string rebota 422 TYPED_CONTENT_LEGACY_SHAPE) y es obligatorio (sin \xE9l \u2192 422). No puede arrancar con un marker [gen:...] (\u2192 422 MARKER_NOT_ALLOWED_IN_MANUAL_ADD, TKT-0229). binding se deriva server-side: scope SPEC u originRole ENGINEERING (rol actuante) fuerzan binding=true; el resto nace no vinculante. originRole se toma del rol actuante (x-act-as-role) o del rol del user; originUserId del JWT; originSource default MANUAL. Un caso scope GROUP/PHASE referencia sus fases en phaseIds.";
+function specTestCaseAddShape(catalog) {
+  return {
+    specId: external_exports3.string().describe("Spec ID (cuid)"),
+    scope: external_exports3.enum(["SPEC", "GROUP", "PHASE"]).describe("Alcance del caso. SPEC fuerza binding=true."),
+    successCriterion: catalog.value("testCase.successCriterion").describe(typedFieldDescription(["testCase.successCriterion"], "Obligatorio.")),
+    phaseIds: external_exports3.array(external_exports3.string()).optional().describe("cuids de las SpecPhase referenciadas (scope GROUP/PHASE). Default []."),
+    originSource: external_exports3.enum(["MANUAL", "EXPECTED_OUTCOME", "RISK_FLAG"]).optional().describe("Procedencia del caso. Default MANUAL."),
+    proposedAlertLevel: external_exports3.enum(["BLOCANTE", "INFORMATIVO"]).optional().describe("Nivel de alerta propuesto (opcional).")
+  };
+}
+function makeSpecTestCaseAddHandler(client, catalog) {
+  const ParamsSchema17 = external_exports3.object(specTestCaseAddShape(catalog)).strict();
+  return async (params) => runTypedTool(
+    ParamsSchema17,
+    params,
+    async ({ specId, ...body }) => typedToolResult(await client.post(`/specs/${specId}/test-cases`, body))
+  );
+}
+var SPEC_TEST_CASE_SET_RESULT_DESCRIPTION = "Registra el resultado de un TestCase (PASS/FAIL/BLOCKED) aplicando la matriz de evidencia (doc 10 \xA75.3): evidence obligatoria en FAIL y en PASS de scope GROUP/SPEC (opcional en PASS de PHASE); notes obligatorias en BLOCKED. Sin cumplir \u2192 422. SPEC-0220: `evidence` (testCase.resultEvidence) y `notes` (testCase.resultNotes) son valores tipados, no texto libre; un string rebota 422 TYPED_CONTENT_LEGACY_SHAPE. Setea result/resultEvidence/resultNotes/resultAt y, con evidenceRefs, REEMPLAZA las filas de evidencia por repo del caso (SPEC-0208 P3).";
+function specTestCaseSetResultShape(catalog) {
+  return {
+    specId: external_exports3.string().describe("Spec ID (cuid)"),
+    id: external_exports3.string().describe("TestCase ID (cuid)"),
+    result: external_exports3.enum(["PASS", "FAIL", "BLOCKED"]).describe("Resultado de la ejecuci\xF3n."),
+    evidence: catalog.value("testCase.resultEvidence").optional().describe(typedFieldDescription(["testCase.resultEvidence"], "Obligatoria en FAIL y en PASS de scope GROUP/SPEC.")),
+    notes: catalog.value("testCase.resultNotes").optional().describe(typedFieldDescription(["testCase.resultNotes"], "Obligatorias en BLOCKED.")),
+    evidenceRefs: external_exports3.array(evidenceRefShape).optional().describe(
+      "SPEC-0208 P3 \u2014 evidencia por repo, con semantica de REEMPLAZO TOTAL: presente con N elementos deja EXACTAMENTE esas N filas, array vacio las borra, omitir la clave deja las que habia. Cada repoKey debe existir en el ProjectRepo del tenant."
+    )
+  };
+}
+function makeSpecTestCaseSetResultHandler(client, catalog) {
+  const ParamsSchema17 = external_exports3.object(specTestCaseSetResultShape(catalog)).strict();
+  return async (params) => runTypedTool(
+    ParamsSchema17,
+    params,
+    async ({ specId, id, ...body }) => typedToolResult(await client.post(`/specs/${specId}/test-cases/${id}/result`, body))
+  );
+}
+var SPEC_TEST_CASE_PROMOTE_DESCRIPTION = "Promueve un TestCase a vinculante (setea binding=true + promotedBy/promotedAt). La promoci\xF3n normal es solo de ENGINEERING (rol actuante); otros roles deben usar force=true con reason (v\xE1lvula anti-limbo del Operador, doc 10 \xA75.4). force sin reason \u2192 422. SPEC-0220: `reason` es un valor tipado testCase.promotionReason, no texto libre; un string rebota 422 TYPED_CONTENT_LEGACY_SHAPE.";
+function specTestCasePromoteShape(catalog) {
+  return {
+    specId: external_exports3.string().describe("Spec ID (cuid)"),
+    id: external_exports3.string().describe("TestCase ID (cuid)"),
+    force: external_exports3.boolean().optional().describe('V\xE1lvula del Operador: fuerza la promoci\xF3n saltando "solo ENGINEERING". Exige reason.'),
+    reason: catalog.value("testCase.promotionReason").optional().describe(typedFieldDescription(["testCase.promotionReason"], "Obligatoria si force=true."))
+  };
+}
+function makeSpecTestCasePromoteHandler(client, catalog) {
+  const ParamsSchema17 = external_exports3.object(specTestCasePromoteShape(catalog)).strict();
+  return async (params) => runTypedTool(
+    ParamsSchema17,
+    params,
+    async ({ specId, id, ...body }) => typedToolResult(await client.post(`/specs/${specId}/test-cases/${id}/promote`, body))
+  );
+}
+var SPEC_TEST_CASE_VERIFY_DESCRIPTION = "Verificaci\xF3n adversarial del PASS propuesto de un binding: un rol independiente confirma (VERIFIED) o rechaza (REJECTED) el PASS que propuso el CC-Dev. Guard de separaci\xF3n de roles: el verificador NO puede ser el autor del PASS \u2192 403 SELF_VERIFICATION_FORBIDDEN. Solo aplica a un binding con result=PASS pendiente \u2192 si no, 422 CASE_NOT_PENDING_VERIFICATION. SPEC-0220: `notes` es un valor tipado testCase.verificationNotes (obligatorio: la evidencia del contraste contra el c\xF3digo real), no texto libre; un string rebota 422 TYPED_CONTENT_LEGACY_SHAPE. REJECTED deja el binding NO resuelto.";
+function specTestCaseVerifyShape(catalog) {
+  return {
+    specId: external_exports3.string().describe("Spec ID (cuid)"),
+    id: external_exports3.string().describe("TestCase ID (cuid)"),
+    verdict: external_exports3.enum(["VERIFIED", "REJECTED"]).describe("Veredicto de la verificaci\xF3n adversarial."),
+    notes: catalog.value("testCase.verificationNotes").describe(typedFieldDescription(["testCase.verificationNotes"], "Obligatoria."))
+  };
+}
+function makeSpecTestCaseVerifyHandler(client, catalog) {
+  const ParamsSchema17 = external_exports3.object(specTestCaseVerifyShape(catalog)).strict();
+  return async (params) => runTypedTool(
+    ParamsSchema17,
+    params,
+    async ({ specId, id, ...body }) => typedToolResult(await client.post(`/specs/${specId}/test-cases/${id}/verify`, body))
+  );
+}
+var SPEC_TEST_CASE_SUPERSEDE_DESCRIPTION = "Retira un TestCase vinculante (binding=false) con reason obligatoria. Respeta P-00-08 (inmutabilidad): NUNCA edita successCriterion ni el resultado, solo flipea binding \u2014 el gate de cierre lo surfacea v\xEDa supersededWithHistory. La reason queda en un SpecComment de auditor\xEDa de la SPEC (comment.system). SPEC-0220: `reason` es la PARTE `reason` del comment.system que compone el server (objeto tipado), no texto libre; un string rebota 422 TYPED_CONTENT_LEGACY_SHAPE. Permiso spec.enrich (ENGINEERING + CC_DEV). 422 TEST_CASE_NOT_BINDING si el caso ya no era vinculante.";
+function specTestCaseSupersedeShape(catalog) {
+  return {
+    specId: external_exports3.string().describe("Spec ID (cuid)"),
+    id: external_exports3.string().describe("TestCase ID (cuid)"),
+    reason: catalog.part("comment.system", "reason").describe("Por qu\xE9 este TestCase deja de ser vinculante: la parte `reason` del comment.system de auditor\xEDa. Obligatoria.")
+  };
+}
+function makeSpecTestCaseSupersedeHandler(client, catalog) {
+  const ParamsSchema17 = external_exports3.object(specTestCaseSupersedeShape(catalog)).strict();
+  return async (params) => runTypedTool(
+    ParamsSchema17,
+    params,
+    async ({ specId, id, ...body }) => typedToolResult(await client.post(`/specs/${specId}/test-cases/${id}/supersede`, body))
+  );
+}
+
+// src/tools/typed-domain-tools.ts
+function notices2(t) {
+  return t.requested && !t.persisted ? [TOKENS_NOT_PERSISTED_NOTICE] : [];
+}
+var DECISION_BODY_TYPE_KEYS = DECISION_KINDS.map((k) => `decision.body.${k}`);
+var PRIORITY2 = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
+var TRIGGER_TYPE = ["COMMERCIAL", "MILESTONE", "OPERATIONAL", "TECHNICAL", "UNDEFINED"];
+var PROMISE_TYPE = ["STUB_SPEC", "DEFERRED_PHASE", "DEFERRED_DEPENDENCY", "TECHNICAL_DEBT", "IDEA"];
+var PROMISE_STATUS = ["BACKLOG", "TRIGGER_MET", "PROMOTED", "ARCHIVED", "OBSOLETE"];
+var DECISION_CREATE_DESCRIPTION = "Create a Decision (architectural choice, tradeoff, design decision). Phase-scoped requires linkedPhaseId; spec-scoped must omit it. Taxonomy (workspaceId/projectId/moduleId/submoduleId) validated server-side per SPEC-0051 F1. SPEC-0220: `body` is the typed value decision.body.<kind> (DECISION\u2192DecisionRecord, BUGFIX\u2192BugfixRecord, OPERATOR/SELF_CORRECTION\u2192CorrectionRecord, COMMENT/STATUS_UPDATE\u2192StatusRecord, APPROVAL\u2192ApprovalRecord, DESIGN\u2192DesignRecord) whose `type` matches `kind` \u2014 not markdown; a plain string gets 422 TYPED_CONTENT_LEGACY_SHAPE. verification_tokens travel as `body.verification` (Evidence[]) when the type declares it. Strict-enforced once MCP_SERVER_RELEASE >= 0.2.0.";
+function decisionCreateShape(catalog) {
+  return {
+    title: external_exports3.string().min(1).max(200).describe("Short distilled title (<200 chars)."),
+    body: catalog.oneOf(DECISION_BODY_TYPE_KEYS).describe(typedFieldDescription(DECISION_BODY_TYPE_KEYS, "`type` = decision.body.<kind>.")),
+    kind: external_exports3.enum(DECISION_KINDS).describe("Type of decision record."),
+    scope: external_exports3.enum(["SPEC_LEVEL", "PHASE_LEVEL"]).describe("SPEC_LEVEL \u2192 linkedPhaseId must be null. PHASE_LEVEL \u2192 linkedPhaseId required."),
+    linkedSpecId: external_exports3.string().optional().describe("Linked Spec id (optional)."),
+    linkedPhaseId: external_exports3.string().optional().describe("Linked SpecPhase id. Required if scope=PHASE_LEVEL, must be null if scope=SPEC_LEVEL."),
+    parentDecisionId: external_exports3.string().optional().describe("Parent decision id (REPLIES_TO threading)."),
+    workspaceId: external_exports3.string().optional().describe("Taxonomy workspace."),
+    projectId: external_exports3.string().optional().describe("Taxonomy project."),
+    moduleId: external_exports3.string().optional().describe("Taxonomy module."),
+    submoduleId: external_exports3.string().optional().describe("Taxonomy submodule (only if module has submodules)."),
+    isBlocking: external_exports3.boolean().optional().describe("Flag for consumers (pass-through, default false)."),
+    requiresHumanApproval: external_exports3.boolean().optional().describe("If true at create \u2192 lifecycle auto-set to BLOCKED until approved."),
+    tags: external_exports3.array(external_exports3.string()).optional().describe('Namespaced tags ("module:tesoreria", "tech:tls", etc.).'),
+    verification_tokens: verificationTokensField
+  };
+}
+function makeDecisionCreateHandler(client, catalog) {
+  const ParamsSchema17 = external_exports3.object(decisionCreateShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema17, params, async ({ verification_tokens, ...data }) => {
+    requireTypeIn(data.body, [`decision.body.${data.kind}`], "body", `kind='${data.kind}'`);
+    const tokens = attachVerification(catalog, [data.body], verification_tokens);
+    return typedToolResult(await client.post("/decisions", data), notices2(tokens));
+  });
+}
+var DECISION_UPDATE_DESCRIPTION = "Update a Decision. Editable fields only: title, body, kind, scope, linkedPhaseId, tags, isBlocking, requiresHumanApproval. For lifecycle transitions (supersede/retract/archive) use the dedicated tools \u2014 those fields are intentionally NOT exposed here. Backend re-validates invariantes 1+2 if scope or linkedPhaseId change. SPEC-0220: `body` is the typed value decision.body.<kind> (see decision_create); if `kind` comes too, body.type must match it, otherwise the backend checks it against the stored kind (422 TYPED_CONTENT_TYPE_MISMATCH). verification_tokens required when `body` is provided post MCP_SERVER_RELEASE >= 0.2.0, and travel as `body.verification` when the type declares it.";
+function decisionUpdateShape(catalog) {
+  return {
+    id: external_exports3.string().describe("Decision id to update."),
+    title: external_exports3.string().min(1).max(200).optional(),
+    body: catalog.oneOf(DECISION_BODY_TYPE_KEYS).optional().describe(typedFieldDescription(DECISION_BODY_TYPE_KEYS)),
+    kind: external_exports3.enum(DECISION_KINDS).optional(),
+    scope: external_exports3.enum(["SPEC_LEVEL", "PHASE_LEVEL"]).optional(),
+    linkedPhaseId: external_exports3.string().nullable().optional().describe("Pass null to clear linkedPhaseId (e.g. when changing scope to SPEC_LEVEL)."),
+    tags: external_exports3.array(external_exports3.string()).optional(),
+    isBlocking: external_exports3.boolean().optional(),
+    requiresHumanApproval: external_exports3.boolean().optional(),
+    verification_tokens: tokensSchema.nullable().optional()
+  };
+}
+function makeDecisionUpdateHandler(client, catalog) {
+  const ParamsSchema17 = external_exports3.object(decisionUpdateShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema17, params, async ({ id, verification_tokens, ...data }) => {
+    if (isStrictPeriod && data.body !== void 0 && !verification_tokens) {
+      return typedToolError(
+        "Schema validation failed: verification_tokens object required when body is updated (body carries technical claim) post MCP_SERVER_RELEASE>=0.2.0 (skill staff-verification-protocol)."
+      );
+    }
+    if (data.body !== void 0 && data.kind !== void 0) {
+      requireTypeIn(data.body, [`decision.body.${data.kind}`], "body", `kind='${data.kind}'`);
+    }
+    const tokens = attachVerification(catalog, [data.body], verification_tokens);
+    return typedToolResult(await client.patch(`/decisions/${id}`, data), notices2(tokens));
+  });
+}
+var FUTURE_PROMISE_CREATE_DESCRIPTION = "Create a new FuturePromise (deferred work item with trigger). Validates invariantes 1-4 seg\xFAn promiseType server-side. SPEC-0220: `description` (futurePromise.description), `triggerCondition` (futurePromise.triggerCondition, obligatorio) y `origin` (futurePromise.origin) son valores tipados, no texto libre; un string rebota 422 TYPED_CONTENT_LEGACY_SHAPE. verification_tokens travel as `description.verification` (Evidence[]). Strict-enforced post MCP_SERVER_RELEASE >= 0.2.0.";
+function futurePromiseCreateShape(catalog) {
+  return {
+    title: external_exports3.string().describe("Short title"),
+    description: catalog.value("futurePromise.description").optional().describe(typedFieldDescription(["futurePromise.description"])),
+    promiseType: external_exports3.enum(PROMISE_TYPE),
+    triggerType: external_exports3.enum(TRIGGER_TYPE),
+    triggerCondition: catalog.value("futurePromise.triggerCondition").describe(typedFieldDescription(["futurePromise.triggerCondition"], "Obligatorio.")),
+    priorityPostTrigger: external_exports3.enum(PRIORITY2),
+    effortEstimate: external_exports3.string().optional().describe('Free-form (ej. "3-6 weeks")'),
+    linkedSpecId: external_exports3.string().optional().describe("SPEC linkeada (req si STUB_SPEC, DEFERRED_PHASE, DEFERRED_DEPENDENCY)"),
+    linkedPhaseId: external_exports3.string().optional().describe("Phase linkeada (req si DEFERRED_PHASE)"),
+    parentPromiseId: external_exports3.string().optional().describe("Parent FuturePromise (jerarqu\xEDa)"),
+    blockedByIds: external_exports3.array(external_exports3.string()).optional().describe("IDs de promises bloqueantes (req si DEFERRED_DEPENDENCY)"),
+    origin: catalog.value("futurePromise.origin").optional().describe(typedFieldDescription(["futurePromise.origin"])),
+    ownerId: external_exports3.string().optional().describe("User ID owner sugerido"),
+    tags: external_exports3.array(external_exports3.string()).optional(),
+    verification_tokens: verificationTokensField
+  };
+}
+function makeFuturePromiseCreateHandler(client, catalog) {
+  const ParamsSchema17 = external_exports3.object(futurePromiseCreateShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema17, params, async ({ verification_tokens, ...body }) => {
+    const tokens = attachVerification(
+      catalog,
+      [body.description, body.triggerCondition, body.origin],
+      verification_tokens
+    );
+    return typedToolResult(await client.post("/future-promises", body), notices2(tokens));
+  });
+}
+var FUTURE_PROMISE_UPDATE_DESCRIPTION = "Update a FuturePromise. Lifecycle transitions auto-set timestamps (invariantes 5-8). promotedToSpecId solo v\xE1lido en status=PROMOTED. SPEC-0220: `description`, `triggerCondition` y `origin` son valores tipados (futurePromise.*), no texto libre; un string rebota 422 TYPED_CONTENT_LEGACY_SHAPE.";
+function futurePromiseUpdateShape(catalog) {
+  return {
+    id: external_exports3.string().describe("FuturePromise ID to update"),
+    title: external_exports3.string().optional(),
+    description: catalog.value("futurePromise.description").optional().describe(typedFieldDescription(["futurePromise.description"])),
+    triggerType: external_exports3.enum(TRIGGER_TYPE).optional(),
+    triggerCondition: catalog.value("futurePromise.triggerCondition").optional().describe(typedFieldDescription(["futurePromise.triggerCondition"])),
+    effortEstimate: external_exports3.string().optional(),
+    priorityPostTrigger: external_exports3.enum(PRIORITY2).optional(),
+    status: external_exports3.enum(PROMISE_STATUS).optional().describe("Status transition. Timestamps triggeredAt/promotedAt/archivedAt se setean autom\xE1ticamente."),
+    linkedSpecId: external_exports3.string().optional(),
+    linkedPhaseId: external_exports3.string().optional(),
+    parentPromiseId: external_exports3.string().optional(),
+    promotedToSpecId: external_exports3.string().optional().describe("Solo v\xE1lido cuando status=PROMOTED. Si transici\xF3n a PROMOTED, este field es required."),
+    origin: catalog.value("futurePromise.origin").optional().describe(typedFieldDescription(["futurePromise.origin"])),
+    ownerId: external_exports3.string().optional(),
+    tags: external_exports3.array(external_exports3.string()).optional()
+  };
+}
+function makeFuturePromiseUpdateHandler(client, catalog) {
+  const ParamsSchema17 = external_exports3.object(futurePromiseUpdateShape(catalog)).strict();
+  return async (params) => runTypedTool(
+    ParamsSchema17,
+    params,
+    async ({ id, ...data }) => typedToolResult(await client.patch(`/future-promises/${id}`, data))
+  );
+}
+var FUTURE_PROMISE_PROMOTE_DESCRIPTION = "Promote a FuturePromise from TRIGGER_MET to PROMOTED. Pass exactly one of promotedToSpecId (existing SPEC) or createNewSpec (scaffold new SPEC atomically). Auto-comment in promoted SPEC documents the origin. SPEC-0220: in createNewSpec, `description` is a typed spec.description value and each `phases[].description` a typed specPhase.description value \u2014 not markdown; a plain string gets 422 TYPED_CONTENT_LEGACY_SHAPE. verification_tokens travel as `createNewSpec.description.verification` (Evidence[]); with promotedToSpecId there is no typed value to carry them and they are validated for the verification hook only. Strict-enforced post MCP_SERVER_RELEASE >= 0.2.0.";
+function futurePromisePromoteShape(catalog) {
+  return {
+    id: external_exports3.string().describe("FuturePromise ID to promote"),
+    promotedToSpecId: external_exports3.string().optional().describe("ID of existing SPEC that takes over this promise. Mutually exclusive with createNewSpec."),
+    createNewSpec: external_exports3.object({
+      title: external_exports3.string(),
+      description: catalog.value("spec.description"),
+      priority: external_exports3.enum(PRIORITY2).optional(),
+      category: external_exports3.string().optional(),
+      tags: external_exports3.array(external_exports3.string()).optional(),
+      phases: external_exports3.array(external_exports3.object({ name: external_exports3.string(), description: catalog.value("specPhase.description").optional() }).strict()).optional()
+    }).strict().optional().describe("Scaffold for a new SPEC. Mutually exclusive with promotedToSpecId. `description` is a typed spec.description value."),
+    verification_tokens: verificationTokensField
+  };
+}
+function makeFuturePromisePromoteHandler(client, catalog) {
+  const ParamsSchema17 = external_exports3.object(futurePromisePromoteShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema17, params, async ({ id, verification_tokens, ...body }) => {
+    const tokens = attachVerification(catalog, [body.createNewSpec?.description], verification_tokens);
+    return typedToolResult(await client.post(`/future-promises/${id}/promote`, body), notices2(tokens));
+  });
+}
+var MEETING_CREATE_DESCRIPTION = "Create a Meeting record (manual upload o pre-ingest stub para F2 Drive Ingestor). Idempotencia por (tenantId, sourceFileId) \u2014 backend rechaza 400 si ya existe Meeting para ese file. Taxonomy validation server-side (SPEC-0051 F1). Status default PENDING server-controlled. SPEC-0220: `rawTranscript` (meeting.rawTranscript, obligatorio) y `summary` (meeting.summary) son valores tipados, no texto libre; un string rebota 422 TYPED_CONTENT_LEGACY_SHAPE.";
+function meetingCreateShape(catalog) {
+  return {
+    title: external_exports3.string().min(1).max(500).describe("T\xEDtulo del meeting (<500 chars)."),
+    source: external_exports3.enum(["GOOGLE_DRIVE", "ZOOM_DRIVE", "MANUAL_UPLOAD"]).describe("Origen del transcript."),
+    sourceFileId: external_exports3.string().min(1).describe("Identificador del file fuente (Drive file ID, Zoom recording ID). Idempotency key con tenantId."),
+    sourceFileUrl: external_exports3.string().optional().describe("URL p\xFAblica del file (Drive web URL)."),
+    recordedAt: external_exports3.string().describe("Fecha/hora ISO 8601 de cu\xE1ndo se realiz\xF3 el meeting."),
+    durationSeconds: external_exports3.number().int().min(0).optional().describe("Duraci\xF3n en segundos."),
+    participants: external_exports3.array(external_exports3.string()).optional().describe("Lista de participantes (emails o nombres)."),
+    rawTranscript: catalog.value("meeting.rawTranscript").describe(typedFieldDescription(["meeting.rawTranscript"], "Obligatorio.")),
+    summary: catalog.value("meeting.summary").optional().describe(typedFieldDescription(["meeting.summary"])),
+    workspaceId: external_exports3.string().optional().describe("Taxonomy workspace (NULLABLE para Meeting)."),
+    projectId: external_exports3.string().optional().describe("Taxonomy project."),
+    moduleId: external_exports3.string().optional().describe("Taxonomy module."),
+    submoduleId: external_exports3.string().optional().describe("Taxonomy submodule (solo si module tiene submodules)."),
+    tags: external_exports3.array(external_exports3.string()).optional().describe('Namespaced tags ("client:acme", "module:tesoreria", etc.).')
+  };
+}
+function makeMeetingCreateHandler(client, catalog) {
+  const ParamsSchema17 = external_exports3.object(meetingCreateShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema17, params, async (data) => typedToolResult(await client.post("/meetings", data)));
+}
+var MEETING_UPDATE_DESCRIPTION = "Update a Meeting. Editable fields F1: title, summary, tags, taxonomy (workspaceId/projectId/moduleId/submoduleId). Taxonomy re-validated server-side si cambia. Status transitions intencionalmente NO expuestas en MCP. SPEC-0220: `summary` es un valor tipado meeting.summary, no texto libre; un string rebota 422 TYPED_CONTENT_LEGACY_SHAPE.";
+function meetingUpdateShape(catalog) {
+  return {
+    id: external_exports3.string().describe("Meeting id to update."),
+    title: external_exports3.string().min(1).max(500).optional(),
+    summary: catalog.value("meeting.summary").optional().describe(typedFieldDescription(["meeting.summary"])),
+    tags: external_exports3.array(external_exports3.string()).optional(),
+    workspaceId: external_exports3.string().optional(),
+    projectId: external_exports3.string().optional(),
+    moduleId: external_exports3.string().optional(),
+    submoduleId: external_exports3.string().optional()
+  };
+}
+function makeMeetingUpdateHandler(client, catalog) {
+  const ParamsSchema17 = external_exports3.object(meetingUpdateShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema17, params, async ({ id, ...data }) => typedToolResult(await client.patch(`/meetings/${id}`, data)));
+}
+var QA_SPEC_UPDATE_DESCRIPTION = "Update QaSpecification editable fields: title (\u226480 chars), content, validationSteps (length \u22651). Snapshot logic D-T2: si content/validationSteps cambian Y originalContent IS NULL, el service hace snapshot ANTES del UPDATE. Status NO settable ac\xE1 \u2014 usar qa_spec_open_review/approve/reject. System users (workers) rechazados 403. SPEC-0220: `content` es un valor tipado qaSpecification.content y `validationSteps` la parte `steps` de qaSpecification.validationSteps ([{ kind, description, expectedResult }] con topes de hoja) \u2014 un string rebota 422 TYPED_CONTENT_LEGACY_SHAPE. verification_tokens required when content or validationSteps is updated post MCP_SERVER_RELEASE >= 0.2.0; qaSpecification.content does not declare `verification`, so they are validated for the verification hook and not persisted (the response says so).";
+function qaSpecUpdateShape(catalog) {
+  return {
+    id: external_exports3.string().describe("QaSpecification id."),
+    title: external_exports3.string().max(80).optional(),
+    content: catalog.value("qaSpecification.content").optional().describe(typedFieldDescription(["qaSpecification.content"])),
+    validationSteps: catalog.part("qaSpecification.validationSteps", "steps").optional().describe("La parte `steps` de qaSpecification.validationSteps: [{ kind, description, expectedResult }], length \u22651."),
+    verification_tokens: tokensSchema.nullable().optional()
+  };
+}
+function makeQaSpecUpdateHandler(client, catalog) {
+  const ParamsSchema17 = external_exports3.object(qaSpecUpdateShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema17, params, async ({ id, verification_tokens, ...data }) => {
+    const isVerdictUpdate = data.content !== void 0 || data.validationSteps !== void 0;
+    if (isStrictPeriod && isVerdictUpdate && !verification_tokens) {
+      return typedToolError(
+        "Schema validation failed: verification_tokens object required when content or validationSteps is updated (QA spec change is a technical verdict) post MCP_SERVER_RELEASE>=0.2.0 (skill staff-verification-protocol)."
+      );
+    }
+    const tokens = attachVerification(catalog, [data.content], verification_tokens);
+    return typedToolResult(await client.patch(`/qa-specs/${id}`, data), notices2(tokens));
+  });
+}
+var QA_SPEC_REJECT_DESCRIPTION = "Lifecycle convenience tool: UNDER_REVIEW \u2192 FAILED con raz\xF3n obligatoria. reviewedById + reviewedAt populated. Audit row con action=REJECT + diff incluye reason. SPEC-0220: `rejectReason` es un valor tipado qaSpecification.rejectReason (los topes salen del registro), no texto libre; un string rebota 422 TYPED_CONTENT_LEGACY_SHAPE. qaSpecification.rejectReason no declara `verification`: los verification_tokens se validan para el hook de verificaci\xF3n y no se persisten (la respuesta lo avisa). Strict-enforced post MCP_SERVER_RELEASE >= 0.2.0.";
+function qaSpecRejectShape(catalog) {
+  return {
+    id: external_exports3.string().describe("QaSpecification id en estado UNDER_REVIEW."),
+    rejectReason: catalog.value("qaSpecification.rejectReason").describe(typedFieldDescription(["qaSpecification.rejectReason"], "Obligatoria.")),
+    verification_tokens: verificationTokensField
+  };
+}
+function makeQaSpecRejectHandler(client, catalog) {
+  const ParamsSchema17 = external_exports3.object(qaSpecRejectShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema17, params, async ({ id, rejectReason, verification_tokens }) => {
+    const tokens = attachVerification(catalog, [rejectReason], verification_tokens);
+    const qaSpec = await client.post(`/qa-specs/${id}/transitions`, { to: "FAILED", rejectReason });
+    return typedToolResult(qaSpec, notices2(tokens));
+  });
+}
+var QA_RUN_COMPLETE_DESCRIPTION = "Complete QaRun: RUNNING \u2192 COMPLETED/FAILED/ABORTED. Cross-module side-effect (D-D6): QaSpec.transition() IN_QA \u2192 COMPLETED/FAILED (ABORTED no toca QaSpec). durationMs calculado server-side. SPEC-0220: `summary` es un valor tipado qaRun.summary (opcional), no texto libre; un string rebota 422 TYPED_CONTENT_LEGACY_SHAPE. qaRun.summary no declara `verification`: los verification_tokens se validan para el hook y no se persisten (la respuesta lo avisa). Strict-enforced post MCP_SERVER_RELEASE >= 0.2.0.";
+function qaRunCompleteShape(catalog) {
+  return {
+    id: external_exports3.string().describe("QaRun id."),
+    status: external_exports3.enum(["COMPLETED", "FAILED", "ABORTED"]).describe("Target final state. COMPLETED desde RUNNING only."),
+    summary: catalog.value("qaRun.summary").optional().describe(typedFieldDescription(["qaRun.summary"])),
+    verification_tokens: verificationTokensField
+  };
+}
+function makeQaRunCompleteHandler(client, catalog) {
+  const ParamsSchema17 = external_exports3.object(qaRunCompleteShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema17, params, async ({ id, verification_tokens, ...body }) => {
+    const tokens = attachVerification(catalog, [body.summary], verification_tokens);
+    return typedToolResult(await client.post(`/qa-runs/${id}/complete`, body), notices2(tokens));
+  });
+}
+var UPDATE_TASK_DESCRIPTION = "Update an existing task. SPEC-0220: `description` es un valor tipado task.description, no texto libre; un string rebota 422 TYPED_CONTENT_LEGACY_SHAPE.";
+function updateTaskShape(catalog) {
+  return {
+    id: external_exports3.string().describe("Task ID"),
+    title: external_exports3.string().optional(),
+    description: catalog.value("task.description").optional().describe(typedFieldDescription(["task.description"])),
+    status: external_exports3.enum(["INBOX", "BACKLOG", "IN_PROGRESS", "DONE", "ARCHIVED"]).optional(),
+    priority: external_exports3.enum(["NOW", "NEXT", "LATER"]).optional(),
+    areas: external_exports3.array(external_exports3.string()).optional(),
+    // SPEC-0208 P2 — `null` limpia la asignacion de repo; un string la fija.
+    repoKey: external_exports3.union([external_exports3.string(), external_exports3.null()]).optional().describe(
+      "SPEC-0208 P2 \u2014 repoKey del ProjectRepo del tenant al que pertenece la task. El valor DEBE existir en ProjectRepo de este tenant: uno inexistente (o que exista solo en otro tenant) devuelve 422 REPO_KEY_NOT_FOUND."
+    )
+  };
+}
+function makeUpdateTaskHandler(client, catalog) {
+  const ParamsSchema17 = external_exports3.object(updateTaskShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema17, params, async ({ id, ...data }) => typedToolResult(await client.patch(`/tasks/${id}`, data)));
 }
 
 // src/tools/create-task.deprecated.ts
@@ -33409,6 +34452,91 @@ function makeSpecPhaseUnlinkHandler(client) {
   };
 }
 
+// src/tools/spec-0223-p3-automation-tools.ts
+function strictOrError(schema, params) {
+  const parsed = schema.safeParse(params);
+  if (parsed.success) return { ok: true, data: parsed.data };
+  return {
+    ok: false,
+    result: {
+      isError: true,
+      content: [
+        {
+          type: "text",
+          text: `Schema validation failed: ${parsed.error.issues.map((e) => e.message).join("; ")}`
+        }
+      ]
+    }
+  };
+}
+var ok = (result) => ({
+  content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+});
+var taskAddDependencySchema = {
+  specId: external_exports3.string().describe("Spec ID (cuid)"),
+  phaseId: external_exports3.string().describe("Phase ID (cuid) \u2014 la fase a la que pertenecen las DOS tasks"),
+  taskId: external_exports3.string().describe("Task ID (cuid) de la task que DEPENDE"),
+  dependsOnTaskId: external_exports3.string().describe("Task ID (cuid) de la task de la que esta depende"),
+  type: external_exports3.enum(["BLOCKS", "RELATES_TO"]).optional().describe("BLOCKS (default) frena el despacho automatico; RELATES_TO declara parentesco y no bloquea."),
+  note: external_exports3.string().optional().describe("Nota libre sobre por que existe la dependencia.")
+};
+var AddDependencyParams = external_exports3.object(taskAddDependencySchema).strict();
+function makeTaskAddDependencyHandler(client) {
+  return async (params) => {
+    const parsed = strictOrError(AddDependencyParams, params);
+    if (!parsed.ok) return parsed.result;
+    const { specId, phaseId, taskId, dependsOnTaskId, type, note } = parsed.data;
+    const result = await client.post(
+      `/specs/${specId}/phases/${phaseId}/tasks/${taskId}/dependencies`,
+      {
+        dependsOnTaskId,
+        ...type !== void 0 ? { type } : {},
+        ...note !== void 0 ? { note } : {}
+      }
+    );
+    return ok(result);
+  };
+}
+var taskRemoveDependencySchema = {
+  specId: external_exports3.string().describe("Spec ID (cuid)"),
+  phaseId: external_exports3.string().describe("Phase ID (cuid)"),
+  taskId: external_exports3.string().describe("Task ID (cuid) de la task que DEPENDE"),
+  dependsOnTaskId: external_exports3.string().describe("Task ID (cuid) de la task de la que dependia")
+};
+var RemoveDependencyParams = external_exports3.object(taskRemoveDependencySchema).strict();
+function makeTaskRemoveDependencyHandler(client) {
+  return async (params) => {
+    const parsed = strictOrError(RemoveDependencyParams, params);
+    if (!parsed.ok) return parsed.result;
+    const { specId, phaseId, taskId, dependsOnTaskId } = parsed.data;
+    const result = await client.delete(
+      `/specs/${specId}/phases/${phaseId}/tasks/${taskId}/dependencies/${dependsOnTaskId}`
+    );
+    return ok(result);
+  };
+}
+var phaseAutoRunRecordResultSchema = {
+  specId: external_exports3.string().describe("Spec ID (cuid)"),
+  phaseId: external_exports3.string().describe("Phase ID (cuid) de la fase que esta corriendo"),
+  runId: external_exports3.string().describe("PhaseAutoRun ID (cuid) que devolvio el despachador"),
+  taskId: external_exports3.string().describe("Task ID (cuid) que el despachador entrego"),
+  status: external_exports3.enum(["OK", "BLOCKED"]).describe("OK = la task termino; BLOCKED = se trabo."),
+  reason: external_exports3.string().optional().describe("Motivo. OBLIGATORIO si status=BLOCKED \u2014 sin el, el Hub responde 400 BLOCKED_RESULT_REQUIRES_REASON antes de tocar la base.")
+};
+var RecordResultParams = external_exports3.object(phaseAutoRunRecordResultSchema).strict();
+function makePhaseAutoRunRecordResultHandler(client) {
+  return async (params) => {
+    const parsed = strictOrError(RecordResultParams, params);
+    if (!parsed.ok) return parsed.result;
+    const { specId, phaseId, runId, taskId, status, reason } = parsed.data;
+    const result = await client.post(
+      `/specs/${specId}/phases/${phaseId}/auto-run/${runId}/tasks/${taskId}/result`,
+      { status, ...reason !== void 0 ? { reason } : {} }
+    );
+    return ok(result);
+  };
+}
+
 // src/read-by-reference.ts
 import { writeFileSync, mkdirSync } from "node:fs";
 import { createHash as createHash3 } from "node:crypto";
@@ -33488,6 +34616,31 @@ function makeSpecGetPhaseHandler(client) {
   };
 }
 
+// src/tools/spec-get-handoffs.ts
+var specGetHandoffsSchema = {
+  id: external_exports3.string().describe("Spec ID (cuid) or number SPEC-XXXX")
+};
+var ParamsSchema3 = external_exports3.object(specGetHandoffsSchema).strict();
+function makeSpecGetHandoffsHandler(client) {
+  return async (params) => {
+    const parsed = ParamsSchema3.safeParse(params);
+    if (!parsed.success) {
+      return {
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: `Schema validation failed: ${parsed.error.issues.map((e) => e.message).join("; ")}`
+          }
+        ]
+      };
+    }
+    const { id } = parsed.data;
+    const chain = await client.get(`/specs/${id}/handoffs`);
+    return formatRead(chain);
+  };
+}
+
 // src/tools/spec-phase-realign-contract.ts
 var REALIGNMENT_ARTIFACT_TYPES = [
   "TASK",
@@ -33514,10 +34667,10 @@ var specPhaseRealignContractSchema = {
     "Una disposici\xF3n por CADA artefacto que contractAlignment enumera (staleTasks, staleAcceptanceCriteria, staleSurfaces y CONTENT si staleContent). Falta una sola y el endpoint responde 422 nombr\xE1ndola, sin apagar la marca."
   )
 };
-var ParamsSchema3 = external_exports3.object(specPhaseRealignContractSchema).strict();
+var ParamsSchema4 = external_exports3.object(specPhaseRealignContractSchema).strict();
 function makeSpecPhaseRealignContractHandler(client) {
   return async (params) => {
-    const parsed = ParamsSchema3.safeParse(params);
+    const parsed = ParamsSchema4.safeParse(params);
     if (!parsed.success) {
       return {
         isError: true,
@@ -33538,6 +34691,44 @@ function makeSpecPhaseRealignContractHandler(client) {
   };
 }
 
+// src/tools/spec-phase-comment-supersede.ts
+var CUID = /^c[a-z0-9]{20,31}$/;
+var specPhaseCommentSupersedeSchema = {
+  specId: external_exports3.string().describe("Spec ID (cuid) or SPEC-XXXX number"),
+  phaseId: external_exports3.string().describe("Phase ID (cuid)"),
+  commentId: external_exports3.string().describe(
+    "ID (cuid) del comment de fase que declara la contenci\xF3n. Sale de spec_get_phase o spec_get: es el `id` de la fila dentro de phases[].comments[]."
+  ),
+  ticketId: external_exports3.string().regex(CUID, {
+    message: "ticketId debe ser el CUID del ticket, no su n\xFAmero can\xF3nico. Resolv\xE9 TKT-XXXX \u2192 cuid con ticket_resolve_by_number."
+  }).describe(
+    "CUID del Ticket que levant\xF3 la limitaci\xF3n. Su `number` se guarda como snapshot y es lo que muestra el banner. Para resolver TKT-XXXX \u2192 cuid, usar ticket_resolve_by_number."
+  )
+};
+var ParamsSchema5 = external_exports3.object(specPhaseCommentSupersedeSchema).strict();
+function makeSpecPhaseCommentSupersedeHandler(client) {
+  return async (params) => {
+    const parsed = ParamsSchema5.safeParse(params);
+    if (!parsed.success) {
+      return {
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: `Schema validation failed: ${parsed.error.issues.map((e) => e.message).join("; ")}`
+          }
+        ]
+      };
+    }
+    const { specId, phaseId, commentId, ticketId } = parsed.data;
+    const result = await client.post(
+      `/specs/${specId}/phases/${phaseId}/comments/${commentId}/supersede`,
+      { ticketId }
+    );
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  };
+}
+
 // src/tools/spec-get.ts
 var specGetSchema = {
   id: external_exports3.string().describe("Spec ID or number (SPEC-XXXX)"),
@@ -33548,10 +34739,10 @@ var specGetSchema = {
   // TKT-0368 — transporte por referencia en lectura (ver read-by-reference.ts).
   ...readOutputPathSchema
 };
-var ParamsSchema4 = external_exports3.object(specGetSchema).strict();
+var ParamsSchema6 = external_exports3.object(specGetSchema).strict();
 function makeSpecGetHandler(client) {
   return async (params) => {
-    const parsed = ParamsSchema4.safeParse(params);
+    const parsed = ParamsSchema6.safeParse(params);
     if (!parsed.success) {
       return {
         isError: true,
@@ -33581,10 +34772,10 @@ var meetingGetSchema = {
   // TKT-0368 — transporte por referencia en lectura (ver read-by-reference.ts).
   ...readOutputPathSchema
 };
-var ParamsSchema5 = external_exports3.object(meetingGetSchema).strict();
+var ParamsSchema7 = external_exports3.object(meetingGetSchema).strict();
 function makeMeetingGetHandler(client) {
   return async (params) => {
-    const parsed = ParamsSchema5.safeParse(params);
+    const parsed = ParamsSchema7.safeParse(params);
     if (!parsed.success) {
       return {
         isError: true,
@@ -33617,21 +34808,24 @@ var SPEC_DOC_KIND_ENUM = external_exports3.enum([
   "ADVERSARIAL_VERDICT",
   "CLOSEOUT_DECISION",
   "RISK_ACCEPTANCE",
-  "BLOCKED_RESOLUTION"
+  "BLOCKED_RESOLUTION",
+  "SDD_DESIGN",
+  "SCHEMA_CONTRACT",
+  "SDD_TASKS"
 ]);
 var specGetDocumentationSchema = {
   specId: external_exports3.string().describe("Spec ID (cuid) or SPEC-XXXX number"),
-  kind: SPEC_DOC_KIND_ENUM.optional().describe("Filter to a single documentation kind. Omitted \u2192 all 12 kinds."),
+  kind: SPEC_DOC_KIND_ENUM.optional().describe("Filter to a single documentation kind. Omitted \u2192 all 15 kinds."),
   includeHistory: external_exports3.boolean().optional().describe(
     "true = include full history per kind (with article.content). Default false (omitted) \u2014 returns historyCount per kind instead, avoiding the token cost of past revisions unless explicitly requested."
   ),
   // TKT-0368 — transporte por referencia en lectura (ver read-by-reference.ts).
   ...readOutputPathSchema
 };
-var ParamsSchema6 = external_exports3.object(specGetDocumentationSchema).strict();
+var ParamsSchema8 = external_exports3.object(specGetDocumentationSchema).strict();
 function makeSpecGetDocumentationHandler(client) {
   return async (params) => {
-    const parsed = ParamsSchema6.safeParse(params);
+    const parsed = ParamsSchema8.safeParse(params);
     if (!parsed.success) {
       return {
         isError: true,
@@ -33661,10 +34855,10 @@ var ihubGetTicketSchema = {
   // TKT-0368 — transporte por referencia en lectura (ver read-by-reference.ts).
   ...readOutputPathSchema
 };
-var ParamsSchema7 = external_exports3.object(ihubGetTicketSchema).strict();
+var ParamsSchema9 = external_exports3.object(ihubGetTicketSchema).strict();
 function makeIhubGetTicketHandler(client) {
   return async (params) => {
-    const parsed = ParamsSchema7.safeParse(params);
+    const parsed = ParamsSchema9.safeParse(params);
     if (!parsed.success) {
       return {
         isError: true,
@@ -33679,6 +34873,128 @@ function makeIhubGetTicketHandler(client) {
     const { id, comments, outputPath } = parsed.data;
     const ticket = await client.get(`/tickets/${id}?comments=${comments ?? "recent"}`);
     return formatReadMaybeByReference(ticket, outputPath);
+  };
+}
+
+// src/tools/kb-revisions.ts
+var addressSchema = {
+  slug: external_exports3.string().optional().describe(
+    'Slug del KbArticle (ej: "spec-0228-discovery-report"). Excluyente con specId+kind: pas\xE1 UNO de los dos modos.'
+  ),
+  specId: external_exports3.string().optional().describe(
+    "Spec ID (cuid) o SPEC-XXXX. Va junto con kind: la tool resuelve el slug del artefacto vigente de ese kind. Excluyente con slug."
+  ),
+  kind: SPEC_DOC_KIND_ENUM.optional().describe(
+    "Kind del artefacto SDD cuyo historial se quiere. S\xF3lo v\xE1lido junto con specId."
+  )
+};
+var listKbRevisionsSchema = {
+  ...addressSchema,
+  includeContent: external_exports3.boolean().optional().describe(
+    "false (default) = \xEDndice sin cuerpos: cada revisi\xF3n con id/createdAt/title/changeLog/editor + contentLength. true = incluye adem\xE1s el content completo de CADA revisi\xF3n, y entonces outputPath es OBLIGATORIO (el historial de un artefacto grande no entra inline)."
+  ),
+  ...readOutputPathSchema
+};
+var getKbRevisionSchema = {
+  revisionId: external_exports3.string().describe("KbRevision.id (cuid), tal como lo devuelve list_kb_revisions."),
+  ...addressSchema,
+  ...readOutputPathSchema
+};
+var ListParamsSchema = external_exports3.object(listKbRevisionsSchema).strict();
+var GetParamsSchema = external_exports3.object(getKbRevisionSchema).strict();
+function toolError2(text) {
+  return { isError: true, content: [{ type: "text", text }] };
+}
+async function resolveSlug(client, address) {
+  const { slug, specId, kind } = address;
+  if (slug && (specId || kind)) {
+    return {
+      error: "KB_REVISIONS_AMBIGUOUS_ADDRESS: pas\xE1 slug O specId+kind, no los dos. Nada se ley\xF3."
+    };
+  }
+  if (slug) return { slug };
+  if (specId && !kind) {
+    return {
+      error: "KB_REVISIONS_KIND_REQUIRED: specId sin kind no direcciona un artefacto \u2014 una SPEC tiene una secci\xF3n por kind. Pas\xE1 kind, o pas\xE1 el slug directo."
+    };
+  }
+  if (kind && !specId) {
+    return {
+      error: "KB_REVISIONS_SPEC_ID_REQUIRED: kind sin specId no direcciona nada. Pas\xE1 specId, o pas\xE1 el slug directo."
+    };
+  }
+  if (!specId) {
+    return {
+      error: "KB_REVISIONS_NO_ADDRESS: falta el direccionamiento \u2014 pas\xE1 slug, o specId+kind. Nada se ley\xF3."
+    };
+  }
+  const query = new URLSearchParams({ kind, includeHistory: "false" });
+  const doc = await client.get(
+    `/specs/${specId}/documentation?${query.toString()}`
+  );
+  const resolved = doc?.sections?.find((s) => s.kind === kind)?.documentation?.article?.slug;
+  if (!resolved) {
+    return {
+      error: `KB_REVISIONS_ARTIFACT_NOT_EMITTED: ${specId} no tiene un ${kind} vigente, as\xED que no hay art\xEDculo del que leer revisiones.`
+    };
+  }
+  return { slug: resolved };
+}
+function toIndexEntry({ content, ...rest }) {
+  return { ...rest, contentLength: content?.length ?? 0 };
+}
+function makeListKbRevisionsHandler(client) {
+  return async (params) => {
+    const parsed = ListParamsSchema.safeParse(params);
+    if (!parsed.success) {
+      return toolError2(
+        `Schema validation failed: ${parsed.error.issues.map((e) => e.message).join("; ")}`
+      );
+    }
+    const { slug, specId, kind, includeContent, outputPath } = parsed.data;
+    if (includeContent === true && outputPath === void 0) {
+      return toolError2(
+        "KB_REVISIONS_CONTENT_NEEDS_OUTPUT_PATH: includeContent=true exige outputPath (ruta absoluta .json). El historial completo de un artefacto SDD no entra en un resultado de tool y la respuesta inline es UNA sola l\xEDnea: no se puede paginar. Nada se ley\xF3."
+      );
+    }
+    const address = await resolveSlug(client, { slug, specId, kind });
+    if ("error" in address) return toolError2(address.error);
+    const revisions = await client.get(
+      `/kb/${address.slug}/revisions`
+    );
+    const rows = Array.isArray(revisions) ? revisions : [];
+    return formatReadMaybeByReference(
+      {
+        slug: address.slug,
+        count: rows.length,
+        // El endpoint ordena por createdAt desc: revisions[0] es la última re-emisión.
+        order: "createdAt desc \u2014 revisions[0] es la M\xC1S RECIENTE",
+        revisions: rows.map(
+          (r) => includeContent === true ? { ...r, contentLength: r.content?.length ?? 0 } : toIndexEntry(r)
+        )
+      },
+      outputPath
+    );
+  };
+}
+function makeGetKbRevisionHandler(client) {
+  return async (params) => {
+    const parsed = GetParamsSchema.safeParse(params);
+    if (!parsed.success) {
+      return toolError2(
+        `Schema validation failed: ${parsed.error.issues.map((e) => e.message).join("; ")}`
+      );
+    }
+    const { revisionId, slug, specId, kind, outputPath } = parsed.data;
+    const address = await resolveSlug(client, { slug, specId, kind });
+    if ("error" in address) return toolError2(address.error);
+    const revision = await client.get(
+      `/kb/${address.slug}/revisions/${revisionId}`
+    );
+    return formatReadMaybeByReference(
+      { ...revision, contentLength: revision?.content?.length ?? 0 },
+      outputPath
+    );
   };
 }
 
@@ -33699,11 +35015,11 @@ var ihubCreateTicketSchema = {
   submoduleId: external_exports3.string().optional().describe("submodule owner. REQUIRED iff the chosen module has submodules defined."),
   verification_tokens: verificationTokensField
 };
-var ParamsSchema8 = external_exports3.object(ihubCreateTicketSchema).strict();
+var ParamsSchema10 = external_exports3.object(ihubCreateTicketSchema).strict();
 function makeIhubCreateTicketHandler(client) {
   return async (params) => {
     try {
-      const { verification_tokens, description, ...rest } = ParamsSchema8.parse(params);
+      const { verification_tokens, description, ...rest } = ParamsSchema10.parse(params);
       const verificationTable = renderTokensToMarkdownTable(verification_tokens);
       const ticket = await client.post("/tickets", {
         ...rest,
@@ -33736,11 +35052,11 @@ var specCreateTicketSchema = {
   clientId: external_exports3.string().optional(),
   verification_tokens: verificationTokensField
 };
-var ParamsSchema9 = external_exports3.object(specCreateTicketSchema).strict();
+var ParamsSchema11 = external_exports3.object(specCreateTicketSchema).strict();
 function makeSpecCreateTicketHandler(client) {
   return async (params) => {
     try {
-      const { specId, phaseId, verification_tokens, description, ...rest } = ParamsSchema9.parse(params);
+      const { specId, phaseId, verification_tokens, description, ...rest } = ParamsSchema11.parse(params);
       const verificationTable = renderTokensToMarkdownTable(verification_tokens);
       const ticket = await client.post(`/specs/${specId}/phases/${phaseId}/tickets`, {
         ...rest,
@@ -33766,10 +35082,10 @@ var specBlockSchema = {
   specId: external_exports3.string(),
   reason: external_exports3.string().describe("Motivo del bloqueo (obligatorio; vac\xEDo \u2192 400 BLOCK_REASON_REQUIRED).")
 };
-var ParamsSchema10 = external_exports3.object(specBlockSchema).strict();
+var ParamsSchema12 = external_exports3.object(specBlockSchema).strict();
 function makeSpecBlockHandler(client) {
   return async (params) => {
-    const parsed = ParamsSchema10.safeParse(params);
+    const parsed = ParamsSchema12.safeParse(params);
     if (!parsed.success) {
       return {
         isError: true,
@@ -33792,10 +35108,10 @@ var specUnblockSchema = {
   specId: external_exports3.string(),
   resolutionNotes: external_exports3.string().describe("Notas de la resoluci\xF3n del bloqueo (obligatorio; vac\xEDo \u2192 400).")
 };
-var ParamsSchema11 = external_exports3.object(specUnblockSchema).strict();
+var ParamsSchema13 = external_exports3.object(specUnblockSchema).strict();
 function makeSpecUnblockHandler(client) {
   return async (params) => {
-    const parsed = ParamsSchema11.safeParse(params);
+    const parsed = ParamsSchema13.safeParse(params);
     if (!parsed.success) {
       return {
         isError: true,
@@ -33813,6 +35129,127 @@ function makeSpecUnblockHandler(client) {
   };
 }
 
+// src/tools/binding-supersede-sign.ts
+var signBindingSupersedeSchema = {
+  specId: external_exports3.string().describe("Spec ID (cuid)"),
+  caseId: external_exports3.string().describe("TestCase ID (cuid) \u2014 el vinculante superseded que se firma."),
+  supersedeId: external_exports3.string().describe(
+    "ID (cuid) de la fila TestCaseBindingSupersede a firmar \u2014 lo devuelve el 422 de la guarda de cierre (T6.4), que enumera los pendientes junto a su testCaseId."
+  ),
+  reason: external_exports3.string().describe(
+    "Por qu\xE9 se firma este reemplazo. M\xEDnimo de longitud verificado por el backend \u2014 el mismo m\xEDnimo que aceptar el riesgo de un finding (spec.accept_finding_risk); por debajo del m\xEDnimo \u2192 422."
+  )
+};
+var bindingSupersedeSignParamsSchema = external_exports3.object(signBindingSupersedeSchema).strict();
+var ParamsSchema14 = bindingSupersedeSignParamsSchema;
+function makeSignBindingSupersedeHandler(client) {
+  return async (params) => {
+    const parsed = ParamsSchema14.safeParse(params);
+    if (!parsed.success) {
+      return {
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: `Schema validation failed: ${parsed.error.issues.map((e) => e.message).join("; ")}`
+          }
+        ]
+      };
+    }
+    const { specId, caseId, supersedeId, reason } = parsed.data;
+    const result = await client.post(
+      `/specs/${specId}/test-cases/${caseId}/binding-supersede/sign`,
+      { supersedeId, reason }
+    );
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  };
+}
+
+// src/tools/discard-test-case.ts
+var TestCaseDiscardReasonSchema = external_exports3.enum([
+  "REQUIRES_REALTIME_WAIT",
+  "NO_EXECUTABLE_STEPS",
+  "RESULT_NOT_OBSERVABLE",
+  "DUPLICATES_CASE",
+  "CONTRADICTS_PHASE_CONTRACT"
+]);
+var discardTestCaseSchema = {
+  specId: external_exports3.string().describe("Spec ID (cuid)"),
+  id: external_exports3.string().describe("TestCase ID (cuid) \u2014 el vinculante que se descarta."),
+  reason: TestCaseDiscardReasonSchema.describe(
+    "Motivo del cat\xE1logo CERRADO de descarte (distinto del cat\xE1logo de aceptaci\xF3n de riesgo). DUPLICATES_CASE exige duplicatesTestCaseId."
+  ),
+  citedExcerpt: external_exports3.string().describe(
+    "Fragmento LITERAL citado del successCriterion de este caso. El backend verifica que sea substring real (sin el marker), con un largo m\xEDnimo \u2014 422 si no."
+  ),
+  explanation: external_exports3.string().describe("Texto libre: c\xF3mo se relacionan la cita y el motivo. Obligatorio (no vac\xEDo)."),
+  duplicatesTestCaseId: external_exports3.string().optional().describe(
+    "Obligatorio SOLO con reason=DUPLICATES_CASE: cuid del TestCase vigente de esta misma SPEC que este descarte declara duplicado."
+  )
+};
+var discardTestCaseParamsSchema = external_exports3.object({
+  specId: external_exports3.string(),
+  id: external_exports3.string(),
+  reason: TestCaseDiscardReasonSchema,
+  citedExcerpt: external_exports3.string(),
+  explanation: external_exports3.string(),
+  duplicatesTestCaseId: external_exports3.string().optional()
+}).strict();
+var ParamsSchema15 = discardTestCaseParamsSchema;
+function makeDiscardTestCaseHandler(client) {
+  return async (params) => {
+    const parsed = ParamsSchema15.safeParse(params);
+    if (!parsed.success) {
+      return {
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: `Schema validation failed: ${parsed.error.issues.map((e) => e.message).join("; ")}`
+          }
+        ]
+      };
+    }
+    const { specId, id, ...body } = parsed.data;
+    const result = await client.post(`/specs/${specId}/test-cases/${id}/discard`, body);
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  };
+}
+
+// src/tools/test-case-flag-integrity.ts
+var testCaseFlagIntegritySchema = {
+  specId: external_exports3.string().describe("Spec ID (cuid)"),
+  id: external_exports3.string().describe("TestCase ID (cuid) \u2014 el vinculante que se marca."),
+  detail: external_exports3.string().describe(
+    "Qu\xE9 detect\xF3 Adversarial en el caso. Queda como integrityDetail del TestCase y como texto completo del evento FLAGGED del historial. Obligatorio (no vac\xEDo)."
+  )
+};
+var testCaseFlagIntegrityParamsSchema = external_exports3.object({
+  specId: external_exports3.string(),
+  id: external_exports3.string(),
+  detail: external_exports3.string()
+}).strict();
+var ParamsSchema16 = testCaseFlagIntegrityParamsSchema;
+function makeTestCaseFlagIntegrityHandler(client) {
+  return async (params) => {
+    const parsed = ParamsSchema16.safeParse(params);
+    if (!parsed.success) {
+      return {
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: `Schema validation failed: ${parsed.error.issues.map((e) => e.message).join("; ")}`
+          }
+        ]
+      };
+    }
+    const { specId, id, ...body } = parsed.data;
+    const result = await client.post(`/specs/${specId}/test-cases/${id}/flag-integrity`, body);
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  };
+}
+
 // src/tools/domain-context.ts
 var domainContextSetSchema = {
   body: external_exports3.string().min(1).describe(
@@ -33825,7 +35262,7 @@ var domainContextGetSchema = {
   )
 };
 var SetParamsSchema = external_exports3.object(domainContextSetSchema).strict();
-var GetParamsSchema = external_exports3.object(domainContextGetSchema).strict();
+var GetParamsSchema2 = external_exports3.object(domainContextGetSchema).strict();
 function schemaError(issues) {
   return {
     isError: true,
@@ -33847,11 +35284,161 @@ function makeDomainContextSetHandler(client) {
 }
 function makeDomainContextGetHandler(client) {
   return async (params) => {
-    const parsed = GetParamsSchema.safeParse(params);
+    const parsed = GetParamsSchema2.safeParse(params);
     if (!parsed.success) return schemaError(parsed.error.issues);
     const { version: version2 } = parsed.data;
     const path3 = version2 === void 0 ? "/domain-context" : `/domain-context?version=${version2}`;
     const result = await client.get(path3);
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  };
+}
+
+// src/tools/infra-context.ts
+var infraContextSetSchema = {
+  projectId: external_exports3.string().min(1).describe(
+    "CUID del proyecto del tenant. Tiene que ser de ESTE tenant: 404 PROJECT_NOT_FOUND en caso contrario. Resolvelo con project_list si no lo tenes."
+  ),
+  operacion: external_exports3.string().min(1).describe(
+    "Identificador estable de la operacion, en kebab-case (`deploy-prod-hub`, `rebuild-mcp`). Es la clave del upsert junto con projectId: la MISMA operacion se actualiza EN SU LUGAR, una distinta crea una entrada nueva. Otro formato rebota 400."
+  ),
+  queHace: external_exports3.string().min(1).describe("Que hace esta operacion, en una o dos oraciones."),
+  cuandoUsarlo: external_exports3.string().min(1).describe("En que situacion se corre. Es lo que se lee para saber si es ESTA la que hace falta."),
+  comandos: external_exports3.string().min(1).describe(
+    "Los comandos EN ORDEN, uno por linea. Texto y no lista: el orden y el contexto entre comandos (un `cd`, una nota de por que va antes) se pierden al trocearlo."
+  ),
+  decision: external_exports3.string().min(1).optional().describe(
+    "Donde hay que PARAR en vez de seguir. Opcional: hay operaciones sin punto de decision y forzar el campo produce relleno."
+  ),
+  verificarDespues: external_exports3.string().min(1).describe(
+    'Que se MIRA para saber que quedo bien. OBLIGATORIO: es el campo cuya ausencia produce el verde-falso que motiva este modelo \u2014 un comando que devuelve 0 sobre un artefacto que no cambio. Nombrar el artefacto o la consulta concreta, no "verificar que funcione".'
+  ),
+  noIncluye: external_exports3.string().min(1).optional().describe(
+    "Que operacion RELACIONADA esta NO hace. Es el campo que evita confundir dos operaciones vecinas cuyo sintoma de falla es identico (deploy vs. rebuild del MCP)."
+  ),
+  ultimaVerificacion: external_exports3.string().min(1).describe(
+    "Fecha ISO-8601 en que se CORRIERON estos comandos y funcionaron \u2014 NO la fecha de esta edicion. Un comando que nadie corrio en meses puede haber dejado de funcionar y sin esta fecha no hay como saberlo."
+  )
+};
+var infraContextGetSchema = {
+  projectId: external_exports3.string().min(1).optional().describe("CUID de un proyecto del tenant. Omitido devuelve las entradas de TODOS los proyectos."),
+  operacion: external_exports3.string().min(1).optional().describe(
+    "Identificador de una operacion puntual (`rebuild-mcp`). Omitido devuelve todas. Combinado con projectId identifica UNA entrada."
+  )
+};
+var SetParamsSchema2 = external_exports3.object(infraContextSetSchema).strict();
+var GetParamsSchema3 = external_exports3.object(infraContextGetSchema).strict();
+function schemaError2(issues) {
+  return {
+    isError: true,
+    content: [
+      {
+        type: "text",
+        text: `Schema validation failed: ${issues.map((e) => e.message).join("; ")}`
+      }
+    ]
+  };
+}
+function makeInfraContextSetHandler(client) {
+  return async (params) => {
+    const parsed = SetParamsSchema2.safeParse(params);
+    if (!parsed.success) return schemaError2(parsed.error.issues);
+    const result = await client.post("/infra-context", parsed.data);
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  };
+}
+function makeInfraContextGetHandler(client) {
+  return async (params) => {
+    const parsed = GetParamsSchema3.safeParse(params);
+    if (!parsed.success) return schemaError2(parsed.error.issues);
+    const qs = new URLSearchParams();
+    if (parsed.data.projectId) qs.set("projectId", parsed.data.projectId);
+    if (parsed.data.operacion) qs.set("operacion", parsed.data.operacion);
+    const query = qs.toString();
+    const result = await client.get(`/infra-context${query ? `?${query}` : ""}`);
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  };
+}
+
+// src/tools/risk-acceptance-reasons.ts
+var BASE_ACTION = external_exports3.enum(["TECHNICAL_DEPENDENCY", "DEFERRAL", "DECISION_NOT_TO_DO"]).describe(
+  "Accion base del motivo. Conjunto CERRADO en codigo: TECHNICAL_DEPENDENCY, DEFERRAL, DECISION_NOT_TO_DO."
+);
+var riskAcceptanceReasonListSchema = {
+  q: external_exports3.string().optional().describe("Busqueda contains-insensitive en name/label"),
+  isActive: external_exports3.boolean().optional().describe("Filtrar por activos (true) / inactivos (false)"),
+  limit: external_exports3.number().optional().describe("Max resultados (default 50)"),
+  offset: external_exports3.number().optional().describe("Offset para paginacion")
+};
+var riskAcceptanceReasonCreateSchema = {
+  name: external_exports3.string().describe("Nombre del motivo, unico por tenant"),
+  label: external_exports3.string().describe("Etiqueta visible en castellano"),
+  baseAction: BASE_ACTION.optional().describe(
+    "Su ausencia responde 422 RISK_REASON_BASE_ACTION_REQUIRED del backend (caso (8) de O2) \u2014 no un rechazo de forma del cliente."
+  ),
+  color: external_exports3.string().optional().describe("Color hex (default #6b7280)"),
+  sortOrder: external_exports3.number().optional().describe("Orden de despliegue (default 0)"),
+  isActive: external_exports3.boolean().optional().describe("Activo (default true)")
+};
+var riskAcceptanceReasonUpdateSchema = {
+  id: external_exports3.string().describe("ID del motivo"),
+  name: external_exports3.string().optional().describe("Nuevo nombre (unico por tenant)"),
+  label: external_exports3.string().optional().describe("Nueva etiqueta"),
+  baseAction: BASE_ACTION.optional().describe("Nueva accion base"),
+  color: external_exports3.string().optional().describe("Nuevo color hex"),
+  sortOrder: external_exports3.number().optional().describe("Nuevo orden"),
+  isActive: external_exports3.boolean().optional().describe("Activar/desactivar")
+};
+var riskAcceptanceReasonDeleteSchema = {
+  id: external_exports3.string().describe("ID del motivo")
+};
+var ListParamsSchema2 = external_exports3.object(riskAcceptanceReasonListSchema).strict();
+var CreateParamsSchema = external_exports3.object(riskAcceptanceReasonCreateSchema).strict();
+var UpdateParamsSchema = external_exports3.object(riskAcceptanceReasonUpdateSchema).strict();
+var DeleteParamsSchema = external_exports3.object(riskAcceptanceReasonDeleteSchema).strict();
+function schemaError3(issues) {
+  return {
+    isError: true,
+    content: [
+      { type: "text", text: `Schema validation failed: ${issues.map((e) => e.message).join("; ")}` }
+    ]
+  };
+}
+function makeRiskAcceptanceReasonListHandler(client) {
+  return async (params) => {
+    const parsed = ListParamsSchema2.safeParse(params);
+    if (!parsed.success) return schemaError3(parsed.error.issues);
+    const qs = new URLSearchParams();
+    if (parsed.data.q) qs.set("q", parsed.data.q);
+    if (parsed.data.isActive !== void 0) qs.set("isActive", String(parsed.data.isActive));
+    if (parsed.data.limit !== void 0) qs.set("limit", String(parsed.data.limit));
+    if (parsed.data.offset !== void 0) qs.set("offset", String(parsed.data.offset));
+    const query = qs.toString();
+    const result = await client.get(`/risk-acceptance-reasons${query ? `?${query}` : ""}`);
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  };
+}
+function makeRiskAcceptanceReasonCreateHandler(client) {
+  return async (params) => {
+    const parsed = CreateParamsSchema.safeParse(params);
+    if (!parsed.success) return schemaError3(parsed.error.issues);
+    const result = await client.post("/risk-acceptance-reasons", parsed.data);
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  };
+}
+function makeRiskAcceptanceReasonUpdateHandler(client) {
+  return async (params) => {
+    const parsed = UpdateParamsSchema.safeParse(params);
+    if (!parsed.success) return schemaError3(parsed.error.issues);
+    const { id, ...body } = parsed.data;
+    const result = await client.patch(`/risk-acceptance-reasons/${id}`, body);
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  };
+}
+function makeRiskAcceptanceReasonDeleteHandler(client) {
+  return async (params) => {
+    const parsed = DeleteParamsSchema.safeParse(params);
+    if (!parsed.success) return schemaError3(parsed.error.issues);
+    const result = await client.del(`/risk-acceptance-reasons/${parsed.data.id}`);
     return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
   };
 }
@@ -33873,8 +35460,8 @@ var specOperatorInputListSchema = {
   )
 };
 var RequestParamsSchema = external_exports3.object(specRequestOperatorInputSchema).strict();
-var ListParamsSchema = external_exports3.object(specOperatorInputListSchema).strict();
-function schemaError2(issues) {
+var ListParamsSchema3 = external_exports3.object(specOperatorInputListSchema).strict();
+function schemaError4(issues) {
   return {
     isError: true,
     content: [
@@ -33888,7 +35475,7 @@ function schemaError2(issues) {
 function makeSpecRequestOperatorInputHandler(client) {
   return async (params) => {
     const parsed = RequestParamsSchema.safeParse(params);
-    if (!parsed.success) return schemaError2(parsed.error.issues);
+    if (!parsed.success) return schemaError4(parsed.error.issues);
     const { specId, questions, artifactKind } = parsed.data;
     const result = await client.post(
       `/specs/${encodeURIComponent(specId)}/operator-input`,
@@ -33899,8 +35486,8 @@ function makeSpecRequestOperatorInputHandler(client) {
 }
 function makeSpecOperatorInputListHandler(client) {
   return async (params) => {
-    const parsed = ListParamsSchema.safeParse(params);
-    if (!parsed.success) return schemaError2(parsed.error.issues);
+    const parsed = ListParamsSchema3.safeParse(params);
+    if (!parsed.success) return schemaError4(parsed.error.issues);
     const { specId, status } = parsed.data;
     const base = `/specs/${encodeURIComponent(specId)}/operator-input`;
     const path3 = status === void 0 ? base : `${base}?status=${status}`;
@@ -33996,38 +35583,6 @@ server.tool(
     const tasks = await apiClient.get(`/tasks?${qs}`);
     return formatRead(tasks);
   }
-);
-server.tool(
-  "update_task",
-  "Update an existing task.",
-  {
-    id: external_exports3.string().describe("Task ID"),
-    title: external_exports3.string().optional(),
-    description: external_exports3.string().optional(),
-    status: external_exports3.enum(["INBOX", "BACKLOG", "IN_PROGRESS", "DONE", "ARCHIVED"]).optional(),
-    priority: external_exports3.enum(["NOW", "NEXT", "LATER"]).optional(),
-    areas: external_exports3.array(external_exports3.string()).optional(),
-    // SPEC-0208 P2 — `null` limpia la asignacion de repo; un string la fija.
-    repoKey: external_exports3.union([external_exports3.string(), external_exports3.null()]).optional().describe(
-      "SPEC-0208 P2 \u2014 repoKey del ProjectRepo del tenant al que pertenece la task. El valor DEBE existir en ProjectRepo de este tenant: uno inexistente (o que exista solo en otro tenant) devuelve 422 REPO_KEY_NOT_FOUND."
-    )
-  },
-  async (params) => strictApply(
-    // SPEC-0208 P2 — el shape va DOS veces: aca y en el `.strict()` de abajo.
-    // Declararlo solo arriba hace que la tool anuncie un parametro que ella
-    // misma rechaza.
-    external_exports3.object({
-      id: external_exports3.string(),
-      title: external_exports3.string().optional(),
-      description: external_exports3.string().optional(),
-      status: external_exports3.enum(["INBOX", "BACKLOG", "IN_PROGRESS", "DONE", "ARCHIVED"]).optional(),
-      priority: external_exports3.enum(["NOW", "NEXT", "LATER"]).optional(),
-      areas: external_exports3.array(external_exports3.string()).optional(),
-      repoKey: external_exports3.union([external_exports3.string(), external_exports3.null()]).optional()
-    }).strict(),
-    params,
-    ({ id, ...data }) => apiClient.patch(`/tasks/${id}`, data)
-  )
 );
 server.tool(
   "create_interaction",
@@ -34343,6 +35898,18 @@ server.tool(
     return formatRead(article);
   }
 );
+server.tool(
+  "list_kb_revisions",
+  "\xCDndice del historial de edici\xF3n de un KbArticle: una entrada por re-emisi\xF3n que cambi\xF3 el cuerpo. Direccionable por `slug`, o por `specId`+`kind` (la tool resuelve el slug del artefacto SDD vigente de ese kind, sin devolverle su contenido al caller). Es la \xDANICA v\xEDa por MCP al historial de los kinds SINGLE \u2014 DISCOVERY_REPORT, PROBLEM_STATEMENT, los manuales\u2014, cuyo historial NO vive en SpecDocumentation (no dejan filas superseded, as\xED que `spec_get_documentation(includeHistory=true)` devuelve `history: []`) sino en KbRevision. Ordenado por createdAt desc: `revisions[0]` es la m\xE1s reciente. Por default NO trae los cuerpos \u2014 cada entrada lleva `contentLength`, `changeLog` y `createdAt`; con `includeContent: true` trae tambi\xE9n el `content` de cada revisi\xF3n y entonces `outputPath` es OBLIGATORIO. OJO al contar: la unidad es la RE-EMISI\xD3N, no la ronda \u2014 una ronda que se re-emiti\xF3 dos veces deja dos revisiones (medido en SPEC-0228: 10 revisiones para 8 rondas). El `changeLog` suele rotular la ronda.",
+  listKbRevisionsSchema,
+  makeListKbRevisionsHandler(apiClient)
+);
+server.tool(
+  "get_kb_revision",
+  "Una revisi\xF3n puntual de un KbArticle, con su `content` completo. `revisionId` sale de list_kb_revisions; el art\xEDculo se direcciona igual que ah\xED (`slug`, o `specId`+`kind`). Para artefactos grandes us\xE1 `outputPath` \u2014 el contenido llega en UNA sola l\xEDnea y no se puede paginar.",
+  getKbRevisionSchema,
+  makeGetKbRevisionHandler(apiClient)
+);
 var KB_AUDIENCE = ["END_USER", "OPERATOR", "BUSINESS_ANALYST", "DEVELOPER", "ARCHITECT", "AUDITOR", "EXECUTIVE"];
 var KB_DEPTH = ["SUMMARY", "STANDARD", "DETAILED", "REFERENCE"];
 var KB_REGISTER = ["COLLOQUIAL", "PROFESSIONAL", "TECHNICAL"];
@@ -34518,13 +36085,13 @@ server.tool(
     verification_tokens: verificationTokensField
   },
   async (params) => {
-    const ParamsSchema12 = external_exports3.object({
+    const ParamsSchema17 = external_exports3.object({
       id: external_exports3.string(),
       stage: external_exports3.enum(["NEW", "QUALIFIED", "PROPOSAL", "NEGOTIATION", "WON", "LOST"]),
       verification_tokens: verificationTokensField
     }).strict();
     try {
-      const validated = ParamsSchema12.parse(params);
+      const validated = ParamsSchema17.parse(params);
       const result = await apiClient.post(`/leads/${validated.id}/stage`, {
         stage: validated.stage
       });
@@ -34631,14 +36198,14 @@ server.tool(
     stateName: external_exports3.string().optional().describe("Target state name (e.g. EN_PROGRESO). Will be resolved to stateId automatically.")
   },
   async (params) => {
-    const ParamsSchema12 = external_exports3.object({
+    const ParamsSchema17 = external_exports3.object({
       id: external_exports3.string(),
       stateId: external_exports3.string().optional(),
       stateName: external_exports3.string().optional()
     }).strict();
     let validated;
     try {
-      validated = ParamsSchema12.parse(params);
+      validated = ParamsSchema17.parse(params);
     } catch (e) {
       if (e instanceof external_exports3.ZodError) {
         return {
@@ -34779,7 +36346,7 @@ server.tool(
     filename: external_exports3.string().optional().describe("Override filename (default: extracted from source)")
   },
   async (params) => {
-    const ParamsSchema12 = external_exports3.object({
+    const ParamsSchema17 = external_exports3.object({
       ticketId: external_exports3.string().optional(),
       interactionId: external_exports3.string().optional(),
       source: external_exports3.string(),
@@ -34787,7 +36354,7 @@ server.tool(
     }).strict();
     let validated;
     try {
-      validated = ParamsSchema12.parse(params);
+      validated = ParamsSchema17.parse(params);
     } catch (e) {
       if (e instanceof external_exports3.ZodError) {
         return {
@@ -34994,73 +36561,6 @@ server.tool(
   )
 );
 server.tool(
-  "spec_create",
-  "Create a new Spec (initiative/project) with optional initial phases. workspaceId+projectId+moduleId are REQUIRED in NEW Specs once the tenant has Workspaces defined (post-F4) \u2014 backend rejects with 400 BadRequest otherwise. SPEC-0089 v0.3.1: verification_tokens prepended to description as `## Verification` table. Strict-enforced once MCP_SERVER_RELEASE >= 0.2.0.",
-  {
-    title: external_exports3.string().describe("Spec title"),
-    description: external_exports3.string().describe("Spec description (markdown)"),
-    priority: external_exports3.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).optional(),
-    category: external_exports3.string().optional().describe("Category: feature, migration, productization, bugfix-epic"),
-    tags: external_exports3.array(external_exports3.string()).optional(),
-    clientId: external_exports3.string().optional(),
-    targetDate: external_exports3.string().optional().describe("Target date ISO"),
-    phases: external_exports3.array(external_exports3.object({
-      name: external_exports3.string(),
-      description: external_exports3.string().optional()
-    })).optional().describe("Initial phases to create"),
-    workspaceId: external_exports3.string().optional().describe("workspace owner. REQUIRED in NEW Specs post-F4 (operator correction cmokio7e6003zjzdbnwjhaldc)."),
-    projectId: external_exports3.string().optional().describe("project owner. REQUIRED in NEW Specs post-F4."),
-    moduleId: external_exports3.string().optional().describe("module owner. REQUIRED in NEW Specs post-F4."),
-    submoduleId: external_exports3.string().optional().describe("submodule owner. REQUIRED iff the chosen module has submodules defined."),
-    verification_tokens: verificationTokensField
-  },
-  async (params) => {
-    const ParamsSchema12 = external_exports3.object({
-      title: external_exports3.string(),
-      description: external_exports3.string(),
-      priority: external_exports3.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).optional(),
-      category: external_exports3.string().optional(),
-      tags: external_exports3.array(external_exports3.string()).optional(),
-      clientId: external_exports3.string().optional(),
-      targetDate: external_exports3.string().optional(),
-      phases: external_exports3.array(
-        external_exports3.object({
-          name: external_exports3.string(),
-          description: external_exports3.string().optional()
-        }).strict()
-      ).optional(),
-      workspaceId: external_exports3.string().optional(),
-      projectId: external_exports3.string().optional(),
-      moduleId: external_exports3.string().optional(),
-      submoduleId: external_exports3.string().optional(),
-      verification_tokens: verificationTokensField
-    }).strict();
-    try {
-      const validated = ParamsSchema12.parse(params);
-      const { verification_tokens, description, ...rest } = validated;
-      const descriptionWithTokens = prependTokensHeader(description, verification_tokens);
-      const spec = await apiClient.post("/specs", {
-        ...rest,
-        description: descriptionWithTokens
-      });
-      return { content: [{ type: "text", text: JSON.stringify(spec, null, 2) }] };
-    } catch (e) {
-      if (e instanceof external_exports3.ZodError) {
-        return {
-          isError: true,
-          content: [
-            {
-              type: "text",
-              text: `Schema validation failed: ${formatZodError(e)}`
-            }
-          ]
-        };
-      }
-      throw e;
-    }
-  }
-);
-server.tool(
   "spec_get",
   "Get full Spec detail with phases, metrics, comments. comments (all|recent|none, tool default all \u2014 preserva byte-a-byte el shape que requiere el canal [ROUTE:]/inbox-check) + commentsLimit acotan comments[] de spec y de cada fase; recent agrega commentCount (total real), none lo omite. TKT-0272 \u2014 cuando la fase tiene `canonicalContract`, \xC9SE es el contrato vigente: la fase viene con `contentIsHistorical: true` y su `content` llega con un banner del servidor que avisa que NO es normativo. No implementes contra el `content` de una fase marcada as\xED.",
   specGetSchema,
@@ -35071,6 +36571,12 @@ server.tool(
   "Get lean detail of a single Spec Phase, wrapping the EXISTING endpoint GET /specs/:specId/phases/:id (PhasesService.findById). Returns only that phase's own tickets/tasks/comments/kbArticles/attachments \u2014 no comments/phases from other phases nor the parent Spec. Use instead of spec_get when you only need one phase (smaller payload). TKT-0272 \u2014 cuando la fase tiene `canonicalContract`, \xC9SE es el contrato vigente: la fase viene con `contentIsHistorical: true` y su `content` llega con un banner del servidor que avisa que NO es normativo. No implementes contra el `content` de una fase marcada as\xED.",
   specGetPhaseSchema,
   makeSpecGetPhaseHandler(apiClient)
+);
+server.tool(
+  "spec_get_handoffs",
+  "Get the handoff chain of a Spec: every CC_DEV\u2192ENGINEERING return (SpecBlockedDeclaration), with actor, reason and timestamp, chronological. Wraps the EXISTING endpoint GET /specs/:id/handoffs (SPEC-0093 P4) \u2014 only requires spec.read. The forward hop (ENGINEERING\u2192CC_DEV) leaves no row here by design (ADR-003): it never left an artifact, only AuditLog.",
+  specGetHandoffsSchema,
+  makeSpecGetHandoffsHandler(apiClient)
 );
 server.tool(
   "spec_check_staleness",
@@ -35108,6 +36614,12 @@ server.tool(
     priority: external_exports3.string().optional(),
     ownerId: external_exports3.string().optional(),
     clientId: external_exports3.string().optional(),
+    // TKT-0149 — projectId ya existía en el backend (QuerySpecsDto, TKT-0123) pero
+    // nunca se expuso acá: listar las SPECs de un proyecto obligaba a traer las
+    // ~130 del tenant y filtrar client-side. workspaceId es columna propia de Spec
+    // (independiente de projectId), mismo patrón que project_list.
+    projectId: external_exports3.string().optional().describe("Filter by project id"),
+    workspaceId: external_exports3.string().optional().describe("Filter by workspace id"),
     q: external_exports3.string().optional().describe("Search in title, description, number"),
     limit: external_exports3.number().optional()
   },
@@ -35117,264 +36629,12 @@ server.tool(
     if (params.priority) qs.set("priority", params.priority);
     if (params.ownerId) qs.set("ownerId", params.ownerId);
     if (params.clientId) qs.set("clientId", params.clientId);
+    if (params.projectId) qs.set("projectId", params.projectId);
+    if (params.workspaceId) qs.set("workspaceId", params.workspaceId);
     if (params.q) qs.set("q", params.q);
     if (params.limit) qs.set("limit", String(params.limit));
     const specs = await apiClient.get(`/specs?${qs}`);
     return formatRead(specs);
-  }
-);
-server.tool(
-  "spec_update",
-  "Update Spec title, description, priority, targetDate. stateId REMOVIDO \u2014 spec_update ya NO transiciona el estado de una SPEC por ning\xFAn target; toda transici\xF3n va por su tool/endpoint dedicado (approve/start/complete/block/cancel/start-discovery/approve-adversarial/handoff/request-engineering-review/reject). When `description` is provided alongside tokens, the tokens are prepended to `description` as a `## Verification` table.",
-  {
-    id: external_exports3.string(),
-    title: external_exports3.string().optional(),
-    description: external_exports3.string().optional(),
-    priority: external_exports3.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).optional(),
-    targetDate: external_exports3.string().optional(),
-    // SPEC-0099 A.1 (P3 / O2-O4, ADR-001) — campo SDD de escritura de Spec en
-    // camelCase (param MCP == prop UpdateSpecDto == columna Prisma, sin shim).
-    // Fluye por ...rest al body del PATCH. DEBE estar en AMBOS schemas (este
-    // shape externo + el .strict() interno): si falta acá el SDK lo stripea
-    // antes del handler; si falta en el .strict() interno, lanza ZodError.
-    // TKT-0176 — inProgressContext e inReviewContext se REMOVIERON del schema: el backend los
-    // rechaza con 400 (whitelist + forbidNonWhitelisted del UpdateSpecDto; inReviewContext removido
-    // en SPEC-0125 P5, inProgressContext en F7). El pase de contexto SDD va SOLO por los endpoints
-    // dedicados /handoff/*. Dejarlos acá era stale: ofrecía params que siempre daban 400.
-    // engineeringStep SÍ queda (sigue whitelisteado en el DTO).
-    engineeringStep: external_exports3.string().optional(),
-    verification_tokens: tokensSchema.nullable().optional()
-  },
-  async (params) => {
-    const ParamsSchema12 = external_exports3.object({
-      id: external_exports3.string(),
-      title: external_exports3.string().optional(),
-      description: external_exports3.string().optional(),
-      priority: external_exports3.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).optional(),
-      targetDate: external_exports3.string().optional(),
-      // SPEC-0099 A.1 (P3 / O2-O4, ADR-001) — espejo del shape externo. Ver
-      // comentario arriba: ambos schemas incluyen engineeringStep (TKT-0176 removió
-      // inProgressContext e inReviewContext, que el backend rechaza con 400).
-      engineeringStep: external_exports3.string().optional(),
-      verification_tokens: tokensSchema.nullable().optional()
-    }).strict();
-    try {
-      const validated = ParamsSchema12.parse(params);
-      const { id, verification_tokens, description, ...rest } = validated;
-      const descriptionWithTokens = description !== void 0 ? prependTokensHeader(description, verification_tokens) : void 0;
-      const body = {
-        ...rest,
-        ...descriptionWithTokens !== void 0 ? { description: descriptionWithTokens } : {}
-      };
-      const spec = await apiClient.patch(`/specs/${id}`, body);
-      return { content: [{ type: "text", text: JSON.stringify(spec, null, 2) }] };
-    } catch (e) {
-      if (e instanceof external_exports3.ZodError) {
-        return {
-          isError: true,
-          content: [
-            { type: "text", text: `Schema validation failed: ${formatZodError(e)}` }
-          ]
-        };
-      }
-      throw e;
-    }
-  }
-);
-server.tool(
-  "spec_set_taxonomy",
-  'Asignar/reasignar taxonomy (workspace+project+module+submodule?) a un Spec EXISTENTE. Distinto de spec_update (solo title/description/state/priority/targetDate). Validation cross-field: workspace/project/module/submodule deben pertenecer al tenant del JWT y a la cadena correcta (TaxonomyValidatorService propaga 400). Side-effect: SpecComment audit autom\xE1tico con category="comment" describiendo first-assignment vs reassignment + reason. id puede ser cuid o number SPEC-XXXX.',
-  {
-    id: external_exports3.string().describe("Spec ID (cuid) o number SPEC-XXXX."),
-    workspaceId: external_exports3.string().describe("Workspace ID. OBLIGATORIO. Debe pertenecer al tenant del JWT."),
-    projectId: external_exports3.string().describe("Project ID. OBLIGATORIO. Debe pertenecer al workspace."),
-    moduleId: external_exports3.string().describe("Module ID. OBLIGATORIO. Debe pertenecer al project."),
-    submoduleId: external_exports3.string().optional().describe("Submodule ID. Requerido s\xF3lo si el module elegido tiene submodules definidos."),
-    reason: external_exports3.string().max(500).optional().describe("Raz\xF3n opcional del assignment. Se incluye en el audit comment.")
-  },
-  async (params) => strictApply(
-    external_exports3.object({
-      id: external_exports3.string(),
-      workspaceId: external_exports3.string(),
-      projectId: external_exports3.string(),
-      moduleId: external_exports3.string(),
-      submoduleId: external_exports3.string().optional(),
-      reason: external_exports3.string().max(500).optional()
-    }).strict(),
-    params,
-    ({ id, ...body }) => apiClient.post(`/specs/${id}/taxonomy`, body)
-  )
-);
-server.tool(
-  "spec_comment",
-  "Add a comment to a Spec (spec-level) or to a Phase within the Spec (phase-level). When `phaseId` is provided, routes to POST /specs/:specId/phases/:phaseId/comments (SpecPhaseComment model). When `phaseId` is omitted, routes to POST /specs/:specId/comments (SpecComment model \u2014 default). category=comment is general; category=decision/bugfix attach a verification_tokens object (skill staff-verification-protocol) rendered to a `## Verification` table prepended to content; category=handoff (TKT-0218) marks a room-to-room pass (Adversarial \u2192 Operador, Engineering \u2192 CC-Dev, \u2026) that used to fall into the generic `comment` bucket. Strict-required for decision/bugfix once MCP_SERVER_RELEASE >= 0.2.0; comment/handoff never require tokens. TKT-0218: the backend now validates category with IsIn \u2014 an unknown value returns 400, and category=closeout is rejected here (use spec_closeout / phase_closeout, which validate the markdown structure). NOTE: category=operator_correction was deprecated post SPEC-0080 F3d LIVE (ADR-023) \u2014 use decision_supersede.",
-  {
-    id: external_exports3.string().describe("Spec ID (cuid) \u2014 always required, identifies the parent Spec regardless of routing."),
-    content: external_exports3.string(),
-    internal: external_exports3.boolean().optional().default(false),
-    // SPEC-0080 F3d — `operator_correction` removed from allowed values (ADR-023).
-    // Defense-in-depth alongside backend 410 Gone intercept.
-    // TKT-0218 — `handoff` sumada al vocabulario canónico. `closeout` NO va acá: se escribe por
-    // spec_closeout / phase_closeout, que validan la estructura del markdown.
-    // El enum va en las DOS capas (shape externo + .strict() interno) o el SDK lo stripea.
-    category: external_exports3.enum(["comment", "decision", "bugfix", "handoff"]).optional().default("comment"),
-    // SPEC-0080 S1.5 TSK-0225 — optional phase-level routing.
-    // Presence of `phaseId` switches the destination endpoint (and the
-    // underlying Prisma model). Both endpoints share the same JwtAuthGuard
-    // and accept the same body shape — RBAC symmetry verified pre-Step 1.
-    phaseId: external_exports3.string().optional().describe("Optional Phase ID (cuid). When provided, the comment targets the phase instead of the spec."),
-    // SPEC-0089 v0.3.1 — always optional in the shape; handler enforces the
-    // strict requirement only when category ∈ {decision, bugfix} AND release ≥ 0.2.0.
-    verification_tokens: tokensSchema.nullable().optional()
-  },
-  async (params) => {
-    const ParamsSchema12 = external_exports3.object({
-      id: external_exports3.string(),
-      content: external_exports3.string(),
-      internal: external_exports3.boolean().optional(),
-      // TKT-0218 — misma lista que el shape externo (doble-schema obligatorio).
-      category: external_exports3.enum(["comment", "decision", "bugfix", "handoff"]).optional(),
-      phaseId: external_exports3.string().optional(),
-      verification_tokens: tokensSchema.nullable().optional()
-    }).strict();
-    try {
-      const validated = ParamsSchema12.parse(params);
-      const category = validated.category ?? "comment";
-      const needsTokens = isStrictPeriod && (category === "decision" || category === "bugfix");
-      if (needsTokens && !validated.verification_tokens) {
-        return {
-          isError: true,
-          content: [
-            {
-              type: "text",
-              text: `Schema validation failed: verification_tokens object required when category="${category}" post MCP_SERVER_RELEASE>=0.2.0 (skill staff-verification-protocol).`
-            }
-          ]
-        };
-      }
-      const path3 = validated.phaseId ? `/specs/${validated.id}/phases/${validated.phaseId}/comments` : `/specs/${validated.id}/comments`;
-      const contentWithTokens = prependTokensHeader(
-        validated.content,
-        validated.verification_tokens
-      );
-      const comment = await apiClient.post(path3, {
-        content: contentWithTokens,
-        internal: validated.internal,
-        category
-      });
-      return { content: [{ type: "text", text: JSON.stringify(comment, null, 2) }] };
-    } catch (e) {
-      if (e instanceof external_exports3.ZodError) {
-        return {
-          isError: true,
-          content: [
-            {
-              type: "text",
-              text: `Schema validation failed: ${formatZodError(e)}`
-            }
-          ]
-        };
-      }
-      throw e;
-    }
-  }
-);
-server.tool(
-  "spec_log_decision",
-  "Log a technical decision in a Spec phase. SPEC-0089 v0.3.1: verification_tokens (object per skill staff-verification-protocol) is rendered to a canonical `## Verification` table prepended to content. Strict-enforced once MCP_SERVER_RELEASE >= 0.2.0 (handler-side .strict().parse() also rejects unknown root fields per MCP SDK 1.12.1 behaviour).",
-  {
-    specId: external_exports3.string(),
-    phaseId: external_exports3.string(),
-    content: external_exports3.string().describe("What was decided and why"),
-    verification_tokens: verificationTokensField,
-    internal: external_exports3.boolean().optional().default(false)
-  },
-  async (params) => {
-    const ParamsSchema12 = external_exports3.object({
-      specId: external_exports3.string(),
-      phaseId: external_exports3.string(),
-      content: external_exports3.string(),
-      verification_tokens: verificationTokensField,
-      internal: external_exports3.boolean().optional()
-    }).strict();
-    try {
-      const validated = ParamsSchema12.parse(params);
-      const contentWithTokens = prependTokensHeader(
-        validated.content,
-        validated.verification_tokens
-      );
-      const comment = await apiClient.post(
-        `/specs/${validated.specId}/phases/${validated.phaseId}/comments`,
-        {
-          content: contentWithTokens,
-          internal: validated.internal,
-          category: "decision"
-        }
-      );
-      return { content: [{ type: "text", text: JSON.stringify(comment, null, 2) }] };
-    } catch (e) {
-      if (e instanceof external_exports3.ZodError) {
-        return {
-          isError: true,
-          content: [
-            {
-              type: "text",
-              text: `Schema validation failed: ${formatZodError(e)}`
-            }
-          ]
-        };
-      }
-      throw e;
-    }
-  }
-);
-server.tool(
-  "spec_log_bugfix",
-  "Log a bug found and its fix in a Spec phase. SPEC-0089 v0.3.1: verification_tokens (object per skill staff-verification-protocol) is rendered to a canonical `## Verification` table prepended to content. Strict-enforced once MCP_SERVER_RELEASE >= 0.2.0.",
-  {
-    specId: external_exports3.string(),
-    phaseId: external_exports3.string(),
-    content: external_exports3.string().describe("Bug description and how it was fixed"),
-    verification_tokens: verificationTokensField,
-    internal: external_exports3.boolean().optional().default(false)
-  },
-  async (params) => {
-    const ParamsSchema12 = external_exports3.object({
-      specId: external_exports3.string(),
-      phaseId: external_exports3.string(),
-      content: external_exports3.string(),
-      verification_tokens: verificationTokensField,
-      internal: external_exports3.boolean().optional()
-    }).strict();
-    try {
-      const validated = ParamsSchema12.parse(params);
-      const contentWithTokens = prependTokensHeader(
-        validated.content,
-        validated.verification_tokens
-      );
-      const comment = await apiClient.post(
-        `/specs/${validated.specId}/phases/${validated.phaseId}/comments`,
-        {
-          content: contentWithTokens,
-          internal: validated.internal,
-          category: "bugfix"
-        }
-      );
-      return { content: [{ type: "text", text: JSON.stringify(comment, null, 2) }] };
-    } catch (e) {
-      if (e instanceof external_exports3.ZodError) {
-        return {
-          isError: true,
-          content: [
-            {
-              type: "text",
-              text: `Schema validation failed: ${formatZodError(e)}`
-            }
-          ]
-        };
-      }
-      throw e;
-    }
   }
 );
 server.tool(
@@ -35426,12 +36686,12 @@ server.tool(
     verification_tokens: verificationTokensField
   },
   async (params) => {
-    const ParamsSchema12 = external_exports3.object({
+    const ParamsSchema17 = external_exports3.object({
       id: external_exports3.string(),
       verification_tokens: verificationTokensField
     }).strict();
     try {
-      const validated = ParamsSchema12.parse(params);
+      const validated = ParamsSchema17.parse(params);
       const spec = await apiClient.patch(`/specs/${validated.id}/approve`, {});
       return { content: [{ type: "text", text: JSON.stringify(spec, null, 2) }] };
     } catch (e) {
@@ -35458,7 +36718,7 @@ server.tool(
     verification_tokens: verificationTokensField
   },
   async (params) => {
-    const ParamsSchema12 = external_exports3.object({
+    const ParamsSchema17 = external_exports3.object({
       id: external_exports3.string(),
       cancellationReason: external_exports3.enum(["SUPERSEDED", "REDISTRIBUTED", "ABANDONED"]),
       supersededBySpecId: external_exports3.string().nullable().optional(),
@@ -35466,7 +36726,7 @@ server.tool(
       verification_tokens: verificationTokensField
     }).strict();
     try {
-      const validated = ParamsSchema12.parse(params);
+      const validated = ParamsSchema17.parse(params);
       const spec = await apiClient.patch(`/specs/${validated.id}/cancel`, {
         cancellationReason: validated.cancellationReason,
         supersededBySpecId: validated.supersededBySpecId ?? null,
@@ -35499,37 +36759,6 @@ server.tool(
   makeSpecUnblockHandler(apiClient)
 );
 server.tool(
-  "spec_adversarial_reject",
-  "Rechazo adversarial a nivel SPEC. Ante un ADVERSARIAL_VERDICT vigente con verdictStatus=REJECTED, rutea la SPEC a la fase que produjo el artefacto rechazado (DISCOVERY_REPORT\u2192IN_DISCOVERY, ENGINEERING_PLAN\u2192IN_PROGRESS/ENGINEERING) y registra la raz\xF3n (denormalizada en Spec.rejectionReason; la fuente de verdad es el verdict). reason obligatorio (min 1). 422 si el verdict vigente no est\xE1 en REJECTED o el artefacto no est\xE1 soportado.",
-  {
-    specId: external_exports3.string(),
-    reason: external_exports3.string().min(1).describe("Raz\xF3n del rechazo (obligatoria, min 1).")
-  },
-  async (params) => {
-    const ParamsSchema12 = external_exports3.object({
-      specId: external_exports3.string(),
-      reason: external_exports3.string().min(1)
-    }).strict();
-    try {
-      const validated = ParamsSchema12.parse(params);
-      const spec = await apiClient.patch(`/specs/${validated.specId}/reject`, {
-        reason: validated.reason
-      });
-      return { content: [{ type: "text", text: JSON.stringify(spec, null, 2) }] };
-    } catch (e) {
-      if (e instanceof external_exports3.ZodError) {
-        return {
-          isError: true,
-          content: [
-            { type: "text", text: `Schema validation failed: ${formatZodError(e)}` }
-          ]
-        };
-      }
-      throw e;
-    }
-  }
-);
-server.tool(
   "spec_supersede_phases",
   "Superseding SELECTIVO de fases post-retorno-a-Engineering. Engineering elige un SET EXPL\xCDCITO de phaseIds a superseder (supersededByRevision=true). Entrada DEDICADA que corre POST-FLIP: gateada a inProgressContext=ENGINEERING sobre una SPEC en IN_PROGRESS (422 SUPERSEDE_CONTEXT_INVALID si no cumple). Del set, SOLO las fases can\xF3nicamente ACTIVE/READY_FOR_VALIDATION se marcan (COMPLETED/PENDING/BLOCKED/SKIPPED quedan intactas). NO recibe reason: la raz\xF3n del retorno ya vive en el SpecBlockedDeclaration append-only que escribi\xF3 el retorno-a-Engineering. 422 SUPERSEDE_PHASE_NOT_IN_SPEC si alg\xFAn phaseId no pertenece a la SPEC. Devuelve { superseded: string[] } con los ids efectivamente marcados.",
   {
@@ -35537,12 +36766,12 @@ server.tool(
     phaseIds: external_exports3.array(external_exports3.string()).min(1).describe("Set expl\xEDcito de phaseIds a superseder (no vac\xEDo).")
   },
   async (params) => {
-    const ParamsSchema12 = external_exports3.object({
+    const ParamsSchema17 = external_exports3.object({
       specId: external_exports3.string(),
       phaseIds: external_exports3.array(external_exports3.string()).min(1)
     }).strict();
     try {
-      const validated = ParamsSchema12.parse(params);
+      const validated = ParamsSchema17.parse(params);
       const result = await apiClient.patch(`/specs/${validated.specId}/supersede-phases`, {
         phaseIds: validated.phaseIds
       });
@@ -35565,132 +36794,6 @@ server.tool(
   "Desvincula un ticket/task/kb-link de una fase de SPEC, invocando el endpoint REST DELETE /specs/:specId/phases/:phaseId/unlink/:type/:linkId (reusa PhasesService.unlinkEntity, sin l\xF3gica de negocio nueva). Cleanup de gobierno: el rol OPERATOR lo invoca por el api-client de la sesi\xF3n, sin firmar un x-act-as-role (el unlink de cleanup es gobierno, no producci\xF3n \u2014 D4/ADR-006). Rechaza 400 si la fase est\xE1 en estado final (COMPLETED/SKIPPED) o en un reopen append-only activo. type \u2208 {task, ticket, kb}. linkId es el id del V\xCDNCULO de fase (SpecPhaseTask/SpecPhaseTicket/SpecPhaseKbLink), NO el id de la task/ticket. Devuelve el resultado del endpoint.",
   specPhaseUnlinkSchema,
   makeSpecPhaseUnlinkHandler(apiClient)
-);
-server.tool(
-  "spec_add_phase",
-  "Add a phase to a Spec. SPEC-0089 v0.3.1: verification_tokens prepended to `content` (preferred) or `description` as `## Verification` table. New phase introduces scope/intent \u2014 strict-enforced post MCP_SERVER_RELEASE >= 0.2.0.",
-  {
-    specId: external_exports3.string(),
-    name: external_exports3.string(),
-    description: external_exports3.string().optional(),
-    content: external_exports3.string().optional().describe("Phase spec content (markdown)"),
-    assigneeId: external_exports3.string().optional(),
-    dueDate: external_exports3.string().optional(),
-    verification_tokens: verificationTokensField
-  },
-  async (params) => {
-    const ParamsSchema12 = external_exports3.object({
-      specId: external_exports3.string(),
-      name: external_exports3.string(),
-      description: external_exports3.string().optional(),
-      content: external_exports3.string().optional(),
-      assigneeId: external_exports3.string().optional(),
-      dueDate: external_exports3.string().optional(),
-      verification_tokens: verificationTokensField
-    }).strict();
-    try {
-      const validated = ParamsSchema12.parse(params);
-      const { specId, verification_tokens, content, description, ...rest } = validated;
-      const contentWithTokens = content !== void 0 ? prependTokensHeader(content, verification_tokens) : void 0;
-      const descriptionWithTokens = content === void 0 && description !== void 0 ? prependTokensHeader(description, verification_tokens) : description;
-      const body = {
-        ...rest,
-        ...contentWithTokens !== void 0 ? { content: contentWithTokens } : {},
-        ...descriptionWithTokens !== void 0 ? { description: descriptionWithTokens } : {}
-      };
-      const phase = await apiClient.post(`/specs/${specId}/phases`, body);
-      return { content: [{ type: "text", text: JSON.stringify(phase, null, 2) }] };
-    } catch (e) {
-      if (e instanceof external_exports3.ZodError) {
-        return {
-          isError: true,
-          content: [
-            { type: "text", text: `Schema validation failed: ${formatZodError(e)}` }
-          ]
-        };
-      }
-      throw e;
-    }
-  }
-);
-server.tool(
-  "spec_update_phase",
-  "Update phase status, content, assignee. SPEC-0089 v0.3.1: when `status` is provided (phase transition \u2014 a structural verdict), verification_tokens is required post MCP_SERVER_RELEASE >= 0.2.0. When `content` is provided alongside tokens, the tokens are prepended to `content` as a `## Verification` table. Content-only / assignee-only updates never require tokens. TKT-0300: transicionar a IN_PROGRESS o COMPLETED rebota 422 PHASE_CONTRACT_MISALIGNED si la fase tiene el contrato can\xF3nico reescrito sin realign (v\xE1lvula: phase realign de Engineering, o force con state.force_transition).",
-  {
-    specId: external_exports3.string(),
-    phaseId: external_exports3.string(),
-    status: external_exports3.enum(["PENDING", "IN_PROGRESS", "REVIEW", "COMPLETED", "BLOCKED", "SKIPPED"]).optional(),
-    content: external_exports3.string().optional(),
-    name: external_exports3.string().optional(),
-    assigneeId: external_exports3.string().optional(),
-    // TKT-0029 — skipJustification: el backend lo EXIGE al transicionar a SKIPPED
-    // (422 PHASE_SKIPPED_NO_JUSTIFICATION); el campo existe en UpdatePhaseDto y en
-    // la columna Prisma SpecPhase.skipJustification. Fluye por ...rest al body del
-    // PATCH. DEBE estar en AMBOS schemas (este shape externo + el .strict()
-    // interno) o el SDK lo stripea / .strict() lanza ZodError. Mismo patrón
-    // silent-ignore que cerró SPEC-0099.
-    skipJustification: external_exports3.string().min(1).optional(),
-    // SPEC-0099 A.1 (P3 / O5-O6, ADR-001) — campos SDD de escritura de fase en
-    // camelCase (param MCP == prop UpdatePhaseDto == columna Prisma, sin shim).
-    // Fluyen por ...rest al body del PATCH. DEBEN estar en AMBOS schemas (este
-    // shape externo + el .strict() interno) por el doble-strip del SDK + Zod.
-    sddStep: external_exports3.string().optional(),
-    pendingAdversarialPostMerge: external_exports3.boolean().optional(),
-    verification_tokens: tokensSchema.nullable().optional()
-  },
-  async (params) => {
-    const ParamsSchema12 = external_exports3.object({
-      specId: external_exports3.string(),
-      phaseId: external_exports3.string(),
-      status: external_exports3.enum(["PENDING", "IN_PROGRESS", "REVIEW", "COMPLETED", "BLOCKED", "SKIPPED"]).optional(),
-      content: external_exports3.string().optional(),
-      name: external_exports3.string().optional(),
-      assigneeId: external_exports3.string().optional(),
-      // TKT-0029 — espejo del shape externo (doble-strip SDK + Zod). Ver
-      // comentario arriba: ambos schemas deben incluir skipJustification.
-      skipJustification: external_exports3.string().min(1).optional(),
-      // SPEC-0099 A.1 (P3 / O5-O6, ADR-001) — espejo del shape externo. Ver
-      // comentario arriba: ambos schemas deben incluir estos 2 campos.
-      sddStep: external_exports3.string().optional(),
-      pendingAdversarialPostMerge: external_exports3.boolean().optional(),
-      verification_tokens: tokensSchema.nullable().optional()
-    }).strict();
-    try {
-      const validated = ParamsSchema12.parse(params);
-      if (isStrictPeriod && validated.status && !validated.verification_tokens) {
-        return {
-          isError: true,
-          content: [
-            {
-              type: "text",
-              text: `Schema validation failed: verification_tokens object required when status is set (phase transition is a structural verdict) post MCP_SERVER_RELEASE>=0.2.0 (skill staff-verification-protocol).`
-            }
-          ]
-        };
-      }
-      const { specId, phaseId, verification_tokens, content, ...rest } = validated;
-      const contentWithTokens = content !== void 0 ? prependTokensHeader(content, verification_tokens) : void 0;
-      const body = {
-        ...rest,
-        ...contentWithTokens !== void 0 ? { content: contentWithTokens } : {}
-      };
-      const phase = await apiClient.patch(`/specs/${specId}/phases/${phaseId}`, body);
-      return { content: [{ type: "text", text: JSON.stringify(phase, null, 2) }] };
-    } catch (e) {
-      if (e instanceof external_exports3.ZodError) {
-        return {
-          isError: true,
-          content: [
-            {
-              type: "text",
-              text: `Schema validation failed: ${formatZodError(e)}`
-            }
-          ]
-        };
-      }
-      throw e;
-    }
-  }
 );
 server.tool(
   "spec_reorder_phases",
@@ -35728,55 +36831,6 @@ server.tool(
   makeSpecCreateTicketHandler(apiClient)
 );
 server.tool(
-  "spec_create_task",
-  "Create a task from a Spec phase (auto-linked). Leave assigneeId empty to create an unassigned task that anyone can take. SPEC-0089 v0.3.1: verification_tokens prepended to description as `## Verification` table when description is provided. Strict-enforced post MCP_SERVER_RELEASE >= 0.2.0.",
-  {
-    specId: external_exports3.string(),
-    phaseId: external_exports3.string(),
-    title: external_exports3.string(),
-    description: external_exports3.string().optional(),
-    priority: external_exports3.enum(["NOW", "NEXT", "LATER"]).optional(),
-    assigneeId: external_exports3.string().optional().describe("User ID to assign. Leave empty for unassigned task."),
-    repoKey: external_exports3.string().optional().describe(
-      "SPEC-0208 P2 \u2014 repoKey del ProjectRepo del tenant al que pertenece la task. El valor DEBE existir en ProjectRepo de este tenant: uno inexistente (o que exista solo en otro tenant) devuelve 422 REPO_KEY_NOT_FOUND."
-    ),
-    verification_tokens: verificationTokensField
-  },
-  async (params) => {
-    const ParamsSchema12 = external_exports3.object({
-      specId: external_exports3.string(),
-      phaseId: external_exports3.string(),
-      title: external_exports3.string(),
-      description: external_exports3.string().optional(),
-      priority: external_exports3.enum(["NOW", "NEXT", "LATER"]).optional(),
-      assigneeId: external_exports3.string().optional(),
-      repoKey: external_exports3.string().optional(),
-      verification_tokens: verificationTokensField
-    }).strict();
-    try {
-      const validated = ParamsSchema12.parse(params);
-      const { specId, phaseId, verification_tokens, description, ...rest } = validated;
-      const descriptionWithTokens = description !== void 0 ? prependTokensHeader(description, verification_tokens) : void 0;
-      const body = {
-        ...rest,
-        ...descriptionWithTokens !== void 0 ? { description: descriptionWithTokens } : {}
-      };
-      const task = await apiClient.post(`/specs/${specId}/phases/${phaseId}/tasks`, body);
-      return { content: [{ type: "text", text: JSON.stringify(task, null, 2) }] };
-    } catch (e) {
-      if (e instanceof external_exports3.ZodError) {
-        return {
-          isError: true,
-          content: [
-            { type: "text", text: `Schema validation failed: ${formatZodError(e)}` }
-          ]
-        };
-      }
-      throw e;
-    }
-  }
-);
-server.tool(
   "task_take",
   "Take an unassigned task (auto-assigns to current user). If the task is assigned to another user, returns an error \u2014 an admin must reassign. TKT-0300: rebota 422 PHASE_CONTRACT_MISALIGNED si la fase de la task tiene el contrato can\xF3nico reescrito sin realign (Engineering debe declarar el realign antes del pasaje a CC-Dev).",
   {
@@ -35800,6 +36854,24 @@ server.tool(
     params,
     ({ taskId, assigneeId }) => apiClient.patch(`/tasks/${taskId}/assign`, { assigneeId })
   )
+);
+server.tool(
+  "task_add_dependency",
+  "SPEC-0223 P3 \u2014 declara que una task de fase depende de OTRA task de la MISMA fase. Solo las aristas BLOCKS (default) frenan el despacho automatico: mientras la task destino no este DONE, el motor de elegibilidad no entrega la origen. RELATES_TO declara parentesco y no bloquea. Las dos tasks tienen que estar linkeadas a la misma fase y al mismo tenant \u2014 cualquier otra cosa devuelve 404 sin crear fila. Requiere task.dependency.write (ENGINEERING, OPERATOR o TESTER).",
+  taskAddDependencySchema,
+  makeTaskAddDependencyHandler(apiClient)
+);
+server.tool(
+  "task_remove_dependency",
+  "SPEC-0223 P3 \u2014 retira la dependencia de una task de fase sobre otra. Sin arista declarada devuelve 404 (y no un 200 mentiroso). Requiere task.dependency.write.",
+  taskRemoveDependencySchema,
+  makeTaskRemoveDependencyHandler(apiClient)
+);
+server.tool(
+  "phase_auto_run_record_result",
+  "SPEC-0223 P3 \u2014 registra el resultado tipado de una task despachada dentro de una corrida automatica de fase. status OK deja seguir la corrida; BLOCKED la detiene sin reintento y deja el run en BLOCKED \u2014 y EXIGE `reason`: un BLOCKED sin motivo devuelve 400 BLOCKED_RESULT_REQUIRES_REASON antes de tocar la base, porque es la fila que deja al Operador sin poder responder por que se trabo. Requiere phase.auto_run.record_result (CC_DEV-only). Se llama ANTES de terminar la sesion.",
+  phaseAutoRunRecordResultSchema,
+  makePhaseAutoRunRecordResultHandler(apiClient)
 );
 server.tool(
   "task_correct_worktree",
@@ -35893,169 +36965,6 @@ server.tool(
   "Get the structured documentation sections of a Spec (technical manual, user manual, implementation detail, informal explanation, SDD kinds, trail). Returns each section with its KbArticle (or null if not yet written). kind filters to a single section; includeHistory defaults to false here (historyCount per kind, no history article.content) \u2014 pass includeHistory=true for the full history with content. TKT-0354 \u2014 `documentation` es UNA sola fila (la vigente m\xE1s reciente del kind) y `coCurrent` son LAS DEM\xC1S vigentes del mismo kind, cada una con su `originCaseId` y su `contentHash`: la lista completa de vigentes es `documentation` + `coCurrent`, y `coCurrentCount` la cuenta. Importa en los kinds per-caso (RISK_ACCEPTANCE / BLOCKED_RESOLUTION), donde una SPEC tiene N artefactos co-vigentes \u2014uno por TestCase\u2014 y hasta este ticket s\xF3lo se ve\xEDa el \xFAltimo. `history` es lo SUPERSEDED: en un kind per-caso queda vac\xEDo aunque haya N artefactos, as\xED que un `history: []` NO prueba ausencia \u2014 eso se lee en `coCurrentCount`.",
   specGetDocumentationSchema,
   makeSpecGetDocumentationHandler(apiClient)
-);
-server.tool(
-  "spec_set_documentation",
-  "Upsert a structured documentation section on a Spec. Creates a KbArticle the first time (auto-slug, auto-tagged with spec:<number> and doc:<kind>) and records subsequent edits as KbRevisions. Each (spec, kind) pair has at most one section.",
-  {
-    specId: external_exports3.string().describe("Spec ID (cuid) or SPEC-XXXX number"),
-    kind: external_exports3.enum(["MANUAL_TECHNICAL", "MANUAL_USER", "IMPLEMENTATION_DETAIL", "INFORMAL_EXPLANATION", "PROBLEM_STATEMENT", "DISCOVERY_REPORT", "DISCOVERY_AMENDMENT", "ENGINEERING_PLAN", "ADVERSARIAL_VERDICT", "CLOSEOUT_DECISION"]).describe(
-      "Documentation section kind. MANUAL_TECHNICAL = technical manual for developers/integrators; MANUAL_USER = end-user manual; IMPLEMENTATION_DETAIL = internal implementation notes; INFORMAL_EXPLANATION = plain-language explanation for non-technical stakeholders. SDD kinds (SPEC-0096): PROBLEM_STATEMENT, DISCOVERY_REPORT, DISCOVERY_AMENDMENT, ENGINEERING_PLAN, ADVERSARIAL_VERDICT, CLOSEOUT_DECISION."
-    ),
-    content: external_exports3.string().optional().describe(
-      "Markdown content for the section (inline). Opcional si pas\xE1s contentPath + expectedSha256 (TKT-0274 \u2014 transporte por referencia). Exactamente UNA de las dos v\xEDas."
-    ),
-    // TKT-0274 — transporte por referencia para artefactos grandes (planes, verdicts,
-    // closeouts): el content inline obligaba a pasar 150 KB por el contexto del agente
-    // emisor y la fricción fabricaba propuestas de bypass (caso SPEC-0166 rev 7). El
-    // mcp-server corre LOCAL: lee contentPath del disco, hashea los bytes crudos y
-    // compara contra expectedSha256 ANTES de emitir; si difiere rechaza sin escribir.
-    // contentPath/expectedSha256 NO se reenvían al PUT — el backend recibe content
-    // resuelto, igual que con la vía inline. DEBEN estar en AMBOS schemas (shape
-    // externo + .strict() interno) o el SDK/Zod los stripea.
-    contentPath: external_exports3.string().optional().describe(
-      "TKT-0274 \u2014 ruta local (absoluta) al archivo con el content. Alternativa a content para artefactos grandes: el mcp-server lee el archivo, verifica expectedSha256 sobre los bytes crudos y reci\xE9n ah\xED emite \u2014 byte-exacto por construcci\xF3n y cero costo de contexto. Mutuamente excluyente con content; exige expectedSha256."
-    ),
-    expectedSha256: external_exports3.string().optional().describe(
-      "TKT-0274 \u2014 sha256 hex esperado. OBLIGATORIO con contentPath (la emisi\xF3n por referencia es auto-verificada o no es); opcional con content inline. Computado sobre los bytes crudos del archivo (el mismo que sha256sum / Get-FileHash). Si difiere, la tool rechaza sin escribir."
-    ),
-    title: external_exports3.string().optional().describe('Optional override; defaults to "[SPEC-XXXX] <kind label>"'),
-    summary: external_exports3.string().optional().describe("Optional short summary visible in KB search"),
-    tags: external_exports3.array(external_exports3.string()).optional().describe("Extra tags on top of the auto-applied spec:<number> and doc:<kind>"),
-    changeLog: external_exports3.string().optional().describe("Optional change log entry for this revision"),
-    // SPEC-0100 F5 (P5.4) — resultado discreto por cada ítem (a–f) del checklist
-    // de instanciación. REQUERIDO por el backend (422) al registrar un
-    // ADVERSARIAL_VERDICT sobre una SPEC con ENGINEERING_PLAN. Ej:
-    // { "a": "PASS", "b": "PASS", ... }. camelCase (ADR-001: param MCP == prop
-    // UpsertSpecDocumentationDto.instantiationCheck == sin shim). DEBE estar en
-    // AMBOS schemas (shape externo + .strict() interno) o el SDK lo stripea.
-    instantiationCheck: external_exports3.record(external_exports3.string(), external_exports3.unknown()).optional().describe(
-      "SPEC-0100 F4 \u2014 { item(a\u2013f): resultado discreto }. Requerido al registrar ADVERSARIAL_VERDICT sobre una SPEC con ENGINEERING_PLAN."
-    ),
-    // SPEC-0168 P1 (ADR-001/ADR-008/ADR-010) — declaración de cobertura del verdict: sobre qué
-    // unidades del artefacto revisado se pronunció el emisor. El backend la persiste field-by-field
-    // en las dos ramas de create y deriva coverageSummary; el instantiationCheck de arriba se copia
-    // ADENTRO de este objeto (era el campo que se validaba y se descartaba). El write-path REAL del
-    // Adversarial es este tool, no el PUT directo: DEBE estar en AMBOS schemas (shape externo +
-    // .strict() interno) o el SDK/Zod lo stripea antes del forward y el PUT nunca lo ve, sin error
-    // visible — el modo de falla de RE-005 (verdictScope) y de TKT-0236.
-    coverageDeclaration: external_exports3.record(external_exports3.string(), external_exports3.unknown()).optional().describe(
-      "SPEC-0168 \u2014 { reviewedArtifactContentHash, outputUnits[], outputFamilies[], inputSources[] }. El hash sale del contentHash que spec_get_documentation expone por secci\xF3n. El gate (P3 salida + P4 entrada) EXIGE las dos mitades: un pronunciamiento por cada unidad enumerada del artefacto revisado, y una entrada en inputSources por cada fuente de contexto que el Hub enumera \u2014 DISCOVERY_REPORT vigente, SpecComment, SpecPhaseComment (tabla distinta), verdict de la ronda anterior y REPO. Las dos de comments se declaran con ref = cuid del \xFAltimo comment le\xEDdo; REPO con ref libre (<repo> @ <sha>), que el Hub NO verifica."
-    ),
-    // SPEC-0109 P3 — round/artifactReviewed del trail append-only (kinds APPEND:
-    // ADVERSARIAL_VERDICT, DISCOVERY_AMENDMENT). El backend los asigna field-by-field a
-    // la fila creada. DEBEN estar en AMBOS schemas (shape externo + .strict() interno) o
-    // el SDK los stripea. El enum de artifactReviewed espeja la lista de `kind` de este tool.
-    round: external_exports3.number().int().optional().describe("n\xFAmero de ronda del trail (kinds APPEND)."),
-    artifactReviewed: external_exports3.enum(["MANUAL_TECHNICAL", "MANUAL_USER", "IMPLEMENTATION_DETAIL", "INFORMAL_EXPLANATION", "PROBLEM_STATEMENT", "DISCOVERY_REPORT", "DISCOVERY_AMENDMENT", "ENGINEERING_PLAN", "ADVERSARIAL_VERDICT", "CLOSEOUT_DECISION"]).optional().describe("kind del artefacto revisado (kinds APPEND)."),
-    // SPEC-0123 F1 (O1/O2/O6) — signal estructurado del veredicto adversarial. El backend lo
-    // persiste field-by-field (specs.service.ts upsert) y F2 gatea HOLD→APPROVED sobre
-    // verdictStatus === APPROVED; F3 distingue REJECTED. Solo significativo al registrar un
-    // ADVERSARIAL_VERDICT. DEBE estar en AMBOS schemas (shape externo + .strict() interno) o
-    // el SDK lo stripea y el PUT recibe null (TKT-0113: write-path real era este tool).
-    verdictStatus: external_exports3.enum(["APPROVED", "REJECTED"]).optional().describe("status estructurado del ADVERSARIAL_VERDICT (APPROVED|REJECTED)."),
-    // SPEC-0139 P2 (O5, ADR-004) — alcance del veredicto (FULL|PARTIAL). El backend lo persiste
-    // field-by-field (specs.service.ts upsert) y lo expone en el trail liviano. El Adversarial
-    // (único emisor del verdict, y sólo via este tool) lo setea acá. DEBE estar en AMBOS schemas
-    // (shape externo + .strict() interno) o el SDK lo stripea y el PUT recibe null (F1/RE-009).
-    verdictScope: external_exports3.enum(["FULL", "PARTIAL"]).optional().describe("alcance del ADVERSARIAL_VERDICT (FULL|PARTIAL)."),
-    // SPEC-0172 P3 (ADR-001/ADR-002) — findings estructurados del verdict + marcador de schema. El
-    // backend inserta cada finding como fila de adversarial_finding en la misma transacción que la
-    // fila del verdict, y computa rejectionSummary. El marcador ('v1') es lo que activa el umbral de
-    // P4 sobre este verdict: sin él, el gate hace early-return (grandfather). DEBEN estar en AMBOS
-    // schemas (shape externo + .strict() interno) o el SDK/Zod los stripea y el PUT nunca los ve.
-    // emittedByRole NO va acá a propósito: sale del rol efectivo de la sesión, no del body.
-    findingsSchemaVersion: external_exports3.string().optional().describe("SPEC-0172 P3 \u2014 marcador de schema de findings ('v1' activa el umbral de severidad sobre este verdict)."),
-    findings: external_exports3.array(
-      external_exports3.object({
-        findingKey: external_exports3.string(),
-        severity: external_exports3.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"]),
-        findingClass: external_exports3.enum(["CONTRADICTION", "GAP", "UNSUPPORTED_CLAIM", "REPO_EVIDENCE_UNVERIFIABLE", "VERIFIED_CLAIM_UNVERIFIABLE", "OTHER"]),
-        status: external_exports3.enum(["OPEN", "ADDRESSED", "NOT_APPLICABLE", "DEFERRED", "ACCEPTED_KNOWN_RISK"]).optional(),
-        title: external_exports3.string(),
-        description: external_exports3.string()
-      })
-    ).optional().describe("SPEC-0172 P3 \u2014 findings estructurados del ADVERSARIAL_VERDICT (exige findingsSchemaVersion).")
-  },
-  async (params) => strictApply(
-    external_exports3.object({
-      specId: external_exports3.string(),
-      kind: external_exports3.enum(["MANUAL_TECHNICAL", "MANUAL_USER", "IMPLEMENTATION_DETAIL", "INFORMAL_EXPLANATION", "PROBLEM_STATEMENT", "DISCOVERY_REPORT", "DISCOVERY_AMENDMENT", "ENGINEERING_PLAN", "ADVERSARIAL_VERDICT", "CLOSEOUT_DECISION"]),
-      // TKT-0274 — espejo .strict() de content (ahora opcional) + contentPath +
-      // expectedSha256. La exclusión mutua y la verificación del hash viven en
-      // resolveContentByReference, que corre antes del PUT.
-      content: external_exports3.string().optional(),
-      contentPath: external_exports3.string().optional(),
-      expectedSha256: external_exports3.string().optional(),
-      title: external_exports3.string().optional(),
-      summary: external_exports3.string().optional(),
-      tags: external_exports3.array(external_exports3.string()).optional(),
-      changeLog: external_exports3.string().optional(),
-      // SPEC-0100 F5 (P5.4) — espejo del shape externo (doble-strip SDK + Zod).
-      instantiationCheck: external_exports3.record(external_exports3.string(), external_exports3.unknown()).optional(),
-      // SPEC-0168 P1 — espejo .strict() de coverageDeclaration. Sin este espejo, .strict() lo
-      // stripea antes del forward al body y la declaración de cobertura nunca llega al PUT: la
-      // fila queda con la columna en NULL y el emisor no ve ningún error.
-      coverageDeclaration: external_exports3.record(external_exports3.string(), external_exports3.unknown()).optional(),
-      // SPEC-0109 P3 — espejo .strict() de round/artifactReviewed.
-      round: external_exports3.number().int().optional(),
-      artifactReviewed: external_exports3.enum(["MANUAL_TECHNICAL", "MANUAL_USER", "IMPLEMENTATION_DETAIL", "INFORMAL_EXPLANATION", "PROBLEM_STATEMENT", "DISCOVERY_REPORT", "DISCOVERY_AMENDMENT", "ENGINEERING_PLAN", "ADVERSARIAL_VERDICT", "CLOSEOUT_DECISION"]).optional(),
-      // SPEC-0123 F1 — espejo .strict() de verdictStatus (doble-strip SDK + Zod).
-      verdictStatus: external_exports3.enum(["APPROVED", "REJECTED"]).optional(),
-      // SPEC-0139 P2 — espejo .strict() de verdictScope. Sin este espejo, .strict() lo stripea
-      // antes del forward al body y el alcance nunca llega al PUT (O5 muerto para el emisor real).
-      verdictScope: external_exports3.enum(["FULL", "PARTIAL"]).optional(),
-      // SPEC-0172 P3 — espejo .strict() de findingsSchemaVersion/findings. Idéntico al shape
-      // externo: un campo declarado en un solo bloque llega al handler y desaparece antes del
-      // PUT, sin error visible (el modo de falla que RE-005 documenta para verdictScope).
-      findingsSchemaVersion: external_exports3.string().optional(),
-      findings: external_exports3.array(
-        external_exports3.object({
-          findingKey: external_exports3.string(),
-          severity: external_exports3.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"]),
-          findingClass: external_exports3.enum(["CONTRADICTION", "GAP", "UNSUPPORTED_CLAIM", "REPO_EVIDENCE_UNVERIFIABLE", "VERIFIED_CLAIM_UNVERIFIABLE", "OTHER"]),
-          status: external_exports3.enum(["OPEN", "ADDRESSED", "NOT_APPLICABLE", "DEFERRED", "ACCEPTED_KNOWN_RISK"]).optional(),
-          title: external_exports3.string(),
-          description: external_exports3.string()
-        })
-      ).optional()
-    }).strict(),
-    params,
-    ({ specId, kind, content, contentPath, expectedSha256, ...body }) => apiClient.put(`/specs/${specId}/documentation/${kind}`, {
-      ...body,
-      // TKT-0274 — el backend siempre recibe content resuelto; contentPath y
-      // expectedSha256 mueren acá (verificados o rechazados sin escribir).
-      content: resolveContentByReference({ content, contentPath, expectedSha256 })
-    })
-  )
-);
-server.tool(
-  "spec_emit_resolution",
-  'Emit a governed resolution artifact (RISK_ACCEPTANCE or BLOCKED_RESOLUTION) for a BLOCKED test case of a SPEC in IN_PROGRESS or IN_REVIEW (TKT-0230; the doc said VALIDATION, unreachable since TKT-0194). RISK_ACCEPTANCE accepts the risk WITHOUT re-execution (requires justification); BLOCKED_RESOLUTION removes the block and re-enables the Tester re-run (requires resolutionNotes). TKT-0215 \u2014 RISK_ACCEPTANCE is a HUMAN decision the Operator declared non-delegable: there is now a UI for it (SPEC detail \u2192 TestCases tab \u2192 "Aceptar riesgo"), which is the canonical path. Prefer the UI and escalate to the Operator; do NOT sign a risk acceptance from a room on your own initiative. The gate that would make this technically enforceable (distinguishing human from agent) is still pending in TKT-0215. The server builds the immutable caseSnapshot server-side and reuses the per-case append-only write-path (SPEC-0111). 422 RESOLUTION_WRONG_STATE if the SPEC is outside {IN_PROGRESS, IN_REVIEW}, 422 if the case is not BLOCKED or the required field per kind is missing. Double-schema (external shape + .strict() internal) \u2014 each field must be in BOTH or the SDK strips it.',
-  {
-    specId: external_exports3.string().describe("Spec ID (cuid)"),
-    caseId: external_exports3.string().describe("TestCase ID (cuid) \u2014 must belong to the spec and be BLOCKED"),
-    kind: external_exports3.enum(["RISK_ACCEPTANCE", "BLOCKED_RESOLUTION"]).describe(
-      "RISK_ACCEPTANCE = accept the risk without re-execution; BLOCKED_RESOLUTION = remove the block and re-enable re-execution."
-    ),
-    justification: external_exports3.string().optional().describe(
-      "Required for RISK_ACCEPTANCE, minimum 80 characters (TKT-0215, same floor as the sibling finding-risk valve of SPEC-0172 P5) \u2014 else the backend responds 422 JUSTIFICATION_REQUIRED."
-    ),
-    resolutionNotes: external_exports3.string().optional().describe("Required (non-empty) for BLOCKED_RESOLUTION \u2014 else the backend responds 422."),
-    originPhaseId: external_exports3.string().optional().describe("Optional origin phase; if omitted the service derives it from the case. Stored inside the caseSnapshot.")
-  },
-  async (params) => strictApply(
-    external_exports3.object({
-      specId: external_exports3.string(),
-      caseId: external_exports3.string(),
-      kind: external_exports3.enum(["RISK_ACCEPTANCE", "BLOCKED_RESOLUTION"]),
-      justification: external_exports3.string().optional(),
-      resolutionNotes: external_exports3.string().optional(),
-      originPhaseId: external_exports3.string().optional()
-    }).strict(),
-    params,
-    ({ specId, caseId, ...body }) => apiClient.post(`/specs/${specId}/test-cases/${caseId}/resolution`, body)
-  )
 );
 server.tool(
   "spec_finding_accept_risk",
@@ -36156,32 +37065,6 @@ server.tool(
   )
 );
 server.tool(
-  "spec_test_case_add",
-  "Crea un TestCase sobre una SPEC. successCriterion es obligatorio (sin \xE9l \u2192 422) y NO puede arrancar con un marker [gen:...] (\u2192 422 MARKER_NOT_ALLOWED_IN_MANUAL_ADD, TKT-0229): ese prefijo identifica los casos generados desde el ENGINEERING_PLAN y escribirlo a mano crea un reclamo duplicado invisible a la reconciliaci\xF3n. binding se deriva server-side: scope SPEC u originRole ENGINEERING (rol actuante) fuerzan binding=true; el resto nace no vinculante (el binding que mande el caller se ignora). originRole se toma del rol actuante (x-act-as-role) o del rol del user; originUserId del JWT; originSource default MANUAL. Un caso scope GROUP/PHASE referencia sus fases en phaseIds.",
-  {
-    specId: external_exports3.string().describe("Spec ID (cuid)"),
-    scope: external_exports3.enum(["SPEC", "GROUP", "PHASE"]).describe("Alcance del caso. SPEC fuerza binding=true."),
-    successCriterion: external_exports3.string().describe(
-      "Criterio de \xE9xito \u2014 obligatorio (sin \xE9l el backend responde 422). No puede arrancar con un marker [gen:...] (TKT-0229): el marker es procedencia del generador, no algo que se escriba a mano."
-    ),
-    phaseIds: external_exports3.array(external_exports3.string()).optional().describe("cuids de las SpecPhase referenciadas (scope GROUP/PHASE). Default []."),
-    originSource: external_exports3.enum(["MANUAL", "EXPECTED_OUTCOME", "RISK_FLAG"]).optional().describe("Procedencia del caso. Default MANUAL."),
-    proposedAlertLevel: external_exports3.enum(["BLOCANTE", "INFORMATIVO"]).optional().describe("Nivel de alerta propuesto (opcional).")
-  },
-  async (params) => strictApply(
-    external_exports3.object({
-      specId: external_exports3.string(),
-      scope: external_exports3.enum(["SPEC", "GROUP", "PHASE"]),
-      successCriterion: external_exports3.string(),
-      phaseIds: external_exports3.array(external_exports3.string()).optional(),
-      originSource: external_exports3.enum(["MANUAL", "EXPECTED_OUTCOME", "RISK_FLAG"]).optional(),
-      proposedAlertLevel: external_exports3.enum(["BLOCANTE", "INFORMATIVO"]).optional()
-    }).strict(),
-    params,
-    ({ specId, ...body }) => apiClient.post(`/specs/${specId}/test-cases`, body)
-  )
-);
-server.tool(
   "spec_test_cases_read",
   "Lee los TestCases de una SPEC (filtro opcional por fase). Cada caso incluye implementorId (T13) derivado de la firma inicial de sus fases (SpecPhase.assigneeId): un cuid si todas las fases comparten implementor, un array si difieren, null si el caso no tiene fases (scope SPEC). selfValidated siempre presente (A7).",
   {
@@ -36194,76 +37077,23 @@ server.tool(
     return formatRead(cases);
   }
 );
-var evidenceRefShape = external_exports3.object({
-  repoKey: external_exports3.string().describe("repoKey de un ProjectRepo del tenant."),
-  path: external_exports3.string().describe("Path relativo a la raiz de ese repo."),
-  line: external_exports3.number().int().optional().describe("Linea dentro del path (opcional).")
-});
 server.tool(
-  "spec_test_case_set_result",
-  "Registra el resultado de un TestCase (PASS/FAIL/BLOCKED) aplicando la matriz de evidencia (doc 10 \xA75.3): evidence obligatoria en FAIL y en PASS de scope GROUP/SPEC (opcional en PASS de PHASE); notes obligatorias en BLOCKED. Sin cumplir \u2192 422. Setea result/resultEvidence/resultNotes/resultAt y, con evidenceRefs, REEMPLAZA las filas de evidencia por repo del caso (SPEC-0208 P3). No setea selfValidated (cuatro ojos = Sprint D).",
-  {
-    specId: external_exports3.string().describe("Spec ID (cuid)"),
-    id: external_exports3.string().describe("TestCase ID (cuid)"),
-    result: external_exports3.enum(["PASS", "FAIL", "BLOCKED"]).describe("Resultado de la ejecuci\xF3n."),
-    evidence: external_exports3.string().optional().describe("Evidencia (obligatoria en FAIL y en PASS de scope GROUP/SPEC)."),
-    notes: external_exports3.string().optional().describe("Notas (obligatorias en BLOCKED)."),
-    evidenceRefs: external_exports3.array(evidenceRefShape).optional().describe(
-      "SPEC-0208 P3 \u2014 evidencia por repo, con semantica de REEMPLAZO TOTAL: presente con N elementos deja EXACTAMENTE esas N filas, array vacio las borra, omitir la clave deja las que habia. Cada repoKey debe existir en el ProjectRepo del tenant (FK compuesta (tenantId, repoKey))."
-    )
-  },
-  async (params) => strictApply(
-    external_exports3.object({
-      specId: external_exports3.string(),
-      id: external_exports3.string(),
-      result: external_exports3.enum(["PASS", "FAIL", "BLOCKED"]),
-      evidence: external_exports3.string().optional(),
-      notes: external_exports3.string().optional(),
-      evidenceRefs: external_exports3.array(evidenceRefShape).optional()
-    }).strict(),
-    params,
-    ({ specId, id, ...body }) => apiClient.post(`/specs/${specId}/test-cases/${id}/result`, body)
-  )
+  "spec_test_case_binding_supersede_sign",
+  "Firma una fila de TestCaseBindingSupersede (SPEC-0219 P6): separa quien REEMPLAZA un vinculante (el generador, system-triggered) de quien AUTORIZA el reemplazo. Requiere spec.supersede_binding \u2014 UN SOLO portador, rbac_role_sdd_operador (ADR-011); 403 para cualquier otro rol/sin act-as. Idempotente por fila: firmar dos veces no re-escribe la firma original. 404 si la fila no pertenece al (specId, caseId) del path o al tenant. 422 si reason no alcanza el m\xEDnimo (mismo que aceptar el riesgo de un finding). El supersedeId lo devuelve el 422 de la guarda de cierre (PATCH /specs/:id/complete \u2192 TEST_CASE_BINDING_SUPERSEDE_UNSIGNED), que enumera los pendientes.",
+  signBindingSupersedeSchema,
+  makeSignBindingSupersedeHandler(apiClient)
 );
 server.tool(
-  "spec_test_case_promote",
-  "Promueve un TestCase a vinculante (setea binding=true + promotedBy/promotedAt). La promoci\xF3n normal es solo de ENGINEERING (rol actuante); otros roles deben usar force=true con reason (v\xE1lvula anti-limbo del Operador, doc 10 \xA75.4). force sin reason \u2192 422. NOTA: la persistencia de reason est\xE1 diferida (columna pendiente de contrato DBA).",
-  {
-    specId: external_exports3.string().describe("Spec ID (cuid)"),
-    id: external_exports3.string().describe("TestCase ID (cuid)"),
-    force: external_exports3.boolean().optional().describe('V\xE1lvula del Operador: fuerza la promoci\xF3n saltando "solo ENGINEERING". Exige reason.'),
-    reason: external_exports3.string().optional().describe("Raz\xF3n (obligatoria si force=true).")
-  },
-  async (params) => strictApply(
-    external_exports3.object({
-      specId: external_exports3.string(),
-      id: external_exports3.string(),
-      force: external_exports3.boolean().optional(),
-      reason: external_exports3.string().optional()
-    }).strict(),
-    params,
-    ({ specId, id, ...body }) => apiClient.post(`/specs/${specId}/test-cases/${id}/promote`, body)
-  )
+  "spec_test_case_discard",
+  "Declara que un TestCase vinculante no se prueba (TKT-0394): el caso queda resuelto sin evidencia y sin resoluci\xF3n de bloqueo (result=DISCARDED, locked \u2014 set_result lo rechaza despu\xE9s). Requiere spec.discard_test_case \u2014 UN SOLO portador, rbac_role_sdd_operador \u2014 M\xC1S v\xEDa humana: 422 HUMAN_SIGNATURE_REQUIRED si la sesi\xF3n llega con rol act-as declarado (a diferencia de spec_test_case_binding_supersede_sign, este es un canal exclusivamente humano). Motivo del cat\xE1logo cerrado (TestCaseDiscardReason) + cita LITERAL del successCriterion (422 DISCARD_CITATION_NOT_FOUND/DISCARD_CITATION_TOO_SHORT si no) + explanation no vac\xEDa + sin repetir una explanation ya firmada en la SPEC (422 DISCARD_EXPLANATION_REPEATED). 422 DISCARD_FORBIDDEN_OBJECTIVE_CASE si el caso cubre el objetivo de la SPEC (coversObjective); 422 TEST_CASE_ALREADY_DISCARDED si ya estaba descartado.",
+  discardTestCaseSchema,
+  makeDiscardTestCaseHandler(apiClient)
 );
 server.tool(
-  "spec_test_case_verify",
-  "Verificaci\xF3n adversarial del PASS propuesto de un binding: un rol independiente confirma (VERIFIED) o rechaza (REJECTED) el PASS que propuso el CC-Dev (P3 lo dej\xF3 verificationStatus=PENDING). Guard de separaci\xF3n de roles: el verificador NO puede ser el autor del PASS (verifierId != resultById) \u2192 403 SELF_VERIFICATION_FORBIDDEN. Solo aplica a un binding con result=PASS pendiente \u2192 si no, 422 CASE_NOT_PENDING_VERIFICATION. notes obligatoria (evidencia del contraste contra el c\xF3digo real). REJECTED deja el binding NO resuelto.",
-  {
-    specId: external_exports3.string().describe("Spec ID (cuid)"),
-    id: external_exports3.string().describe("TestCase ID (cuid)"),
-    verdict: external_exports3.enum(["VERIFIED", "REJECTED"]).describe("Veredicto de la verificaci\xF3n adversarial."),
-    notes: external_exports3.string().describe("Evidencia del contraste contra el c\xF3digo/artefacto real. Obligatoria.")
-  },
-  async (params) => strictApply(
-    external_exports3.object({
-      specId: external_exports3.string(),
-      id: external_exports3.string(),
-      verdict: external_exports3.enum(["VERIFIED", "REJECTED"]),
-      notes: external_exports3.string()
-    }).strict(),
-    params,
-    ({ specId, id, ...body }) => apiClient.post(`/specs/${specId}/test-cases/${id}/verify`, body)
-  )
+  "spec_test_case_flag_integrity",
+  "Marca la integridad de un TestCase vinculante como posiblemente falseada (SPEC-0230 P4, ADR-007): integrityStatus=FLAGGED, integrityDetectedBy=ADVERSARIAL, integrityDetail=detail, m\xE1s un evento FLAGGED en el historial del caso con el texto completo, en la misma transacci\xF3n; despu\xE9s avisa a Spec.ownerId. Requiere spec.flag_test_case_integrity \u2014 UN SOLO portador, rbac_role_sdd_adversarial \u2014 y rol efectivo ADVERSARIAL (403 INTEGRITY_FLAG_REQUIRES_ADVERSARIAL con cualquier otro rol o sin act-as). S\xF3lo un vinculante con salida: result PASS, o BLOCKED con blockedResolutionStatus RISK_ACCEPTED o UNBLOCKED (422 INTEGRITY_FLAG_CASE_WITHOUT_EXIT si no); nunca un caso cuya marca ya fue aceptada (422 INTEGRITY_ALREADY_ACCEPTED). Una re-marca sobre un caso ya FLAGGED reescribe el detalle y deja su propio evento. No toca verificationStatus ni blockedResolutionStatus. detail vac\xEDo \u2192 400.",
+  testCaseFlagIntegritySchema,
+  makeTestCaseFlagIntegrityHandler(apiClient)
 );
 server.tool(
   "spec_request_engineering_review",
@@ -36278,53 +37108,47 @@ server.tool(
   )
 );
 server.tool(
-  "spec_phase_set_canonical_contract",
-  "Setea el contrato can\xF3nico tipado de una fase (columna canonicalContract Json?, le\xEDda por el gate de engineering-review item c). Los 4 componentes deben ser strings no vac\xEDos o el gate falla al solicitar la review. Opcional noCodeLayer (TKT-0231): declara que la fase NO produce capa de c\xF3digo (gobierno/documentaci\xF3n) y exime a sus tasks del gate de cierre de worktree (PR link + delta) que una fase sin c\xF3digo no puede satisfacer. Opcional postconditionDeliverables (TKT-0268): los entregables de los que dependen las postcondiciones de la fase, cada uno con la fase donde vive. El backend los cruza contra el grafo PhaseDependency (BLOCKS) + sortOrder y rebota 422 PHASE_CONTRACT_POSTCONDITION_UNSATISFIABLE si alguno vive en una fase POSTERIOR \u2014 una fase no puede exigir como postcondici\xF3n un resultado que produce otra fase aguas abajo (caso vivo SPEC-0160 P1). El gate de salida de Engineering exige adem\xE1s que el entregable viva en la propia fase o en un ancestro del DAG BLOCKS.",
+  "spec_verified_claim_declare",
+  "Declara un VerifiedClaim (afirmaci\xF3n de existencia de un model/field/enum-value) sobre una Spec, opcionalmente scopeada a una fase. El sellado (result PASS/FAIL) lo escribe EXCLUSIVAMENTE el gate server-side de spec_request_engineering_review \u2014 esta tool NO sella (ADR-001). Permiso spec.verified_claim_declare (CC_DEV + OPERATOR).",
   {
-    specId: external_exports3.string().describe("Spec ID (cuid) or SPEC-XXXX number"),
-    phaseId: external_exports3.string().describe("SpecPhase ID (cuid)"),
-    canonicalContract: external_exports3.object({
-      queHace: external_exports3.string(),
-      queProduce: external_exports3.string(),
-      precondiciones: external_exports3.string(),
-      postcondiciones: external_exports3.string(),
-      // TKT-0231 — la exención se declara en el contrato (no al cerrar la task):
-      // la firma Engineering al planificar y es falsable contra las PhaseSurface
-      // PRODUCES de la fase. `rationale` es obligatorio si declared=true.
-      noCodeLayer: external_exports3.object({ declared: external_exports3.boolean(), rationale: external_exports3.string().optional() }).optional().describe(
-        'Fase sin capa de c\xF3digo: { declared: true, rationale: "por qu\xE9 no produce c\xF3digo" }. Omitir en fases de c\xF3digo.'
-      ),
-      // TKT-0268 — satisfacibilidad de la postcondición DENTRO de la fase.
-      postconditionDeliverables: external_exports3.array(external_exports3.object({ deliverable: external_exports3.string(), phase: external_exports3.string() })).optional().describe(
-        'Entregables de los que dependen las postcondiciones: [{ deliverable: "qu\xE9", phase: "cuid o nombre de fase de la misma SPEC" }]. Si alguno vive en una fase posterior, el contrato NO se guarda (422).'
-      )
-    }).describe(
-      "Contrato can\xF3nico: { queHace, queProduce, precondiciones, postcondiciones } + noCodeLayer / postconditionDeliverables opcionales"
-    )
+    specId: external_exports3.string().describe("Spec ID (cuid)"),
+    phaseId: external_exports3.string().optional().describe("Fase de la SPEC donde se declara el claim. Opcional \u2014 un claim puede ser a nivel SPEC, sin fase."),
+    type: external_exports3.enum(["MODEL_EXISTS", "FIELD_EXISTS", "ENUM_VALUE_EXISTS"]).describe("Tipo de afirmaci\xF3n de existencia."),
+    target: external_exports3.string().describe("S\xEDmbolo afirmado: model:X | field:X.y | enum-value E.V."),
+    assertedIn: external_exports3.string().describe("D\xF3nde se afirma el claim (secci\xF3n/fase del plan).")
   },
   async (params) => strictApply(
     external_exports3.object({
       specId: external_exports3.string(),
-      phaseId: external_exports3.string(),
-      canonicalContract: external_exports3.object({
-        queHace: external_exports3.string(),
-        queProduce: external_exports3.string(),
-        precondiciones: external_exports3.string(),
-        postcondiciones: external_exports3.string(),
-        noCodeLayer: external_exports3.object({ declared: external_exports3.boolean(), rationale: external_exports3.string().optional() }).optional(),
-        // TKT-0268 — la clave viaja tal cual al PUT; el cruce contra el grafo de
-        // fases lo hace el backend (el MCP no tiene el grafo).
-        postconditionDeliverables: external_exports3.array(external_exports3.object({ deliverable: external_exports3.string(), phase: external_exports3.string() })).optional()
-      })
+      phaseId: external_exports3.string().optional(),
+      type: external_exports3.enum(["MODEL_EXISTS", "FIELD_EXISTS", "ENUM_VALUE_EXISTS"]),
+      target: external_exports3.string(),
+      assertedIn: external_exports3.string()
     }).strict(),
     params,
-    // TKT-0056 — write-path dedicado: PUT .../canonical-contract gateado con
-    // phase.write_contract (NO phase.transition). Antes pegaba al PATCH
-    // multipropósito, lo que obligaba a la identidad ENGINEERING (sin
-    // phase.transition) a caer al fallback de comment. Shape externa intacta.
-    ({ specId, phaseId, canonicalContract }) => apiClient.put(`/specs/${specId}/phases/${phaseId}/canonical-contract`, {
-      canonicalContract
-    })
+    ({ specId, ...body }) => apiClient.post(`/specs/${specId}/verified-claims`, body)
+  )
+);
+server.tool(
+  "spec_introspection_declare",
+  "Crea una declaraci\xF3n de introspecci\xF3n de schema. scope=PROJECT es la base que cubre TODAS las specs futuras del proyecto; scope=SPEC es el override de una spec puntual, que gana sobre la base. Coherencia scope\u2194id: PROJECT exige projectId con specId nulo, SPEC exige specId con projectId nulo (400 INTROSPECTION_SCOPE_INCOHERENT si no se cumple). 409 INTROSPECTION_DECLARATION_ALREADY_EXISTS si ya existe (1 base por proyecto, 1 override por spec). Permiso spec.introspection_declare (OPERATOR-only).",
+  {
+    scope: external_exports3.enum(["PROJECT", "SPEC"]),
+    projectId: external_exports3.string().optional().describe("FK a Project. Requerido y \xFAnico cuando scope=PROJECT."),
+    specId: external_exports3.string().optional().describe("FK a Spec. Requerido y \xFAnico cuando scope=SPEC (override)."),
+    adapterKind: external_exports3.enum(["PRISMA_DMMF", "SQL_DDL", "OPENEDGE_DF"]).describe("Stack de introspecci\xF3n."),
+    config: external_exports3.record(external_exports3.string(), external_exports3.unknown()).describe("Config por adapter (path/conn/etc).")
+  },
+  async (params) => strictApply(
+    external_exports3.object({
+      scope: external_exports3.enum(["PROJECT", "SPEC"]),
+      projectId: external_exports3.string().optional(),
+      specId: external_exports3.string().optional(),
+      adapterKind: external_exports3.enum(["PRISMA_DMMF", "SQL_DDL", "OPENEDGE_DF"]),
+      config: external_exports3.record(external_exports3.string(), external_exports3.unknown())
+    }).strict(),
+    params,
+    (body) => apiClient.post("/introspection-declarations", body)
   )
 );
 server.tool(
@@ -36332,6 +37156,12 @@ server.tool(
   "Declara la re-alineaci\xF3n del contrato can\xF3nico de una fase: la \xDANICA acci\xF3n que apaga la marca de desalineo (contractAlignment.misaligned). No es un acuse \u2014 exige una disposici\xF3n por CADA artefacto que la se\xF1al enumera (staleTasks, staleAcceptanceCriteria, staleSurfaces y CONTENT si staleContent). Falta una sola \u2192 422 nombrando el faltante, sin apagar nada; y si aparece un artefacto nuevo entre tu lectura y el POST, tambi\xE9n rebota: la enumeraci\xF3n se recomputa dentro de la transacci\xF3n. Disposiciones: STILL_VALID / SUPERSEDED_BY (+supersededByRef, la \xFAnica forma de declarar un ganador cuando el modelo es add-only) / OBSOLETE (+note). Requiere permiso phase.realign_contract (ENGINEERING/OPERATOR) y la SPEC en {IN_PROGRESS, ENGINEERING}; fase en estado final \u2192 400.",
   specPhaseRealignContractSchema,
   makeSpecPhaseRealignContractHandler(apiClient)
+);
+server.tool(
+  "spec_phase_comment_supersede",
+  'Marca un comment de fase como CONTENCI\xD3N SUPERADA por el ticket que levant\xF3 su limitaci\xF3n. Para qu\xE9: cuando una ronda contiene un defecto que no se puede corregir, Engineering postea un comment declarando la limitaci\xF3n \u2014 verdadero al escribirse. Si despu\xE9s la limitaci\xF3n se levanta, ese comment sigue vivo y sin marca, y la ronda siguiente lo lee como afirmaci\xF3n vigente y lo levanta como finding. Esta tool lo da de baja SIN editar su texto: la marca vive en columnas propias y la LECTURA (spec_get y spec_get_phase) pasa a anteponerle un banner "CONTENCI\xD3N SUPERADA \u2014 YA NO VIGENTE" que nombra el ticket. Idempotente con el MISMO ticketId; con otro rebota 409 PHASE_COMMENT_ALREADY_SUPERSEDED (la marca es un acto de registro, no un campo editable) \u2014 no hay desmarcado. A prop\xF3sito NO exige la SPEC abierta ni la fase viva: una contenci\xF3n sobrevive al cierre, y \xE9sa es justo la que hay que poder marcar. Requiere el permiso phase.supersede_comment (ENGINEERING + OPERATOR); CC_DEV y ADVERSARIAL reciben 403. `ticketId` es el CUID del ticket, NO su n\xFAmero: resolvelo antes con ticket_resolve_by_number.',
+  specPhaseCommentSupersedeSchema,
+  makeSpecPhaseCommentSupersedeHandler(apiClient)
 );
 server.tool(
   "domain_context_set",
@@ -36346,8 +37176,44 @@ server.tool(
   makeDomainContextGetHandler(apiClient)
 );
 server.tool(
+  "infra_context_set",
+  "Crea o ACTUALIZA EN SU LUGAR la entrada de INFRA_CONTEXT de (proyecto, operacion): como se opera una operacion recurrente de infraestructura, con sus comandos exactos. Update-in-place a proposito, a diferencia de domain_context_set que es append-only: aca lo peligroso es un comando VIEJO que sigue vigente, y nadie cita un comando de deploy en un artefacto sellado. La clave es (projectId, operacion) \u2014 la MISMA operacion se pisa, una distinta crea entrada nueva. `verificarDespues` es obligatorio y es el campo que evita el verde-falso (un comando que devuelve 0 sobre un artefacto que no cambio); `ultimaVerificacion` es la fecha en que se CORRIERON los comandos, NO la de esta edicion. Requiere el permiso tenant.infra_context.write (OPERATOR o TENANT_ADMIN) \u2014 cualquier otro rol recibe 403. 404 PROJECT_NOT_FOUND si el proyecto no es de este tenant.",
+  infraContextSetSchema,
+  makeInfraContextSetHandler(apiClient)
+);
+server.tool(
+  "infra_context_get",
+  "Devuelve las entradas de INFRA_CONTEXT del tenant: como se opera cada operacion recurrente de infraestructura (deployar, rebuildear, publicar), con comandos, punto de parada, que verificar despues y que NO hace. Sin filtros devuelve todas; `projectId` y `operacion` acotan, y los dos juntos identifican una. LEELA ANTES de improvisar una secuencia de deploy/rebuild: si la operacion esta cargada, sus comandos son la fuente, no una sugerencia. Mira `ultimaVerificacion` \u2014 una entrada vieja puede haber dejado de funcionar. Lectura sin permiso especial (la necesita cualquiera que vaya a operar), acotada al tenant del firmante. Lista VACIA no es error: es un tenant que todavia no cargo nada.",
+  infraContextGetSchema,
+  makeInfraContextGetHandler(apiClient)
+);
+server.tool(
+  "risk_acceptance_reason_list",
+  "Lista el catalogo de motivos de aceptacion de riesgo (RiskAcceptanceReason) del tenant autenticado, con su id y su baseAction \u2014 el dato que la emision de una aceptacion (P4) necesita citar. Filtros opcionales: q (contains-insensitive en name/label), isActive. Tenant-scoped server-side via el JWT.",
+  riskAcceptanceReasonListSchema,
+  makeRiskAcceptanceReasonListHandler(apiClient)
+);
+server.tool(
+  "risk_acceptance_reason_create",
+  "Crea un motivo de aceptacion de riesgo en el tenant autenticado. Nace activo e isDefault:false. name es unico por tenant (409 si ya existe). baseAction (TECHNICAL_DEPENDENCY | DEFERRAL | DECISION_NOT_TO_DO) es OBLIGATORIO en la practica: sin el, el backend responde 422 RISK_REASON_BASE_ACTION_REQUIRED (caso (8) de O2) \u2014 no un rechazo de forma de esta tool. Requiere el permiso tenant.manage_risk_acceptance_reasons (TENANT_ADMIN, OPERATOR o SENIOR_ARCHITECT) \u2014 cualquier otro actor recibe 403.",
+  riskAcceptanceReasonCreateSchema,
+  makeRiskAcceptanceReasonCreateHandler(apiClient)
+);
+server.tool(
+  "risk_acceptance_reason_update",
+  "Edita un motivo del tenant, incluida su baseAction. isDefault es INMUTABLE via este tool. 404 si el motivo es de otro tenant; 409 si el nuevo name colisiona. Requiere tenant.manage_risk_acceptance_reasons.",
+  riskAcceptanceReasonUpdateSchema,
+  makeRiskAcceptanceReasonUpdateHandler(apiClient)
+);
+server.tool(
+  "risk_acceptance_reason_delete",
+  "Baja logica (isActive=false) de un motivo del tenant. SIEMPRE soft: un motivo ya citado por una aceptacion emitida esta referenciado por FK desde SpecDocumentation, y un borrado duro dejaria el trail sin el dato que explica la firma. Requiere tenant.manage_risk_acceptance_reasons.",
+  riskAcceptanceReasonDeleteSchema,
+  makeRiskAcceptanceReasonDeleteHandler(apiClient)
+);
+server.tool(
   "spec_request_operator_input",
-  "Pide input al Operador sobre una SPEC y la deja EN ESPERA, SIN castigo: el estado y el contexto de la SPEC NO cambian (mismo stateId, mismo inProgressContext) y tu turno cierra igual. Con la consulta abierta, el gate del dispatcher bloquea TODA transicion de la SPEC salvo BLOCKED y CANCELLED \u2014 el rechazo nombra el cuid de la consulta pendiente. Agrupar varias preguntas en un pedido es eficiencia, no evasion: el tope cuenta REQUESTS. Devuelve requestsUsed/requestsMax. 422 OPERATOR_INPUT_CAP_REACHED si la SPEC agoto el tope del tenant (sin retroceso de estado; el tope se sube por PATCH /admin/sdd/tenants/:id/operator-input-cap), OPERATOR_INPUT_ALREADY_OPEN si ya hay una abierta. Requiere el permiso spec.request_operator_input (DISCOVERY, ENGINEERING, OPERATOR). La respuesta NO se da por MCP: es acto humano por UI.",
+  "Pide input al Operador sobre una SPEC y la deja EN ESPERA, SIN castigo: el estado y el contexto de la SPEC NO cambian (mismo stateId, mismo inProgressContext) y tu turno cierra igual. Con la consulta abierta, el gate del dispatcher bloquea TODA transicion de la SPEC salvo BLOCKED y CANCELLED \u2014 el rechazo nombra el cuid de la consulta pendiente. Agrupar varias preguntas en un pedido es eficiencia, no evasion: el tope cuenta REQUESTS. Devuelve requestsUsed/requestsMax. 422 OPERATOR_INPUT_CAP_REACHED si la SPEC agoto el tope del tenant (sin retroceso de estado; el tope se sube por PATCH /admin/sdd/tenants/:id/operator-input-cap), OPERATOR_INPUT_ALREADY_OPEN si ya hay una abierta. 422 OPERATOR_INPUT_CHANNEL_CLOSED si Adversarial ya aprobo el artefacto en cuestion (el ENGINEERING_PLAN aprobado cierra el canal entero; el DISCOVERY_REPORT aprobado cierra solo los pedidos sobre ese artefacto) \u2014 despues de la aprobacion las salidas son la interfaz del agente o una task pendiente por falta de input. Requiere el permiso spec.request_operator_input (DISCOVERY, ENGINEERING, OPERATOR). La respuesta NO se da por MCP: es acto humano por UI.",
   specRequestOperatorInputSchema,
   makeSpecRequestOperatorInputHandler(apiClient)
 );
@@ -36376,108 +37242,53 @@ server.tool(
   )
 );
 server.tool(
+  "task_update_acceptance_criterion",
+  "Edita text y/o testable de un AcceptanceCriterion existente de una task. Al menos uno de los dos debe venir.",
+  {
+    taskId: external_exports3.string().describe("Task ID (cuid)"),
+    criterionId: external_exports3.string().describe("AcceptanceCriterion ID (cuid)"),
+    text: external_exports3.string().optional().describe("Nuevo texto del criterio"),
+    testable: external_exports3.boolean().optional()
+  },
+  async (params) => strictApply(
+    external_exports3.object({
+      taskId: external_exports3.string(),
+      criterionId: external_exports3.string(),
+      text: external_exports3.string().optional(),
+      testable: external_exports3.boolean().optional()
+    }).strict(),
+    params,
+    ({ taskId, criterionId, ...body }) => apiClient.patch(`/tasks/${taskId}/acceptance-criteria/${criterionId}`, body)
+  )
+);
+server.tool(
+  "task_delete_acceptance_criterion",
+  "Borra un AcceptanceCriterion de una task (ej. qued\xF3 obsoleto tras un cambio de contrato).",
+  {
+    taskId: external_exports3.string().describe("Task ID (cuid)"),
+    criterionId: external_exports3.string().describe("AcceptanceCriterion ID (cuid)")
+  },
+  async (params) => strictApply(
+    external_exports3.object({ taskId: external_exports3.string(), criterionId: external_exports3.string() }).strict(),
+    params,
+    ({ taskId, criterionId }) => apiClient.delete(`/tasks/${taskId}/acceptance-criteria/${criterionId}`)
+  )
+);
+server.tool(
   "spec_remove_documentation",
   "Unlink a documentation section from a Spec. The underlying KbArticle is preserved (remains searchable via KB) \u2014 only the Spec\u2194Section association is removed.",
   {
     specId: external_exports3.string(),
-    kind: external_exports3.enum(["MANUAL_TECHNICAL", "MANUAL_USER", "IMPLEMENTATION_DETAIL", "INFORMAL_EXPLANATION", "PROBLEM_STATEMENT", "DISCOVERY_REPORT", "DISCOVERY_AMENDMENT", "ENGINEERING_PLAN", "ADVERSARIAL_VERDICT", "CLOSEOUT_DECISION"])
+    kind: external_exports3.enum(["MANUAL_TECHNICAL", "MANUAL_USER", "IMPLEMENTATION_DETAIL", "INFORMAL_EXPLANATION", "PROBLEM_STATEMENT", "DISCOVERY_REPORT", "DISCOVERY_AMENDMENT", "ENGINEERING_PLAN", "ADVERSARIAL_VERDICT", "CLOSEOUT_DECISION", "SDD_DESIGN", "SCHEMA_CONTRACT", "SDD_TASKS"])
   },
   async (params) => strictApply(
     external_exports3.object({
       specId: external_exports3.string(),
-      kind: external_exports3.enum(["MANUAL_TECHNICAL", "MANUAL_USER", "IMPLEMENTATION_DETAIL", "INFORMAL_EXPLANATION", "PROBLEM_STATEMENT", "DISCOVERY_REPORT", "DISCOVERY_AMENDMENT", "ENGINEERING_PLAN", "ADVERSARIAL_VERDICT", "CLOSEOUT_DECISION"])
+      kind: external_exports3.enum(["MANUAL_TECHNICAL", "MANUAL_USER", "IMPLEMENTATION_DETAIL", "INFORMAL_EXPLANATION", "PROBLEM_STATEMENT", "DISCOVERY_REPORT", "DISCOVERY_AMENDMENT", "ENGINEERING_PLAN", "ADVERSARIAL_VERDICT", "CLOSEOUT_DECISION", "SDD_DESIGN", "SCHEMA_CONTRACT", "SDD_TASKS"])
     }).strict(),
     params,
     ({ specId, kind }) => apiClient.delete(`/specs/${specId}/documentation/${kind}`)
   )
-);
-server.tool(
-  "phase_closeout",
-  'Post a canonical phase-level closeout (category=closeout) summarising a phase being COMPLETED. The backend REQUIRES the 5 mandatory markdown headers \u2014 "## Qu\xE9 se construy\xF3", "## Decisiones clave", "## Bugs", "## Correcciones del operador", "## M\xE9tricas finales" \u2014 and rejects with 422 CLOSEOUT_STRUCTURE_INVALID (listing the missing ones) otherwise. Allowed on COMPLETED/SKIPPED phases (append-only-on-completion). verification_tokens (skill staff-verification-protocol) render to a `## Verification` table prepended to content \u2014 closing a phase is a structural verdict. Strict-enforced once MCP_SERVER_RELEASE >= 0.2.0.',
-  {
-    specId: external_exports3.string(),
-    phaseId: external_exports3.string(),
-    content: external_exports3.string().describe("Closeout markdown \u2014 MUST contain the 5 canonical ## headers"),
-    verification_tokens: verificationTokensField,
-    internal: external_exports3.boolean().optional().default(false)
-  },
-  async (params) => {
-    const ParamsSchema12 = external_exports3.object({
-      specId: external_exports3.string(),
-      phaseId: external_exports3.string(),
-      content: external_exports3.string(),
-      verification_tokens: verificationTokensField,
-      internal: external_exports3.boolean().optional()
-    }).strict();
-    try {
-      const validated = ParamsSchema12.parse(params);
-      const contentWithTokens = prependTokensHeader(
-        validated.content,
-        validated.verification_tokens
-      );
-      const comment = await apiClient.post(
-        `/specs/${validated.specId}/phases/${validated.phaseId}/closeout`,
-        {
-          content: contentWithTokens,
-          internal: validated.internal
-        }
-      );
-      return { content: [{ type: "text", text: JSON.stringify(comment, null, 2) }] };
-    } catch (e) {
-      if (e instanceof external_exports3.ZodError) {
-        return {
-          isError: true,
-          content: [
-            { type: "text", text: `Schema validation failed: ${formatZodError(e)}` }
-          ]
-        };
-      }
-      throw e;
-    }
-  }
-);
-server.tool(
-  "spec_closeout",
-  "Post a spec-level closeout (category=closeout) \u2014 the executive audit summary written when a SPEC is being closed. Does NOT enforce the 3-mandatory-docs guard: that lives in the COMPLETED transition (spec_update stateId / PATCH :id/complete \u2192 422 CLOSEOUT_DOCS_MISSING). Use this to record the closeout narrative BEFORE flipping the SPEC to COMPLETED. verification_tokens render to a `## Verification` table prepended to content \u2014 closing a SPEC is a structural verdict. Strict-enforced once MCP_SERVER_RELEASE >= 0.2.0.",
-  {
-    specId: external_exports3.string(),
-    content: external_exports3.string().describe("Executive closeout summary (markdown)"),
-    verification_tokens: verificationTokensField,
-    internal: external_exports3.boolean().optional().default(false)
-  },
-  async (params) => {
-    const ParamsSchema12 = external_exports3.object({
-      specId: external_exports3.string(),
-      content: external_exports3.string(),
-      verification_tokens: verificationTokensField,
-      internal: external_exports3.boolean().optional()
-    }).strict();
-    try {
-      const validated = ParamsSchema12.parse(params);
-      const contentWithTokens = prependTokensHeader(
-        validated.content,
-        validated.verification_tokens
-      );
-      const comment = await apiClient.post(
-        `/specs/${validated.specId}/closeout`,
-        {
-          content: contentWithTokens,
-          internal: validated.internal
-        }
-      );
-      return { content: [{ type: "text", text: JSON.stringify(comment, null, 2) }] };
-    } catch (e) {
-      if (e instanceof external_exports3.ZodError) {
-        return {
-          isError: true,
-          content: [
-            { type: "text", text: `Schema validation failed: ${formatZodError(e)}` }
-          ]
-        };
-      }
-      throw e;
-    }
-  }
 );
 server.tool(
   "spec_add_dependency",
@@ -36490,7 +37301,7 @@ server.tool(
     verification_tokens: verificationTokensField
   },
   async (params) => {
-    const ParamsSchema12 = external_exports3.object({
+    const ParamsSchema17 = external_exports3.object({
       specId: external_exports3.string(),
       dependsOnId: external_exports3.string(),
       type: external_exports3.enum(["BLOCKS", "RELATES_TO"]).optional(),
@@ -36498,7 +37309,7 @@ server.tool(
       verification_tokens: verificationTokensField
     }).strict();
     try {
-      const validated = ParamsSchema12.parse(params);
+      const validated = ParamsSchema17.parse(params);
       const dep = await apiClient.post(`/specs/${validated.specId}/dependencies`, {
         dependsOnId: validated.dependsOnId,
         type: validated.type,
@@ -36576,7 +37387,7 @@ server.tool(
     verification_tokens: verificationTokensField
   },
   async (params) => {
-    const ParamsSchema12 = external_exports3.object({
+    const ParamsSchema17 = external_exports3.object({
       specId: external_exports3.string(),
       phaseId: external_exports3.string(),
       dependsOnPhaseId: external_exports3.string(),
@@ -36585,7 +37396,7 @@ server.tool(
       verification_tokens: verificationTokensField
     }).strict();
     try {
-      const validated = ParamsSchema12.parse(params);
+      const validated = ParamsSchema17.parse(params);
       const dep = await apiClient.post(
         `/specs/${validated.specId}/phases/${validated.phaseId}/dependencies`,
         {
@@ -36738,73 +37549,6 @@ server.tool(
   }
 );
 server.tool(
-  "future_promise_create",
-  "Create a new FuturePromise (deferred work item with trigger). Validates invariantes 1-4 seg\xFAn promiseType server-side. SPEC-0089 v0.3.1: verification_tokens prepended to description as `## Verification` table when description is provided. Strict-enforced post MCP_SERVER_RELEASE >= 0.2.0.",
-  {
-    title: external_exports3.string().describe("Short title"),
-    description: external_exports3.string().optional().describe("Markdown libre con contexto"),
-    promiseType: external_exports3.enum(["STUB_SPEC", "DEFERRED_PHASE", "DEFERRED_DEPENDENCY", "TECHNICAL_DEBT", "IDEA"]),
-    triggerType: external_exports3.enum(["COMMERCIAL", "MILESTONE", "OPERATIONAL", "TECHNICAL", "UNDEFINED"]),
-    triggerCondition: external_exports3.string().describe('Free-form condition (ej. "cliente externo solicita X")'),
-    priorityPostTrigger: external_exports3.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]),
-    effortEstimate: external_exports3.string().optional().describe('Free-form (ej. "3-6 weeks")'),
-    linkedSpecId: external_exports3.string().optional().describe("SPEC linkeada (req si STUB_SPEC, DEFERRED_PHASE, DEFERRED_DEPENDENCY)"),
-    linkedPhaseId: external_exports3.string().optional().describe("Phase linkeada (req si DEFERRED_PHASE)"),
-    parentPromiseId: external_exports3.string().optional().describe("Parent FuturePromise (jerarqu\xEDa)"),
-    blockedByIds: external_exports3.array(external_exports3.string()).optional().describe("IDs de promises bloqueantes (req si DEFERRED_DEPENDENCY)"),
-    origin: external_exports3.string().optional().describe("De d\xF3nde sali\xF3 (sesi\xF3n, comment, engram obs)"),
-    ownerId: external_exports3.string().optional().describe("User ID owner sugerido"),
-    tags: external_exports3.array(external_exports3.string()).optional(),
-    verification_tokens: verificationTokensField
-  },
-  async (params) => {
-    const ParamsSchema12 = external_exports3.object({
-      title: external_exports3.string(),
-      description: external_exports3.string().optional(),
-      promiseType: external_exports3.enum([
-        "STUB_SPEC",
-        "DEFERRED_PHASE",
-        "DEFERRED_DEPENDENCY",
-        "TECHNICAL_DEBT",
-        "IDEA"
-      ]),
-      triggerType: external_exports3.enum(["COMMERCIAL", "MILESTONE", "OPERATIONAL", "TECHNICAL", "UNDEFINED"]),
-      triggerCondition: external_exports3.string(),
-      priorityPostTrigger: external_exports3.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]),
-      effortEstimate: external_exports3.string().optional(),
-      linkedSpecId: external_exports3.string().optional(),
-      linkedPhaseId: external_exports3.string().optional(),
-      parentPromiseId: external_exports3.string().optional(),
-      blockedByIds: external_exports3.array(external_exports3.string()).optional(),
-      origin: external_exports3.string().optional(),
-      ownerId: external_exports3.string().optional(),
-      tags: external_exports3.array(external_exports3.string()).optional(),
-      verification_tokens: verificationTokensField
-    }).strict();
-    try {
-      const validated = ParamsSchema12.parse(params);
-      const { verification_tokens, description, ...rest } = validated;
-      const descriptionWithTokens = description !== void 0 ? prependTokensHeader(description, verification_tokens) : void 0;
-      const body = {
-        ...rest,
-        ...descriptionWithTokens !== void 0 ? { description: descriptionWithTokens } : {}
-      };
-      const promise2 = await apiClient.post("/future-promises", body);
-      return { content: [{ type: "text", text: JSON.stringify(promise2, null, 2) }] };
-    } catch (e) {
-      if (e instanceof external_exports3.ZodError) {
-        return {
-          isError: true,
-          content: [
-            { type: "text", text: `Schema validation failed: ${formatZodError(e)}` }
-          ]
-        };
-      }
-      throw e;
-    }
-  }
-);
-server.tool(
   "future_promise_get",
   "Get a FuturePromise by id with linked entities (spec, phase, blockedBy, owner).",
   {
@@ -36838,49 +37582,6 @@ server.tool(
     return formatRead(result);
   }
 );
-var futurePromiseUpdateInputSchema = external_exports3.object({
-  id: external_exports3.string(),
-  title: external_exports3.string().optional(),
-  description: external_exports3.string().optional(),
-  triggerType: external_exports3.enum(["COMMERCIAL", "MILESTONE", "OPERATIONAL", "TECHNICAL", "UNDEFINED"]).optional(),
-  triggerCondition: external_exports3.string().optional(),
-  effortEstimate: external_exports3.string().optional(),
-  priorityPostTrigger: external_exports3.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).optional(),
-  status: external_exports3.enum(["BACKLOG", "TRIGGER_MET", "PROMOTED", "ARCHIVED", "OBSOLETE"]).optional(),
-  linkedSpecId: external_exports3.string().optional(),
-  linkedPhaseId: external_exports3.string().optional(),
-  parentPromiseId: external_exports3.string().optional(),
-  promotedToSpecId: external_exports3.string().optional(),
-  origin: external_exports3.string().optional(),
-  ownerId: external_exports3.string().optional(),
-  tags: external_exports3.array(external_exports3.string()).optional()
-}).strict();
-server.tool(
-  "future_promise_update",
-  "Update a FuturePromise. Lifecycle transitions auto-set timestamps (invariantes 5-8). promotedToSpecId solo v\xE1lido en status=PROMOTED.",
-  {
-    id: external_exports3.string().describe("FuturePromise ID to update"),
-    title: external_exports3.string().optional(),
-    description: external_exports3.string().optional(),
-    triggerType: external_exports3.enum(["COMMERCIAL", "MILESTONE", "OPERATIONAL", "TECHNICAL", "UNDEFINED"]).optional(),
-    triggerCondition: external_exports3.string().optional(),
-    effortEstimate: external_exports3.string().optional(),
-    priorityPostTrigger: external_exports3.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).optional(),
-    status: external_exports3.enum(["BACKLOG", "TRIGGER_MET", "PROMOTED", "ARCHIVED", "OBSOLETE"]).optional().describe("Status transition. Timestamps triggeredAt/promotedAt/archivedAt se setean autom\xE1ticamente."),
-    linkedSpecId: external_exports3.string().optional(),
-    linkedPhaseId: external_exports3.string().optional(),
-    parentPromiseId: external_exports3.string().optional(),
-    promotedToSpecId: external_exports3.string().optional().describe("Solo v\xE1lido cuando status=PROMOTED. Si transici\xF3n a PROMOTED, este field es required."),
-    origin: external_exports3.string().optional(),
-    ownerId: external_exports3.string().optional(),
-    tags: external_exports3.array(external_exports3.string()).optional()
-  },
-  async (params) => strictApply(
-    futurePromiseUpdateInputSchema,
-    params,
-    ({ id, ...data }) => apiClient.patch(`/future-promises/${id}`, data)
-  )
-);
 server.tool(
   "future_promise_mark_triggered",
   "Mark a FuturePromise as TRIGGER_MET (BACKLOG -> TRIGGER_MET). Requires all blockedBy promises in PROMOTED. Auto-sets triggeredAt server-side.",
@@ -36892,62 +37593,6 @@ server.tool(
     params,
     ({ id }) => apiClient.post(`/future-promises/${id}/mark-triggered`, {})
   )
-);
-server.tool(
-  "future_promise_promote",
-  'Promote a FuturePromise from TRIGGER_MET to PROMOTED. Pass exactly one of promotedToSpecId (existing SPEC) or createNewSpec (scaffold new SPEC atomically). Auto-comment in promoted SPEC documents the origin. SPEC-0089 v0.3.1: verification_tokens validated (no markdown target \u2014 Option A: drop after validation). Strict-enforced post MCP_SERVER_RELEASE >= 0.2.0. Promotion is a semantic-weight transition \u2014 validation gate makes the agent think "why".',
-  {
-    id: external_exports3.string().describe("FuturePromise ID to promote"),
-    promotedToSpecId: external_exports3.string().optional().describe("ID of existing SPEC that takes over this promise. Mutually exclusive with createNewSpec."),
-    createNewSpec: external_exports3.object({
-      title: external_exports3.string(),
-      description: external_exports3.string(),
-      priority: external_exports3.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).optional(),
-      category: external_exports3.string().optional(),
-      tags: external_exports3.array(external_exports3.string()).optional(),
-      phases: external_exports3.array(external_exports3.object({
-        name: external_exports3.string(),
-        description: external_exports3.string().optional()
-      })).optional()
-    }).optional().describe("Scaffold for a new SPEC. Mutually exclusive with promotedToSpecId."),
-    verification_tokens: verificationTokensField
-  },
-  async (params) => {
-    const ParamsSchema12 = external_exports3.object({
-      id: external_exports3.string(),
-      promotedToSpecId: external_exports3.string().optional(),
-      createNewSpec: external_exports3.object({
-        title: external_exports3.string(),
-        description: external_exports3.string(),
-        priority: external_exports3.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).optional(),
-        category: external_exports3.string().optional(),
-        tags: external_exports3.array(external_exports3.string()).optional(),
-        phases: external_exports3.array(
-          external_exports3.object({
-            name: external_exports3.string(),
-            description: external_exports3.string().optional()
-          }).strict()
-        ).optional()
-      }).strict().optional(),
-      verification_tokens: verificationTokensField
-    }).strict();
-    try {
-      const validated = ParamsSchema12.parse(params);
-      const { id, verification_tokens, ...body } = validated;
-      const promise2 = await apiClient.post(`/future-promises/${id}/promote`, body);
-      return { content: [{ type: "text", text: JSON.stringify(promise2, null, 2) }] };
-    } catch (e) {
-      if (e instanceof external_exports3.ZodError) {
-        return {
-          isError: true,
-          content: [
-            { type: "text", text: `Schema validation failed: ${formatZodError(e)}` }
-          ]
-        };
-      }
-      throw e;
-    }
-  }
 );
 server.tool(
   "future_promise_archive",
@@ -36986,69 +37631,6 @@ server.tool(
     if (params.limit !== void 0) qs.set("limit", String(params.limit));
     const result = await apiClient.get(`/future-promises?${qs}`);
     return formatRead(result);
-  }
-);
-server.tool(
-  "decision_create",
-  "Create a Decision (architectural choice, tradeoff, design decision). Phase-scoped requires linkedPhaseId; spec-scoped must omit it. Taxonomy (workspaceId/projectId/moduleId/submoduleId) validated server-side per SPEC-0051 F1 two-phase rollout. SPEC-0089 v0.3.1: verification_tokens prepended to body as `## Verification` table. Strict-enforced once MCP_SERVER_RELEASE >= 0.2.0.",
-  {
-    title: external_exports3.string().min(1).max(200).describe("Short distilled title (<200 chars)."),
-    body: external_exports3.string().min(1).describe("Markdown body with full decision content (rationale, tradeoffs, etc.)."),
-    kind: external_exports3.enum(DECISION_KINDS).describe("Type of decision record."),
-    scope: external_exports3.enum(["SPEC_LEVEL", "PHASE_LEVEL"]).describe("SPEC_LEVEL \u2192 linkedPhaseId must be null. PHASE_LEVEL \u2192 linkedPhaseId required."),
-    linkedSpecId: external_exports3.string().optional().describe("Linked Spec id (optional)."),
-    linkedPhaseId: external_exports3.string().optional().describe("Linked SpecPhase id. Required if scope=PHASE_LEVEL, must be null if scope=SPEC_LEVEL."),
-    parentDecisionId: external_exports3.string().optional().describe("Parent decision id (REPLIES_TO threading)."),
-    workspaceId: external_exports3.string().optional().describe("Taxonomy workspace."),
-    projectId: external_exports3.string().optional().describe("Taxonomy project."),
-    moduleId: external_exports3.string().optional().describe("Taxonomy module."),
-    submoduleId: external_exports3.string().optional().describe("Taxonomy submodule (only if module has submodules)."),
-    isBlocking: external_exports3.boolean().optional().describe("Flag for consumers (pass-through, default false)."),
-    requiresHumanApproval: external_exports3.boolean().optional().describe("If true at create \u2192 lifecycle auto-set to BLOCKED until approved."),
-    tags: external_exports3.array(external_exports3.string()).optional().describe('Namespaced tags ("module:tesoreria", "tech:tls", etc.).'),
-    verification_tokens: verificationTokensField
-  },
-  async (params) => {
-    const ParamsSchema12 = external_exports3.object({
-      title: external_exports3.string().min(1).max(200),
-      body: external_exports3.string().min(1),
-      kind: external_exports3.enum(DECISION_KINDS),
-      scope: external_exports3.enum(["SPEC_LEVEL", "PHASE_LEVEL"]),
-      linkedSpecId: external_exports3.string().optional(),
-      linkedPhaseId: external_exports3.string().optional(),
-      parentDecisionId: external_exports3.string().optional(),
-      workspaceId: external_exports3.string().optional(),
-      projectId: external_exports3.string().optional(),
-      moduleId: external_exports3.string().optional(),
-      submoduleId: external_exports3.string().optional(),
-      isBlocking: external_exports3.boolean().optional(),
-      requiresHumanApproval: external_exports3.boolean().optional(),
-      tags: external_exports3.array(external_exports3.string()).optional(),
-      verification_tokens: verificationTokensField
-    }).strict();
-    try {
-      const validated = ParamsSchema12.parse(params);
-      const { verification_tokens, body, ...rest } = validated;
-      const bodyWithTokens = prependTokensHeader(body, verification_tokens);
-      const decision = await apiClient.post("/decisions", {
-        ...rest,
-        body: bodyWithTokens
-      });
-      return { content: [{ type: "text", text: JSON.stringify(decision, null, 2) }] };
-    } catch (e) {
-      if (e instanceof external_exports3.ZodError) {
-        return {
-          isError: true,
-          content: [
-            {
-              type: "text",
-              text: `Schema validation failed: ${formatZodError(e)}`
-            }
-          ]
-        };
-      }
-      throw e;
-    }
   }
 );
 server.tool(
@@ -37093,68 +37675,6 @@ server.tool(
     if (params.offset !== void 0) qs.set("offset", String(params.offset));
     const result = await apiClient.get(`/decisions?${qs}`);
     return formatRead(result);
-  }
-);
-server.tool(
-  "decision_update",
-  "Update a Decision. Editable fields only: title, body, kind, scope, linkedPhaseId, tags, isBlocking, requiresHumanApproval. For lifecycle transitions (supersede/retract/archive) use F2 dedicated tools when available \u2014 those fields are intentionally NOT exposed here. Backend re-validates invariantes 1+2 if scope or linkedPhaseId change. SPEC-0089 v0.3.1: verification_tokens required when `body` is provided (body update carries technical claim) post MCP_SERVER_RELEASE >= 0.2.0. Tokens prepended to `body` as `## Verification` table. Title-only / tags-only / kind-only updates skip.",
-  {
-    id: external_exports3.string().describe("Decision id to update."),
-    title: external_exports3.string().min(1).max(200).optional(),
-    body: external_exports3.string().min(1).optional(),
-    kind: external_exports3.enum(DECISION_KINDS).optional(),
-    scope: external_exports3.enum(["SPEC_LEVEL", "PHASE_LEVEL"]).optional(),
-    linkedPhaseId: external_exports3.string().nullable().optional().describe("Pass null to clear linkedPhaseId (e.g. when changing scope to SPEC_LEVEL)."),
-    tags: external_exports3.array(external_exports3.string()).optional(),
-    isBlocking: external_exports3.boolean().optional(),
-    requiresHumanApproval: external_exports3.boolean().optional(),
-    verification_tokens: tokensSchema.nullable().optional()
-  },
-  async (params) => {
-    const ParamsSchema12 = external_exports3.object({
-      id: external_exports3.string(),
-      title: external_exports3.string().min(1).max(200).optional(),
-      body: external_exports3.string().min(1).optional(),
-      kind: external_exports3.enum(DECISION_KINDS).optional(),
-      scope: external_exports3.enum(["SPEC_LEVEL", "PHASE_LEVEL"]).optional(),
-      linkedPhaseId: external_exports3.string().nullable().optional(),
-      tags: external_exports3.array(external_exports3.string()).optional(),
-      isBlocking: external_exports3.boolean().optional(),
-      requiresHumanApproval: external_exports3.boolean().optional(),
-      verification_tokens: tokensSchema.nullable().optional()
-    }).strict();
-    try {
-      const validated = ParamsSchema12.parse(params);
-      if (isStrictPeriod && validated.body !== void 0 && !validated.verification_tokens) {
-        return {
-          isError: true,
-          content: [
-            {
-              type: "text",
-              text: `Schema validation failed: verification_tokens object required when body is updated (body carries technical claim) post MCP_SERVER_RELEASE>=0.2.0 (skill staff-verification-protocol).`
-            }
-          ]
-        };
-      }
-      const { id, verification_tokens, body, ...rest } = validated;
-      const bodyWithTokens = body !== void 0 ? prependTokensHeader(body, verification_tokens) : void 0;
-      const data = {
-        ...rest,
-        ...bodyWithTokens !== void 0 ? { body: bodyWithTokens } : {}
-      };
-      const decision = await apiClient.patch(`/decisions/${id}`, data);
-      return { content: [{ type: "text", text: JSON.stringify(decision, null, 2) }] };
-    } catch (e) {
-      if (e instanceof external_exports3.ZodError) {
-        return {
-          isError: true,
-          content: [
-            { type: "text", text: `Schema validation failed: ${formatZodError(e)}` }
-          ]
-        };
-      }
-      throw e;
-    }
   }
 );
 server.tool(
@@ -37245,47 +37765,6 @@ server.tool(
     return formatRead(result);
   }
 );
-var meetingCreateInputSchema = external_exports3.object({
-  title: external_exports3.string().min(1).max(500),
-  source: external_exports3.enum(["GOOGLE_DRIVE", "ZOOM_DRIVE", "MANUAL_UPLOAD"]),
-  sourceFileId: external_exports3.string().min(1),
-  sourceFileUrl: external_exports3.string().optional(),
-  recordedAt: external_exports3.string(),
-  durationSeconds: external_exports3.number().int().min(0).optional(),
-  participants: external_exports3.array(external_exports3.string()).optional(),
-  rawTranscript: external_exports3.string().min(1),
-  summary: external_exports3.string().optional(),
-  workspaceId: external_exports3.string().optional(),
-  projectId: external_exports3.string().optional(),
-  moduleId: external_exports3.string().optional(),
-  submoduleId: external_exports3.string().optional(),
-  tags: external_exports3.array(external_exports3.string()).optional()
-}).strict();
-server.tool(
-  "meeting_create",
-  "Create a Meeting record (manual upload o pre-ingest stub para F2 Drive Ingestor). Idempotencia por (tenantId, sourceFileId) \u2014 backend rechaza 400 si ya existe Meeting para ese file. Taxonomy validation server-side (SPEC-0051 F1, propaga 400 nativo). Status default PENDING server-controlled.",
-  {
-    title: external_exports3.string().min(1).max(500).describe("T\xEDtulo del meeting (<500 chars)."),
-    source: external_exports3.enum(["GOOGLE_DRIVE", "ZOOM_DRIVE", "MANUAL_UPLOAD"]).describe("Origen del transcript."),
-    sourceFileId: external_exports3.string().min(1).describe("Identificador del file fuente (Drive file ID, Zoom recording ID). Idempotency key con tenantId."),
-    sourceFileUrl: external_exports3.string().optional().describe("URL p\xFAblica del file (Drive web URL)."),
-    recordedAt: external_exports3.string().describe("Fecha/hora ISO 8601 de cu\xE1ndo se realiz\xF3 el meeting."),
-    durationSeconds: external_exports3.number().int().min(0).optional().describe("Duraci\xF3n en segundos."),
-    participants: external_exports3.array(external_exports3.string()).optional().describe("Lista de participantes (emails o nombres)."),
-    rawTranscript: external_exports3.string().min(1).describe("Transcript raw (Meet auto-transcript .doc/.txt body). Obligatorio."),
-    summary: external_exports3.string().optional().describe("Resumen LLM-generated (F4) o manual."),
-    workspaceId: external_exports3.string().optional().describe("Taxonomy workspace (NULLABLE para Meeting)."),
-    projectId: external_exports3.string().optional().describe("Taxonomy project."),
-    moduleId: external_exports3.string().optional().describe("Taxonomy module."),
-    submoduleId: external_exports3.string().optional().describe("Taxonomy submodule (solo si module tiene submodules)."),
-    tags: external_exports3.array(external_exports3.string()).optional().describe('Namespaced tags ("client:acme", "module:tesoreria", etc.).')
-  },
-  async (params) => strictApply(
-    meetingCreateInputSchema,
-    params,
-    (data) => apiClient.post("/meetings", data)
-  )
-);
 server.tool(
   "meeting_get",
   "Get a Meeting by id with relations populadas (extractions + linkedSpecs/Tickets/Kb/Decisions, 1 nivel). includeTranscript (default false, omitido) \u2014 true incluye rawTranscript completo. 404 si pertenece a otro tenant.",
@@ -37326,34 +37805,6 @@ server.tool(
     const result = await apiClient.get(`/meetings?${qs}`);
     return formatRead(result);
   }
-);
-server.tool(
-  "meeting_update",
-  "Update a Meeting. Editable fields F1: title, summary, tags, taxonomy (workspaceId/projectId/moduleId/submoduleId). Taxonomy re-validated server-side si cambia. Status transitions intencionalmente NO expuestas en MCP surface F1 \u2014 vienen via F2 (Drive Ingestor) y F4 (LLM extraction) dedicated services + state-machine SPEC-0011 cuando est\xE9n disponibles.",
-  {
-    id: external_exports3.string().describe("Meeting id to update."),
-    title: external_exports3.string().min(1).max(500).optional(),
-    summary: external_exports3.string().optional(),
-    tags: external_exports3.array(external_exports3.string()).optional(),
-    workspaceId: external_exports3.string().optional(),
-    projectId: external_exports3.string().optional(),
-    moduleId: external_exports3.string().optional(),
-    submoduleId: external_exports3.string().optional()
-  },
-  async (params) => strictApply(
-    external_exports3.object({
-      id: external_exports3.string(),
-      title: external_exports3.string().min(1).max(500).optional(),
-      summary: external_exports3.string().optional(),
-      tags: external_exports3.array(external_exports3.string()).optional(),
-      workspaceId: external_exports3.string().optional(),
-      projectId: external_exports3.string().optional(),
-      moduleId: external_exports3.string().optional(),
-      submoduleId: external_exports3.string().optional()
-    }).strict(),
-    params,
-    ({ id, ...data }) => apiClient.patch(`/meetings/${id}`, data)
-  )
 );
 server.tool(
   "meeting_link_to_spec",
@@ -38101,71 +38552,6 @@ server.tool(
   }
 );
 server.tool(
-  "qa_spec_update",
-  "Update QaSpecification editable fields: title (\u226480 chars), content (markdown), validationSteps (array<{kind, description, expectedResult}>, length \u22651). Snapshot logic D-T2: si content/validationSteps cambian Y originalContent IS NULL, el service hace snapshot ANTES del UPDATE (preserva versi\xF3n LLM-original para diff). Status NO settable ac\xE1 \u2014 usar qa_spec_open_review/approve/reject. System users (workers) rechazados 403. SPEC-0089 v0.3.1: verification_tokens required when `content` or `validationSteps` is updated (QA spec change carries technical verdict) post MCP_SERVER_RELEASE >= 0.2.0. Tokens prepended to `content` when present.",
-  {
-    id: external_exports3.string().describe("QaSpecification id."),
-    title: external_exports3.string().max(80).optional(),
-    content: external_exports3.string().min(1).optional(),
-    validationSteps: external_exports3.array(
-      external_exports3.object({
-        kind: external_exports3.enum(["AUTOMATED", "MANUAL", "MIXED"]),
-        description: external_exports3.string().min(1),
-        expectedResult: external_exports3.string().min(1)
-      })
-    ).min(1).optional().describe("Si presente debe tener length \u22651."),
-    verification_tokens: tokensSchema.nullable().optional()
-  },
-  async (params) => {
-    const ParamsSchema12 = external_exports3.object({
-      id: external_exports3.string(),
-      title: external_exports3.string().max(80).optional(),
-      content: external_exports3.string().min(1).optional(),
-      validationSteps: external_exports3.array(
-        external_exports3.object({
-          kind: external_exports3.enum(["AUTOMATED", "MANUAL", "MIXED"]),
-          description: external_exports3.string().min(1),
-          expectedResult: external_exports3.string().min(1)
-        }).strict()
-      ).min(1).optional(),
-      verification_tokens: tokensSchema.nullable().optional()
-    }).strict();
-    try {
-      const validated = ParamsSchema12.parse(params);
-      const isVerdictUpdate = validated.content !== void 0 || validated.validationSteps !== void 0;
-      if (isStrictPeriod && isVerdictUpdate && !validated.verification_tokens) {
-        return {
-          isError: true,
-          content: [
-            {
-              type: "text",
-              text: `Schema validation failed: verification_tokens object required when content or validationSteps is updated (QA spec change is a technical verdict) post MCP_SERVER_RELEASE>=0.2.0 (skill staff-verification-protocol).`
-            }
-          ]
-        };
-      }
-      const { id, verification_tokens, content, ...rest } = validated;
-      const contentWithTokens = content !== void 0 ? prependTokensHeader(content, verification_tokens) : void 0;
-      const data = {
-        ...rest,
-        ...contentWithTokens !== void 0 ? { content: contentWithTokens } : {}
-      };
-      const qaSpec = await apiClient.patch(`/qa-specs/${id}`, data);
-      return { content: [{ type: "text", text: JSON.stringify(qaSpec, null, 2) }] };
-    } catch (e) {
-      if (e instanceof external_exports3.ZodError) {
-        return {
-          isError: true,
-          content: [
-            { type: "text", text: `Schema validation failed: ${formatZodError(e)}` }
-          ]
-        };
-      }
-      throw e;
-    }
-  }
-);
-server.tool(
   "qa_spec_open_review",
   'Lifecycle convenience tool: AUTO_GENERATED \u2192 UNDER_REVIEW. Senior architect abre la QaSpec para revisar (puede despu\xE9s editar via qa_spec_update y aprobar/rechazar via qa_spec_approve/reject). Audit row creada con action=EDIT + notes="opened review" (R1 enum extension RECHAZADO operador \u2014 reusar EDIT con notes). SPEC-0089 v0.3.1: verification_tokens validated (no markdown target \u2014 Option A). Strict-enforced post MCP_SERVER_RELEASE >= 0.2.0.',
   {
@@ -38173,12 +38559,12 @@ server.tool(
     verification_tokens: verificationTokensField
   },
   async (params) => {
-    const ParamsSchema12 = external_exports3.object({
+    const ParamsSchema17 = external_exports3.object({
       id: external_exports3.string(),
       verification_tokens: verificationTokensField
     }).strict();
     try {
-      const validated = ParamsSchema12.parse(params);
+      const validated = ParamsSchema17.parse(params);
       const qaSpec = await apiClient.post(`/qa-specs/${validated.id}/transitions`, {
         to: "UNDER_REVIEW"
       });
@@ -38204,52 +38590,14 @@ server.tool(
     verification_tokens: verificationTokensField
   },
   async (params) => {
-    const ParamsSchema12 = external_exports3.object({
+    const ParamsSchema17 = external_exports3.object({
       id: external_exports3.string(),
       verification_tokens: verificationTokensField
     }).strict();
     try {
-      const validated = ParamsSchema12.parse(params);
+      const validated = ParamsSchema17.parse(params);
       const qaSpec = await apiClient.post(`/qa-specs/${validated.id}/transitions`, {
         to: "APPROVED"
-      });
-      return { content: [{ type: "text", text: JSON.stringify(qaSpec, null, 2) }] };
-    } catch (e) {
-      if (e instanceof external_exports3.ZodError) {
-        return {
-          isError: true,
-          content: [
-            { type: "text", text: `Schema validation failed: ${formatZodError(e)}` }
-          ]
-        };
-      }
-      throw e;
-    }
-  }
-);
-server.tool(
-  "qa_spec_reject",
-  "Lifecycle convenience tool: UNDER_REVIEW \u2192 FAILED con raz\xF3n obligatoria (rejectReason min 10 / max 2000 chars, D-T5 service-layer enforcement). reviewedById + reviewedAt populated. Audit row con action=REJECT + diff incluye reason. SPEC-0089 v0.3.1: verification_tokens prepended to rejectReason as `## Verification` table. Strict-enforced post MCP_SERVER_RELEASE >= 0.2.0.",
-  {
-    id: external_exports3.string().describe("QaSpecification id en estado UNDER_REVIEW."),
-    rejectReason: external_exports3.string().min(10).max(2e3).describe("Raz\xF3n del reject. Required (min 10 / max 2000 chars)."),
-    verification_tokens: verificationTokensField
-  },
-  async (params) => {
-    const ParamsSchema12 = external_exports3.object({
-      id: external_exports3.string(),
-      rejectReason: external_exports3.string().min(10).max(2e3),
-      verification_tokens: verificationTokensField
-    }).strict();
-    try {
-      const validated = ParamsSchema12.parse(params);
-      const rejectReasonWithTokens = prependTokensHeader(
-        validated.rejectReason,
-        validated.verification_tokens
-      );
-      const qaSpec = await apiClient.post(`/qa-specs/${validated.id}/transitions`, {
-        to: "FAILED",
-        rejectReason: rejectReasonWithTokens
       });
       return { content: [{ type: "text", text: JSON.stringify(qaSpec, null, 2) }] };
     } catch (e) {
@@ -38367,7 +38715,7 @@ server.tool(
     verification_tokens: verificationTokensField
   },
   async (params) => {
-    const ParamsSchema12 = external_exports3.object({
+    const ParamsSchema17 = external_exports3.object({
       id: external_exports3.string(),
       qaRunStepId: external_exports3.string().optional(),
       severity: external_exports3.enum(["BLOCKER", "MAJOR", "MINOR", "INFO"]),
@@ -38377,7 +38725,7 @@ server.tool(
       verification_tokens: verificationTokensField
     }).strict();
     try {
-      const validated = ParamsSchema12.parse(params);
+      const validated = ParamsSchema17.parse(params);
       const { id, verification_tokens, summary, details, ...rest } = validated;
       const detailsWithTokens = details !== void 0 ? prependTokensHeader(details, verification_tokens) : void 0;
       const summaryWithTokens = details === void 0 ? prependTokensHeader(summary, verification_tokens) : summary;
@@ -38388,45 +38736,6 @@ server.tool(
       };
       const divergence = await apiClient.post(`/qa-runs/${id}/divergences`, body);
       return { content: [{ type: "text", text: JSON.stringify(divergence, null, 2) }] };
-    } catch (e) {
-      if (e instanceof external_exports3.ZodError) {
-        return {
-          isError: true,
-          content: [
-            { type: "text", text: `Schema validation failed: ${formatZodError(e)}` }
-          ]
-        };
-      }
-      throw e;
-    }
-  }
-);
-server.tool(
-  "qa_run_complete",
-  "Complete QaRun: RUNNING \u2192 COMPLETED/FAILED/ABORTED. Cross-module side-effect (D-D6): QaSpec.transition() IN_QA \u2192 COMPLETED/FAILED (ABORTED no toca QaSpec). State-machine valida transici\xF3n contra EntityStateMachine seed QA_RUN. durationMs calculado server-side desde startedAt. summary opcional Markdown \u2014 usado como rejectReason si status=FAILED en QaSpec auto-update. SPEC-0089 v0.3.1: verification_tokens prepended to summary as `## Verification` table when summary is provided. Strict-enforced post MCP_SERVER_RELEASE >= 0.2.0.",
-  {
-    id: external_exports3.string().describe("QaRun id."),
-    status: external_exports3.enum(["COMPLETED", "FAILED", "ABORTED"]).describe("Target final state. COMPLETED desde RUNNING only."),
-    summary: external_exports3.string().max(5e3).optional(),
-    verification_tokens: verificationTokensField
-  },
-  async (params) => {
-    const ParamsSchema12 = external_exports3.object({
-      id: external_exports3.string(),
-      status: external_exports3.enum(["COMPLETED", "FAILED", "ABORTED"]),
-      summary: external_exports3.string().max(5e3).optional(),
-      verification_tokens: verificationTokensField
-    }).strict();
-    try {
-      const validated = ParamsSchema12.parse(params);
-      const { id, verification_tokens, summary, ...rest } = validated;
-      const summaryWithTokens = summary !== void 0 ? prependTokensHeader(summary, verification_tokens) : void 0;
-      const body = {
-        ...rest,
-        ...summaryWithTokens !== void 0 ? { summary: summaryWithTokens } : {}
-      };
-      const qaRun = await apiClient.post(`/qa-runs/${id}/complete`, body);
-      return { content: [{ type: "text", text: JSON.stringify(qaRun, null, 2) }] };
     } catch (e) {
       if (e instanceof external_exports3.ZodError) {
         return {
@@ -38618,9 +38927,134 @@ server.tool(
     };
   }
 );
+function registerTypedTools(catalog) {
+  server.tool("spec_create", SPEC_CREATE_DESCRIPTION, specCreateShape(catalog), makeSpecCreateHandler(apiClient, catalog));
+  server.tool("spec_update", SPEC_UPDATE_DESCRIPTION, specUpdateShape(catalog), makeSpecUpdateHandler(apiClient, catalog));
+  server.tool(
+    "spec_set_taxonomy",
+    SPEC_SET_TAXONOMY_DESCRIPTION,
+    specSetTaxonomyShape(catalog),
+    makeSpecSetTaxonomyHandler(apiClient, catalog)
+  );
+  server.tool("spec_comment", SPEC_COMMENT_DESCRIPTION, specCommentShape(catalog), makeSpecCommentHandler(apiClient, catalog));
+  server.tool(
+    "spec_log_decision",
+    SPEC_LOG_DECISION_DESCRIPTION,
+    specLogDecisionShape(catalog),
+    makeSpecLogDecisionHandler(apiClient, catalog)
+  );
+  server.tool(
+    "spec_log_bugfix",
+    SPEC_LOG_BUGFIX_DESCRIPTION,
+    specLogBugfixShape(catalog),
+    makeSpecLogBugfixHandler(apiClient, catalog)
+  );
+  server.tool(
+    "spec_adversarial_reject",
+    SPEC_ADVERSARIAL_REJECT_DESCRIPTION,
+    specAdversarialRejectShape(catalog),
+    makeSpecAdversarialRejectHandler(apiClient, catalog)
+  );
+  server.tool("spec_add_phase", SPEC_ADD_PHASE_DESCRIPTION, specAddPhaseShape(catalog), makeSpecAddPhaseHandler(apiClient, catalog));
+  server.tool(
+    "spec_update_phase",
+    SPEC_UPDATE_PHASE_DESCRIPTION,
+    specUpdatePhaseShape(catalog),
+    makeSpecUpdatePhaseHandler(apiClient, catalog)
+  );
+  server.tool(
+    "spec_create_task",
+    SPEC_CREATE_TASK_DESCRIPTION,
+    specCreateTaskShape(catalog),
+    makeSpecCreateTaskHandler(apiClient, catalog)
+  );
+  server.tool(
+    "spec_set_documentation",
+    SPEC_SET_DOCUMENTATION_DESCRIPTION,
+    specSetDocumentationShape(catalog),
+    makeSpecSetDocumentationHandler(apiClient, catalog)
+  );
+  server.tool(
+    "spec_emit_resolution",
+    SPEC_EMIT_RESOLUTION_DESCRIPTION,
+    specEmitResolutionShape(catalog),
+    makeSpecEmitResolutionHandler(apiClient, catalog)
+  );
+  server.tool(
+    "spec_test_case_add",
+    SPEC_TEST_CASE_ADD_DESCRIPTION,
+    specTestCaseAddShape(catalog),
+    makeSpecTestCaseAddHandler(apiClient, catalog)
+  );
+  server.tool(
+    "spec_test_case_set_result",
+    SPEC_TEST_CASE_SET_RESULT_DESCRIPTION,
+    specTestCaseSetResultShape(catalog),
+    makeSpecTestCaseSetResultHandler(apiClient, catalog)
+  );
+  server.tool(
+    "spec_test_case_promote",
+    SPEC_TEST_CASE_PROMOTE_DESCRIPTION,
+    specTestCasePromoteShape(catalog),
+    makeSpecTestCasePromoteHandler(apiClient, catalog)
+  );
+  server.tool(
+    "spec_test_case_verify",
+    SPEC_TEST_CASE_VERIFY_DESCRIPTION,
+    specTestCaseVerifyShape(catalog),
+    makeSpecTestCaseVerifyHandler(apiClient, catalog)
+  );
+  server.tool(
+    "spec_test_case_supersede",
+    SPEC_TEST_CASE_SUPERSEDE_DESCRIPTION,
+    specTestCaseSupersedeShape(catalog),
+    makeSpecTestCaseSupersedeHandler(apiClient, catalog)
+  );
+  server.tool(
+    "spec_phase_set_canonical_contract",
+    SPEC_PHASE_SET_CANONICAL_CONTRACT_DESCRIPTION,
+    specPhaseSetCanonicalContractShape(catalog),
+    makeSpecPhaseSetCanonicalContractHandler(apiClient, catalog)
+  );
+  server.tool("phase_closeout", PHASE_CLOSEOUT_DESCRIPTION, phaseCloseoutShape(catalog), makePhaseCloseoutHandler(apiClient, catalog));
+  server.tool("spec_closeout", SPEC_CLOSEOUT_DESCRIPTION, specCloseoutShape(catalog), makeSpecCloseoutHandler(apiClient, catalog));
+  server.tool(
+    "future_promise_create",
+    FUTURE_PROMISE_CREATE_DESCRIPTION,
+    futurePromiseCreateShape(catalog),
+    makeFuturePromiseCreateHandler(apiClient, catalog)
+  );
+  server.tool(
+    "future_promise_update",
+    FUTURE_PROMISE_UPDATE_DESCRIPTION,
+    futurePromiseUpdateShape(catalog),
+    makeFuturePromiseUpdateHandler(apiClient, catalog)
+  );
+  server.tool(
+    "future_promise_promote",
+    FUTURE_PROMISE_PROMOTE_DESCRIPTION,
+    futurePromisePromoteShape(catalog),
+    makeFuturePromisePromoteHandler(apiClient, catalog)
+  );
+  server.tool("decision_create", DECISION_CREATE_DESCRIPTION, decisionCreateShape(catalog), makeDecisionCreateHandler(apiClient, catalog));
+  server.tool("decision_update", DECISION_UPDATE_DESCRIPTION, decisionUpdateShape(catalog), makeDecisionUpdateHandler(apiClient, catalog));
+  server.tool("meeting_create", MEETING_CREATE_DESCRIPTION, meetingCreateShape(catalog), makeMeetingCreateHandler(apiClient, catalog));
+  server.tool("meeting_update", MEETING_UPDATE_DESCRIPTION, meetingUpdateShape(catalog), makeMeetingUpdateHandler(apiClient, catalog));
+  server.tool("qa_spec_update", QA_SPEC_UPDATE_DESCRIPTION, qaSpecUpdateShape(catalog), makeQaSpecUpdateHandler(apiClient, catalog));
+  server.tool("qa_spec_reject", QA_SPEC_REJECT_DESCRIPTION, qaSpecRejectShape(catalog), makeQaSpecRejectHandler(apiClient, catalog));
+  server.tool("qa_run_complete", QA_RUN_COMPLETE_DESCRIPTION, qaRunCompleteShape(catalog), makeQaRunCompleteHandler(apiClient, catalog));
+  server.tool("update_task", UPDATE_TASK_DESCRIPTION, updateTaskShape(catalog), makeUpdateTaskHandler(apiClient, catalog));
+}
 async function main() {
   validateRoleEnv();
   installCaChannel();
+  const catalog = await TypedContentCatalog.load(apiClient);
+  if (!catalog.available) {
+    console.error(
+      `[mcp-server] typed-content: el catalogo de tipos no cargo (${catalog.loadError}). Las tools de contenido tipado anuncian un schema minimo; el backend valida igual. Reinici\xE1 el MCP con el Hub arriba.`
+    );
+  }
+  registerTypedTools(catalog);
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }
@@ -38630,9 +39064,7 @@ main().catch((err) => {
 });
 export {
   createKbArticleInputSchema,
-  futurePromiseUpdateInputSchema,
   ihubLinkPrInputSchema,
-  meetingCreateInputSchema,
   phaseReopenApproveInputSchema,
   phaseReopenRejectInputSchema,
   phaseReopenRequestInputSchema,

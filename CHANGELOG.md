@@ -2,6 +2,20 @@
 
 All notable changes to this project. Automatic — regenerado por `./scripts/changelog.sh`.
 
+## 0.2.32 - 2026-09-22 (re-vendorizado del MCP del Hub - cutover SPEC-0220)
+
+El bundle del MCP que corren los rooms (`vendor/integra-hub-mcp.mjs`) salia de `08dfddb` (2026-09-03)
+y no trae un solo typeKey de contenido tipado. Desde el cutover del 2026-09-20 el Hub exige el valor
+tipado, asi que toda escritura desde un room SPECOE rebotaba `422 TYPED_CONTENT_LEGACY_SHAPE`:
+`spec_create`, comments, decisiones, bugfixes, handoffs, documentos de cierre y TestCases. El room no
+corre el checkout, corre este bundle, asi que el cutover lo dejo sin canal de escritura.
+
+Rebuildeado con `npm run build:bundle` desde `42fe929f`. Reproducibilidad re-verificada como manda la
+nota del propio manifiesto: dos corridas seguidas dieron `8be6770e...` byte a byte identicas. La
+version del paquete sigue en 0.1.2 a proposito (TKT-0368): no la distingue `--version`, la distinguen
+el sourceSha y el packageSha256 del manifiesto.
+
+
 ## 0.2.31 - 2026-09-09 (SPEC-0223 P5 - re-vendorizado del plugin VSCode 0.3.0)
 
 SPEC-0223 P5 esta mergeada en `integra-hub-vscode` (PR #20, merge `43533dc`), pero **mergearla no la
