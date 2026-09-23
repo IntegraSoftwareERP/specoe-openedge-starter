@@ -2,6 +2,22 @@
 
 All notable changes to this project. Automatic — regenerado por `./scripts/changelog.sh`.
 
+## 0.2.33 - 2026-09-23 (re-vendorizado del plugin VSCode 0.4.0)
+
+El plugin vendorizado era el 0.3.0 (`fec7d97`). Despues de ese release entraron a `main` de
+`integra-hub-vscode` dos cambios que nunca se publicaron: el fix de TKT-0392 (el boton Actualizar
+fallaba con "Diverging branches" en cada release porque su propio chequeo cortaba la historia del
+room con `fetch --depth 1`) y la P6 de SPEC-0223 (senal auxiliar del terminal en las corridas
+automaticas). Re-vendorizado desde `f28d936` con `npm run release:vsix` (`publishable: true`).
+
+Este release es ademas el que le hace llegar la 0.2.32 a los devs: el chequeo del plugin compara la
+identidad del `.vsix`, no la del bundle del MCP, asi que una version que solo cambia el MCP le da
+"al dia". Con el `.vsix` nuevo el aviso salta, y el Actualizar trae de paso el MCP de la 0.2.32.
+La primera actualizacion la corre el plugin 0.3.0, que todavia tiene el defecto de TKT-0392: hace
+falta destrabarla a mano UNA vez por room (`git fetch --unshallow` + `git merge --ff-only
+origin/main`). Desde la 0.4.0 el boton se recupera solo.
+
+
 ## 0.2.32 - 2026-09-22 (re-vendorizado del MCP del Hub - cutover SPEC-0220)
 
 El bundle del MCP que corren los rooms (`vendor/integra-hub-mcp.mjs`) salia de `08dfddb` (2026-09-03)

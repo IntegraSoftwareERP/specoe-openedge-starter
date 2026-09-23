@@ -1,7 +1,7 @@
 {
   "starterVersion": "0.2.30",
   "schemaVersion": 2,
-  "generatedAt": "2026-09-22",
+  "generatedAt": "2026-09-23",
   "hashPolicy": {
     "note": "TKT-0252 — dos hashes con dos propositos distintos. Ninguno reemplaza al otro: el que verifica procedencia mira contentSha256, el que verifica la copia mira packageSha256.",
     "packageSha256": "sha256 del archivo tal cual quedo en vendor/. CHECKSUM DE COPIA: detecta corrupcion en el canal de publicacion (clon, normalizacion de fin de linea, transferencia). NO prueba procedencia cuando el artefacto es un contenedor: vsce escribe timestamps dentro del .vsix, asi que empaquetar el MISMO commit dos veces da dos valores distintos.",
@@ -28,12 +28,12 @@
       "name": "integra-hub-vscode",
       "file": "integra-hub-vscode.vsix",
       "artifactKind": "zip",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "sourceRepo": "IntegraSoftwareERP/integra-hub-vscode",
       "sourcePath": ".",
-      "sourceSha": "fec7d97fadb6201ae0d69da8f260feb0dd5efede",
-      "packageSha256": "94533525faaa02f215e3ad21989d5e595a885604b0155fb9b06ebe4e5d987f69",
-      "contentSha256": "5a7b669b086b6527b6970be8032d0322afd3ad02402292a2d10ea5a37938c59c",
+      "sourceSha": "f28d9362d6308431197d0e628217ac7dc094262e",
+      "packageSha256": "f024570d430789f1af94dcbef28ed4d2ff1384a9f137e7da0af63ab2f1d5f9cc",
+      "contentSha256": "2faa3f4c93e80eb1981b7ed6bb0d597a300b2fe735b0da9fe2e04623ea6eb832",
       "reproducibility": "vsce NO es determinista: dos corridas del commit dcb3790 dieron dos packageSha256 distintos (952d5b3f... y 4fdc4fd8...) con el mismo contenido — las dos dan el mismo contentSha256 797c0cd9... VERIFICADO 2026-08-10 empaquetando dos veces desde dcb3790, que reproduce lo medido el 2026-07-31 sobre 7c58a55 (tres corridas, tres packageSha256, un solo contentSha256)."
     },
     {
