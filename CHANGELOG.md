@@ -2,6 +2,20 @@
 
 All notable changes to this project. Automatic — regenerado por `./scripts/changelog.sh`.
 
+## 0.2.35 - 2026-09-24 (re-vendorizado del plugin VSCode 0.5.0)
+
+El plugin vendorizado era el 0.4.0 (`f28d936`). Re-vendorizado desde `c28e26f` con
+`npm run release:vsix` (`publishable: true`). Trae TKT-0448 (integra-hub-vscode #25): un solo
+Actualizar pone al día todos los rooms de la máquina, no sólo el primero; ve cualquier cambio del
+starter, no sólo un `.vsix` nuevo (también uno que sólo cambia el MCP); pasa la config propia de
+cada room a `project.config.local.yaml` y deja `project.config.yaml` y `.claude/settings.json`
+como los publica el starter; y corre `setup.sh --host-only` para la parte de máquina.
+
+La primera actualización la corre el plugin 0.4.0: hace el `pull --ff-only` del primer room y, si
+pasa, instala el 0.5.0, que en su primera activación termina los demás rooms sin preguntar. Un room
+con `.claude/settings.json` editado localmente corta en ese pull, porque la 0.2.34 modificó ese
+archivo: hace falta destrabar la actualización a mano UNA vez. Desde el 0.5.0 no se repite.
+
 ## 0.2.34 - 2026-09-24 (paridad de los hooks del Hub con integra-hub)
 
 El dev de un tenant no operaba igual que IntegraSuiteAI (TKT-0453). De los hooks que instala
@@ -35,6 +49,22 @@ decía: un hook viejo no se cae, sigue corriendo degradado.
 
 Para recibirlo, el dev actualiza la carpeta del room y corre `./setup.sh --host-only`: es lo que
 reinstala los hooks de máquina. El Actualizar del plugin no lo hace.
+
+**La config propia del room vive en `project.config.local.yaml`** (TKT-0448, #163; entrada agregada
+en la 0.2.35, #163 no la escribió). `project.config.yaml` y `.claude/settings.json` están
+versionados y el instalador los editaba —`specoe.role`/`tenant`/`work-repo`, `hub.api-url`
+(`--hub`) y las entradas de hooks de la sección 5.8 de `setup.sh`—, así que cada release que tocaba
+esos archivos hacía fallar el `pull --ff-only` del room.
+
+- `specoe-yaml.sh` suma `specoe_room_get`/`_get_list`/`_set`/`_set_list` y `specoe_yaml_has`: si
+  `project.config.local.yaml` declara la clave, gana (aunque esté vacía); si no, vale el
+  versionado. Un room sin migrar se lee igual que antes.
+- `specoe-add-room.sh` y `setup.sh` (login, `--hub`) escriben en el local; los lectores (`setup.sh`,
+  el launcher, `specoe-license-check.mjs`, `specoe-room-bootstrap.mjs`, `verify-room-serving.mjs`)
+  leen con esa precedencia.
+- `setup.sh` 5.8 deja de escribir `.claude/settings.json`: es del starter.
+- `specoe-launch-thinclient.sh` exporta `INTEGRA_HUB_API_URL` del room.
+- `.gitignore`: `project.config.local.yaml`.
 
 ## 0.2.33 - 2026-09-23 (re-vendorizado del plugin VSCode 0.4.0)
 
