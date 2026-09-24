@@ -78,9 +78,20 @@ export INTEGRA_SDD_IDENTITY_MODE="USER"
 # dos lados lo cambia solo, el room lee una ruta sola con basura adentro en vez de N rutas.
 if [ -f "$SCRIPT_DIR/specoe-yaml.sh" ]; then
   source "$SCRIPT_DIR/specoe-yaml.sh"
-  ROOM_TENANT="$(specoe_yaml_get "$SCRIPT_DIR/project.config.yaml" specoe.tenant)"
+  # TKT-0448 — con la precedencia del room: project.config.local.yaml gana sobre el versionado.
+  ROOM_TENANT="$(specoe_room_get "$SCRIPT_DIR" specoe.tenant)"
   if [ -n "$ROOM_TENANT" ]; then
     export INTEGRA_SDD_TENANT="$ROOM_TENANT"
+  fi
+  # TKT-0448 — la URL del Hub del room viaja tambien por la env. hub-channel.mjs (vendorizado desde
+  # integra-hub, no se edita aca) la resuelve env > project.config.yaml, y NO conoce el local: sin
+  # esta env, un room con Hub propio ya migrado leeria la URL de la plantilla. No se pisa una env
+  # que el dev ya exporto.
+  if [ -z "${INTEGRA_HUB_API_URL:-}" ]; then
+    ROOM_HUB_URL="$(specoe_room_get "$SCRIPT_DIR" hub.api-url)"
+    if [ -n "$ROOM_HUB_URL" ]; then
+      export INTEGRA_HUB_API_URL="$ROOM_HUB_URL"
+    fi
   fi
   ROOM_WORK_REPO=""
   while IFS= read -r _room_repo; do
@@ -90,7 +101,7 @@ if [ -f "$SCRIPT_DIR/specoe-yaml.sh" ]; then
     else
       ROOM_WORK_REPO="$_room_repo"
     fi
-  done < <(specoe_yaml_get_list "$SCRIPT_DIR/project.config.yaml" specoe.work-repo)
+  done < <(specoe_room_get_list "$SCRIPT_DIR" specoe.work-repo)
   if [ -n "$ROOM_WORK_REPO" ]; then
     export INTEGRA_SDD_WORK_REPO="$ROOM_WORK_REPO"
   fi

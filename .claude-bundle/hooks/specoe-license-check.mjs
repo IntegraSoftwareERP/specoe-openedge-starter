@@ -45,6 +45,9 @@ import {
   scopedName,
 } from './sdd-identity.mjs';
 import { loadKeyring, loadMachineId } from './vendor-deps.mjs';
+// TKT-0448 — la config del room se lee con la precedencia del room (project.config.local.yaml gana
+// sobre el versionado) y con el lector ANCLADO a la seccion, el mismo del hook de arranque.
+import { readRoomScalar, readRoomScalarWithSource } from './specoe-room-bootstrap.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -225,19 +228,14 @@ async function logLine(obj) {
 
 // ----- license key lookup -----
 
-// multi-rol — rol SDD de la carpeta, leido del project.config.yaml del cwd. Es el
-// account del keyring donde vive la licencia de ESTE rol (Entry specoe-license/<rol>).
-// Vacio/ausente => modo 1-rol legacy (account 'default'). Parser minimo: la unica clave
-// `role:` del yaml vive bajo `specoe:` y el rol es mayusculas.
+// multi-rol — rol SDD de la carpeta. Es el account del keyring donde vive la licencia de ESTE
+// rol (Entry specoe-license/<rol>). Vacio/ausente => modo 1-rol legacy (account 'default').
+// TKT-0448 — sale de project.config.local.yaml si lo declara, si no del versionado, por el lector
+// anclado a `specoe:`. Se sigue exigiendo la forma de un rol (mayusculas y guion bajo), igual que
+// la regex de antes.
 async function resolveRole() {
-  try {
-    const yaml = await fs.readFile(path.join(PROJECT_DIR, 'project.config.yaml'), 'utf8');
-    // Tolera comentario inline (el template trae `role: '' # DISCOVERY | ...`).
-    const m = yaml.match(/^\s*role:\s*['"]?([A-Z_]+)['"]?\s*(#.*)?$/m);
-    return m && m[1] ? m[1].trim() : null;
-  } catch {
-    return null;
-  }
+  const role = String((await readRoomScalar(PROJECT_DIR, 'specoe', 'role')) ?? '').trim();
+  return /^[A-Z_]+$/.test(role) ? role : null;
 }
 
 // SPEC-0187 P7 — el tenant de ESTA carpeta. Precedencia: la env del selector (que exportan los
@@ -250,14 +248,9 @@ async function resolveRole() {
 async function resolveTenant() {
   const fromEnv = resolveSessionTenant();
   if (fromEnv) return fromEnv;
-  try {
-    const yaml = await fs.readFile(path.join(PROJECT_DIR, 'project.config.yaml'), 'utf8');
-    const m = yaml.match(/^\s*tenant:\s*['"]?([^'"\n#]*?)['"]?\s*(#.*)?$/m);
-    const value = m && m[1] ? m[1].trim() : '';
-    return value || null;
-  } catch {
-    return null;
-  }
+  // TKT-0448 — con la precedencia del room: project.config.local.yaml gana sobre el versionado.
+  const value = String((await readRoomScalar(PROJECT_DIR, 'specoe', 'tenant')) ?? '').trim();
+  return value || null;
 }
 
 /**
@@ -351,7 +344,7 @@ async function openCaChannel() {
 }
 
 // fix #2 — resuelve la URL del Hub. Precedencia: env INTEGRA_HUB_URL >
-// hub.api-url de project.config.yaml (del project dir) > fallback interno.
+// hub.api-url del room (project.config.local.yaml > project.config.yaml, TKT-0448) > fallback interno.
 // Parser minimo sin dep: la unica clave `api-url:` del yaml vive bajo `hub:`.
 // Devuelve tambien QUE fuente gano: `fetch failed` no distinguia "no llegue al Hub" de
 // "le pegue al host equivocado", y reconstruirlo costo una corrida manual.
@@ -359,13 +352,9 @@ async function resolveHubUrl() {
   if (process.env.INTEGRA_HUB_URL) {
     return { url: process.env.INTEGRA_HUB_URL, source: 'env INTEGRA_HUB_URL' };
   }
-  try {
-    const yaml = await fs.readFile(path.join(PROJECT_DIR, 'project.config.yaml'), 'utf8');
-    const m = yaml.match(/^\s*api-url:\s*['"]?([^'"\n]+?)['"]?\s*$/m);
-    if (m && m[1]) return { url: m[1].trim(), source: 'project.config.yaml' };
-  } catch {
-    /* sin yaml en el project dir — cae al fallback */
-  }
+  // TKT-0448 — con la precedencia del room, y nombrando el archivo que de verdad gano.
+  const { value, source } = await readRoomScalarWithSource(PROJECT_DIR, 'hub', 'api-url');
+  if (value && value.trim()) return { url: value.trim(), source };
   return { url: FALLBACK_HUB_URL, source: 'fallback interno' };
 }
 
@@ -648,7 +637,7 @@ export function buildAction({ scenario, ca, hub }) {
     `El CA esta en el store y el Hub igual no contesto: verifica desde ESTA maquina que ` +
     `${hub?.url ?? 'la URL del Hub'} resuelva y este arriba (curl -I ${hub?.url ?? '<url>'}), ` +
     'y revisa proxy/firewall. Si la URL no es la que esperabas, corregi INTEGRA_HUB_URL o ' +
-    'hub.api-url en project.config.yaml.'
+    'hub.api-url en project.config.local.yaml.'
   );
 }
 

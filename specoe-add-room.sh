@@ -242,9 +242,12 @@ specoe_require_git_sparse
 if [ -d "$DEST_DIR/.git" ]; then
   log "Actualizando '$DEST_DIR'..."
 
-  # Divergencia ESPERADA y acotada (SPEC-0167 P3, ADR-004). El working tree de un room NUNCA
-  # esta limpio: el sed de mas abajo reescribe specoe.role sobre project.config.yaml —que es un
-  # archivo TRACKED— en toda instanciacion, y el dev ademas lo edita con los valores del cliente.
+  # Divergencia ESPERADA y acotada (SPEC-0167 P3, ADR-004). Hasta TKT-0448 el instalador escribia
+  # specoe.role sobre project.config.yaml —un archivo TRACKED— en toda instanciacion, y el dev lo
+  # editaba con los valores del cliente; desde TKT-0448 eso va a project.config.local.yaml, pero un
+  # room instalado antes sigue trayendo el versionado modificado, y por eso sigue en la lista.
+  # project.config.local.yaml tambien: lo cubre el .gitignore nuevo, pero un room con el .gitignore
+  # viejo lo ve untracked.
   # Lo que el instalador pone es eso y el .mcp.json que genera setup.sh (untracked hasta que la
   # carpeta reciba el .gitignore que lo cubre). CUALQUIER otra entrada es trabajo que el
   # instalador no puso: no se recorta ni se borra nada, se corta y se pide intervencion.
@@ -252,7 +255,7 @@ if [ -d "$DEST_DIR/.git" ]; then
   # cubre el .gitignore del starter — pero un room clonado ANTES de esa linea no la tiene todavia,
   # y ahi el archivo aparece como untracked y frenaria la segunda pasada. Se nombra aca tambien.
   divergence="$(git -C "$DEST_DIR" status --porcelain)"
-  unexpected="$(printf '%s\n' "$divergence" | grep -v -e '^$' -e '^ M project\.config\.yaml$' -e '^?? \.mcp\.json$' -e '^?? \.specoe-config-pending$' || true)"
+  unexpected="$(printf '%s\n' "$divergence" | grep -v -e '^$' -e '^ M project\.config\.yaml$' -e '^?? \.mcp\.json$' -e '^?? \.specoe-config-pending$' -e '^?? project\.config\.local\.yaml$' || true)"
   if [ -n "$unexpected" ]; then
     err "La carpeta '$DEST_DIR' tiene cambios locales que este instalador no puso:
 $unexpected
@@ -304,8 +307,18 @@ specoe_sparse_verify "$DEST_DIR"
 # qué rol abrir acá. NO la leen los hooks ni termina en el .mcp.json (SPEC-0187 P2):
 # el rol efectivo lo declara cada SESIÓN exportando INTEGRA_SDD_ROLE en su entorno,
 # y el Hub lo autoriza server-side (claim x-sdd-role sin firma, SPEC-0157).
-log "Fijando specoe.role='$ROLE' en project.config.yaml..."
-sed -i.bak "s|role: '[^']*'|role: '$ROLE'|" "$DEST_DIR/project.config.yaml" && rm -f "$DEST_DIR/project.config.yaml.bak"
+#
+# TKT-0448 — las tres declaraciones del room (rol, tenant, repo de trabajo) van a
+# project.config.local.yaml, NO al versionado: escribirlas en project.config.yaml dejaba el archivo
+# modificado y el `pull --ff-only` del release siguiente chocaba en todos los rooms. El helper se
+# carga ANTES del rol, que es la primera escritura (antes se cargaba recien para el tenant).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+[ -f "$SCRIPT_DIR/specoe-yaml.sh" ] || err "Falta $SCRIPT_DIR/specoe-yaml.sh: no puedo declarar el rol de la carpeta.
+  Actualizá el starter (git -C \"$SCRIPT_DIR\" pull --ff-only) y volvé a correr el MISMO comando."
+# shellcheck source=specoe-yaml.sh
+source "$SCRIPT_DIR/specoe-yaml.sh"
+log "Fijando specoe.role='$ROLE' en $SPECOE_ROOM_LOCAL_CONFIG..."
+specoe_room_set "$DEST_DIR" specoe.role "$ROLE"
 
 # SPEC-0187 P7 — specoe.tenant: la DECLARACION del tenant de este room. La consume el launcher
 # (la exporta como INTEGRA_SDD_TENANT) y el hook de licencia la lee del yaml cuando la carpeta
@@ -313,15 +326,9 @@ sed -i.bak "s|role: '[^']*'|role: '$ROLE'|" "$DEST_DIR/project.config.yaml" && r
 # instalado es anterior a la clave, y un sed de reemplazo no tendria sobre que actuar — la
 # corrida terminaria en verde con el tenant sin declarar, que es justo el estado que hace caer
 # la sesion al fallback legacy sin que nadie lo note.
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -n "$TENANT_SLUG" ]; then
-  [ -f "$SCRIPT_DIR/specoe-yaml.sh" ] || err "Falta $SCRIPT_DIR/specoe-yaml.sh: no puedo declarar specoe.tenant='$TENANT_SLUG' en la carpeta.
-  Corto en vez de seguir: el room quedaria con la licencia guardada bajo el tenant y sin declararlo, o sea sin poder encontrarla.
-  Actualizá el starter (git -C \"$SCRIPT_DIR\" pull --ff-only) y volvé a correr el MISMO comando."
-  # shellcheck source=specoe-yaml.sh
-  source "$SCRIPT_DIR/specoe-yaml.sh"
-  log "Fijando specoe.tenant='$TENANT_SLUG' en project.config.yaml..."
-  specoe_yaml_set "$DEST_DIR/project.config.yaml" specoe.tenant "$TENANT_SLUG"
+  log "Fijando specoe.tenant='$TENANT_SLUG' en $SPECOE_ROOM_LOCAL_CONFIG..."
+  specoe_room_set "$DEST_DIR" specoe.tenant "$TENANT_SLUG"
 fi
 
 # ----- 2b. TKT-0317 — specoe.work-repo: el repo donde vive el CODIGO de este room -----
@@ -342,24 +349,19 @@ fi
 # aviso de arranque. Con una sola ruta se escribe el escalar de siempre y con dos o mas una lista
 # en flow — lo decide specoe_yaml_set_list, y la suite del lector de yaml lo fija.
 if [ "${#WORK_REPOS[@]}" -gt 0 ]; then
-  [ -f "$SCRIPT_DIR/specoe-yaml.sh" ] || err "Falta $SCRIPT_DIR/specoe-yaml.sh: no puedo declarar specoe.work-repo en la carpeta.
-  Corto en vez de seguir: el room quedaria sin saber cual es su repo de trabajo, que es justo lo que este flag viene a declarar.
-  Actualizá el starter (git -C \"$SCRIPT_DIR\" pull --ff-only) y volvé a correr el MISMO comando."
-  # shellcheck source=specoe-yaml.sh
-  source "$SCRIPT_DIR/specoe-yaml.sh"
   # Barras normales: el valor lo consumen Git Bash, node y VSCode, y los tres entienden 'C:/x/y'.
   # Con backslashes, la ruta pasa por shells que los leen como escapes y llega partida.
   WORK_REPOS_NORM=()
   for _wr in "${WORK_REPOS[@]}"; do
     WORK_REPOS_NORM+=("${_wr//\\//}")
   done
-  log "Fijando specoe.work-repo (${#WORK_REPOS_NORM[@]}) en project.config.yaml: ${WORK_REPOS_NORM[*]}"
-  specoe_yaml_set_list "$DEST_DIR/project.config.yaml" specoe.work-repo "${WORK_REPOS_NORM[@]}"
+  log "Fijando specoe.work-repo (${#WORK_REPOS_NORM[@]}) en $SPECOE_ROOM_LOCAL_CONFIG: ${WORK_REPOS_NORM[*]}"
+  specoe_room_set_list "$DEST_DIR" specoe.work-repo "${WORK_REPOS_NORM[@]}"
   for _wr in "${WORK_REPOS_NORM[@]}"; do
     if [ ! -e "$_wr/.git" ]; then
       warn "  ⚠ '$_wr' no es un repo git ahora mismo (no tiene .git)."
       warn "    La declaracion queda escrita igual. Si todavia no clonaste el repo del codigo, clonalo ahi."
-      warn "    Si la ruta esta mal, corregí specoe.work-repo en '$DEST_DIR/project.config.yaml' — cada sesion del room lo vuelve a chequear y lo dice."
+      warn "    Si la ruta esta mal, corregí specoe.work-repo en '$DEST_DIR/$SPECOE_ROOM_LOCAL_CONFIG' — cada sesion del room lo vuelve a chequear y lo dice."
     fi
   done
 fi

@@ -38,6 +38,16 @@
             "shell": "bash"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node $HOME/.claude/hooks/infra-context-session-init.mjs",
+            "timeout": 5,
+            "shell": "bash"
+          }
+        ]
       }
     ],
     "PreToolUse": [
@@ -69,6 +79,17 @@
           {
             "type": "command",
             "command": "node $HOME/.claude/hooks/block-no-verify.mjs",
+            "timeout": 5,
+            "shell": "bash"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node $HOME/.claude/hooks/block-merge-and-default-branch-push.mjs",
             "timeout": 5,
             "shell": "bash"
           }

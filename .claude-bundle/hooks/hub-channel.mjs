@@ -75,20 +75,26 @@ async function importSibling(name) {
 
 // ----- URL del Hub -----
 
-// Misma precedencia que `specoe-license-check.mjs` (env > project.config.yaml), mas las dos
+// Misma precedencia que `specoe-license-check.mjs` (env > config del room), mas las dos
 // fuentes que existen del lado del equipo. No se inventa configuracion nueva: cada eslabon es
 // una fuente que YA usa alguien.
 //
 //   1. INTEGRA_HUB_URL      — la que documenta el gate de licencia del starter.
 //   2. INTEGRA_HUB_API_URL  — la que el .mcp.json del room le pasa al MCP.
-//   3. hub.api-url del project.config.yaml del cwd — la del room, cuando el hook corre adentro.
+//   3. hub.api-url del room del cwd — `project.config.local.yaml` si la DECLARA, si no
+//      `project.config.yaml` (TKT-0448, ver `pickRoomScalar` abajo).
 //   4. credentials.mjs      — la del modelo legacy (maquinas del equipo).
+//
+// Una clave declarada VACIA en el local gana igual (tapa la del versionado) y, como no es una URL,
+// se sigue al eslabon 4: es lo mismo que hace el hook de licencia, que en ese caso cae a su fallback.
 export async function resolveHubUrl(cwd) {
   const fromEnv = process.env.INTEGRA_HUB_URL || process.env.INTEGRA_HUB_API_URL;
   if (fromEnv) return { url: stripTrailingSlash(fromEnv), source: 'env' };
 
-  const fromYaml = await readHubUrlFromYaml(cwd);
-  if (fromYaml) return { url: stripTrailingSlash(fromYaml), source: 'project.config.yaml' };
+  const fromRoom = await readHubUrlFromRoom(cwd);
+  if (fromRoom.value && fromRoom.value.trim()) {
+    return { url: stripTrailingSlash(fromRoom.value), source: fromRoom.source };
+  }
 
   const creds = await importSibling('credentials.mjs');
   if (creds && typeof creds.getCredentials === 'function') {
@@ -106,17 +112,80 @@ function stripTrailingSlash(value) {
   return String(value).trim().replace(/\/+$/, '');
 }
 
-// Parser minimo, mismo criterio que el del hook de licencia: la unica clave `api-url:` del yaml
-// vive bajo `hub:`. No se agrega dep de YAML a un hook que corre con 5 segundos de presupuesto.
-async function readHubUrlFromYaml(cwd) {
-  if (!cwd) return null;
-  try {
-    const yaml = await readFile(path.join(cwd, 'project.config.yaml'), 'utf8');
-    const m = yaml.match(/^\s*api-url:\s*['"]?([^'"\n]+?)['"]?\s*$/m);
-    return m ? m[1] : null;
-  } catch {
-    return null;
+// ----- config del room (TKT-0448) -----
+//
+// La config PROPIA del room vive en `project.config.local.yaml` (no versionado), al lado del
+// `project.config.yaml` que publica el starter y con su misma forma. Escribir la config del room en
+// el versionado lo dejaba modificado y hacia chocar el `pull --ff-only` de cada release (decision
+// del Operador 2026-09-23, comment Hub cmueglfsr01gdny8myu61lp5d).
+//
+// La regla es la MISMA que la de los otros tres lectores —`specoe_room_get` (specoe-yaml.sh),
+// `pickRoomScalar` (specoe-room-bootstrap.mjs del starter) y `pickRoomScalar` del plugin—: si el
+// local DECLARA la clave gana, aunque este vacia; si no la declara, vale la del versionado. Los
+// cuatro tienen que coincidir o un room se leeria distinto segun quien pregunte.
+//
+// Es una COPIA y no un import de specoe-room-bootstrap.mjs a proposito: este archivo viaja a
+// `~/.claude/hooks/` de maquinas del equipo Integra que no tienen el bundle del starter (ver
+// `importSibling`), y la resolucion de la URL no puede depender de un vecino que puede faltar.
+// Sin dep de YAML: un hook con 5 segundos de presupuesto.
+
+export const ROOM_LOCAL_CONFIG = 'project.config.local.yaml';
+const ROOM_CONFIG = 'project.config.yaml';
+
+/**
+ * Escalar ANCLADO a su seccion. Byte a byte el criterio de `readSpecoeScalar` del starter: toda
+ * linea sin indentar abre un bloque top-level (y cierra el anterior); comillas simples o dobles
+ * hasta la de cierre; sin comillas, se corta el comentario. `undefined` = no declarada.
+ *
+ * Hasta TKT-0448 este hook leia `api-url:` con una regex GLOBAL sobre el archivo entero: andaba
+ * porque la unica `api-url:` del yaml vive bajo `hub:`, no por construccion, y con un comentario al
+ * final de la linea no leia nada.
+ */
+export function readSpecoeScalar(content, section, key) {
+  let inBlock = false;
+  for (const rawLine of String(content ?? '').split(/\r?\n/)) {
+    if (/^\S/.test(rawLine)) {
+      inBlock = rawLine.startsWith(`${section}:`);
+      continue;
+    }
+    if (!inBlock) continue;
+    const match = rawLine.match(new RegExp(`^\\s+${key}:\\s*(.*)$`));
+    if (!match) continue;
+    const value = match[1];
+    if (value.startsWith("'")) {
+      const end = value.indexOf("'", 1);
+      return end === -1 ? value.slice(1) : value.slice(1, end);
+    }
+    if (value.startsWith('"')) {
+      const end = value.indexOf('"', 1);
+      return end === -1 ? value.slice(1) : value.slice(1, end);
+    }
+    return value.replace(/\s*#.*$/, '').trim();
   }
+  return undefined;
+}
+
+/** La precedencia, pura. Devuelve de QUE archivo salio el valor, para que el diagnostico lo nombre. */
+export function pickRoomScalar(localContent, sharedContent, section, key) {
+  const fromLocal = localContent == null ? undefined : readSpecoeScalar(localContent, section, key);
+  if (fromLocal !== undefined) return { value: fromLocal, source: ROOM_LOCAL_CONFIG };
+  const fromShared =
+    sharedContent == null ? undefined : readSpecoeScalar(sharedContent, section, key);
+  if (fromShared !== undefined) return { value: fromShared, source: ROOM_CONFIG };
+  return { value: undefined, source: null };
+}
+
+async function readHubUrlFromRoom(cwd) {
+  if (!cwd) return { value: undefined, source: null };
+  const leer = async (nombre) => {
+    try {
+      return await readFile(path.join(cwd, nombre), 'utf8');
+    } catch {
+      return undefined;
+    }
+  };
+  const [local, shared] = await Promise.all([leer(ROOM_LOCAL_CONFIG), leer(ROOM_CONFIG)]);
+  return pickRoomScalar(local, shared, 'hub', 'api-url');
 }
 
 // ----- canal SDD -----
@@ -349,4 +418,4 @@ export function _resetChannelCache() {
 }
 
 /** Solo para la suite: la resolucion de URL sin efectos, para poder medirla sola. */
-export const _internals = { resolveHubUrl, readHubUrlFromYaml, buildSddHeaders, homedir: os.homedir };
+export const _internals = { resolveHubUrl, readHubUrlFromRoom, buildSddHeaders, homedir: os.homedir };

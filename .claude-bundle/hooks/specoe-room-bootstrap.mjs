@@ -37,8 +37,6 @@ import { loadMcpClient } from './vendor-deps.mjs';
 // ultimo pisaba a los demas y el bootstrap bajaba el contrato del rol equivocado.
 const PROJECT_DIR = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 const CACHE_FILE = path.join(PROJECT_DIR, '.claude', 'specoe-license-cache.json');
-// TKT-0317 — la declaracion del room vive en su yaml; el repo de trabajo tambien.
-const ROOM_CONFIG_FILE = path.join(PROJECT_DIR, 'project.config.yaml');
 // TKT-0225 — el .mcp.json de la MISMA carpeta: es de donde el cliente MCP de Claude Code
 // saca el token con el que corren los tools, y no tiene por que ser el del cache.
 const MCP_JSON_FILE = path.join(PROJECT_DIR, '.mcp.json');
@@ -155,11 +153,10 @@ export const WORK_REPO_PREFIX = 'SPECOE-ROOM-WORK-REPO';
  * Escalar del `project.config.yaml` ANCLADO a su seccion — mismo criterio que `specoe_yaml_get`
  * del bundle (specoe-yaml.sh) y que el lector del plugin.
  *
- * Los otros lectores de este archivo que hay en los hooks (resolveRole/resolveTenant de
- * specoe-license-check.mjs) son regex globales sobre el archivo entero: andan porque hoy no hay
- * una clave homonima antes, no por construccion. Ese es exactamente el defecto que cerro
- * TKT-0256. `repo` NO es un nombre libre en este yaml —`paths.repos` existe— asi que aca la
- * lectura va anclada y no se replica el criterio flojo.
+ * Hasta TKT-0448 los lectores de specoe-license-check.mjs (rol, tenant, URL del Hub) eran regex
+ * globales sobre el archivo entero, que andaban porque no habia una clave homonima antes y no por
+ * construccion (el defecto que cerro TKT-0256). Desde TKT-0448 leen por `readRoomScalar`, o sea
+ * por este lector anclado. `repo` NO es un nombre libre en este yaml —`paths.repos` existe—.
  */
 export function readSpecoeScalar(content, section, key) {
   let inBlock = false;
@@ -184,6 +181,51 @@ export function readSpecoeScalar(content, section, key) {
     return value.replace(/\s*#.*$/, '').trim();
   }
   return undefined;
+}
+
+/**
+ * TKT-0448 — la config PROPIA del room vive en `project.config.local.yaml`, al lado del versionado
+ * y con su misma forma. El versionado queda como lo publica el starter: escribirle las
+ * declaraciones del room lo dejaba modificado y hacia chocar el `pull --ff-only` de cada release.
+ * Decision del Operador 2026-09-23 (comment Hub cmueglfsr01gdny8myu61lp5d).
+ */
+export const ROOM_LOCAL_CONFIG = 'project.config.local.yaml';
+
+/**
+ * La precedencia, pura: si el local DECLARA la clave gana —aunque este vacia, que es una
+ * declaracion—; si no la declara, vale la del versionado. Un room sin migrar no tiene local y se
+ * lee exactamente como antes. Es la MISMA regla que `specoe_room_get` (specoe-yaml.sh) y que el
+ * lector del plugin: los tres lados tienen que coincidir o un room se leeria distinto segun quien
+ * pregunte.
+ *
+ * Devuelve tambien de QUE archivo salio el valor: los diagnosticos que dicen "la URL salio de X"
+ * tienen que nombrar el archivo que de verdad gano.
+ */
+export function pickRoomScalar(localContent, sharedContent, section, key) {
+  const fromLocal = localContent == null ? undefined : readSpecoeScalar(localContent, section, key);
+  if (fromLocal !== undefined) return { value: fromLocal, source: ROOM_LOCAL_CONFIG };
+  const fromShared =
+    sharedContent == null ? undefined : readSpecoeScalar(sharedContent, section, key);
+  if (fromShared !== undefined) return { value: fromShared, source: 'project.config.yaml' };
+  return { value: undefined, source: null };
+}
+
+/** Lee los dos archivos del room `roomDir` y aplica la precedencia. Nunca tira. */
+export async function readRoomScalarWithSource(roomDir, section, key) {
+  const leer = async (nombre) => {
+    try {
+      return await fs.readFile(path.join(roomDir, nombre), 'utf8');
+    } catch {
+      return undefined;
+    }
+  };
+  const [local, shared] = await Promise.all([leer(ROOM_LOCAL_CONFIG), leer('project.config.yaml')]);
+  return pickRoomScalar(local, shared, section, key);
+}
+
+/** Idem, sólo el valor (`undefined` si ninguno de los dos archivos declara la clave). */
+export async function readRoomScalar(roomDir, section, key) {
+  return (await readRoomScalarWithSource(roomDir, section, key)).value;
 }
 
 /**
@@ -269,8 +311,8 @@ async function resolveWorkRepos() {
       .filter(Boolean);
   }
   try {
-    const yaml = await fs.readFile(ROOM_CONFIG_FILE, 'utf8');
-    return readSpecoeWorkRepos(yaml);
+    // TKT-0448 — con la precedencia del room: project.config.local.yaml gana sobre el versionado.
+    return parseWorkRepoValue(await readRoomScalar(PROJECT_DIR, 'specoe', 'work-repo'));
   } catch {
     return [];
   }

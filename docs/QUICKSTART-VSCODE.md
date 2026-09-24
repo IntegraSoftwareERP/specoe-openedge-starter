@@ -143,8 +143,8 @@ Un script por room (corré solo los roles que uses):
 ./specoe-room-ccdev.sh       <TU-KEY-CCDEV>
 ```
 
-Cada uno crea su carpeta (`discovery-room`, `cc-dev-room`, …), fija el rol en el `project.config.yaml`
-y guarda la licencia en el keyring bajo `account=<ROL>`. Los roles quedan **aislados**: JWT cacheado
+Cada uno crea su carpeta (`discovery-room`, `cc-dev-room`, …), fija el rol en el `project.config.local.yaml`
+(la config propia de la carpeta, que no se versiona) y guarda la licencia en el keyring bajo `account=<ROL>`. Los roles quedan **aislados**: JWT cacheado
 por carpeta, licencia por rol — no se pisan. Abrís cada carpeta en su propia ventana de VSCode.
 
 > **El primer room de la máquina son DOS pasadas del mismo comando, y es a propósito.** El
@@ -155,8 +155,10 @@ por carpeta, licencia por rol — no se pisan. Abrís cada carpeta en su propia 
 > enumerando los campos que faltan editar. Que corte es lo esperado; la licencia **ya quedó
 > persistida**, no se pierde.
 >
-> **Editá ahí el `project.config.yaml`** — el de la carpeta del room recién creada — con los datos de
-> tu proyecto. Son tres campos: `project.name`, `project.vendor` y `paths.workspace-root`. Los tres
+> **Declaralos en el `project.config.local.yaml`** de la carpeta del room recién creada, con los datos de
+> tu proyecto. Ese archivo es la config PROPIA de la carpeta y gana sobre el `project.config.yaml`, que
+> es del starter y se actualiza solo: si editás el versionado, el plugin mueve tu cambio al local en el
+> próximo Actualizar (TKT-0448). Son tres campos: `project.name`, `project.vendor` y `paths.workspace-root`. Los tres
 > vienen con el valor `CAMBIAR-ME`, así que se ven de lejos (TKT-0307); la lista exacta de lo que
 > falta queda además en `.specoe-config-pending`, dentro de la carpeta del room. El rol y la URL del
 > Hub los escribe el instalador: esos no los toques.
@@ -180,7 +182,7 @@ por carpeta, licencia por rol — no se pisan. Abrís cada carpeta en su propia 
 > `--work-repo <ruta al checkout local>`. La carpeta del room **no** es ese repo: es un clon shallow
 > del starter, y las herramientas de aislamiento del agente operan sobre la carpeta abierta — sin la
 > declaración apuntan a ese clon y el `git worktree add` termina en el repo equivocado. Queda en
-> `specoe.work-repo` del `project.config.yaml` (se puede agregar a mano después) y cada sesión del
+> `specoe.work-repo` del `project.config.local.yaml` (se puede agregar a mano después) y cada sesión del
 > room lo verifica al arrancar: si falta, o si apunta a una ruta donde no hay repo, lo dice.
 
 ### Atajo all-in-one (1 rol / 1 máquina)
@@ -278,26 +280,26 @@ Los dueños posibles son cuatro:
 - **CLI_PRESERVADO** — equivalente por scripts, que se mantiene como camino soportado (máquinas
   solo-CLI, automatización).
 
-| #   | Paso                                                             | Frecuencia                      | Dueño                                                                                                       |
-| --- | ---------------------------------------------------------------- | ------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| 1   | Exportar `INTEGRA_SDD_ROLE` en cada arranque de room             | cada arranque                   | PLUGIN (env en `createTerminal`) + CLI_PRESERVADO (`specoe-launch-thinclient.sh`)                           |
-| 2   | Exportar `INTEGRA_SDD_IDENTITY_MODE` en cada arranque            | cada arranque                   | PLUGIN + CLI_PRESERVADO (launcher); además persiste en `.mcp.json` como config estable del room             |
-| 3   | Exportar el tenant de la sesión (`INTEGRA_ACT_AS_TENANT`)        | cada arranque                   | PLUGIN + CLI_PRESERVADO (launcher)                                                                          |
-| 4   | Clonar/actualizar la carpeta del room (starter sparse)           | una vez por room                | PLUGIN (orquesta `specoe-add-room.sh`) + CLI_PRESERVADO                                                     |
-| 5   | Fijar `specoe.role` (y `specoe.tenant`) en `project.config.yaml` | una vez por room                | PLUGIN (via script orquestado) + CLI_PRESERVADO                                                             |
-| 6   | Guardar la licencia del rol en el keyring                        | una vez por room                | PLUGIN (via script orquestado; claves tenant-scoped) + CLI_PRESERVADO                                       |
-| 7   | Generar el `.mcp.json` del room                                  | una vez por room                | PLUGIN (via `setup.sh --room-only` orquestado; sin rol hardcodeado) + CLI_PRESERVADO                        |
-| 8   | Escribir `integraHub.baseUrl` en settings del room               | una vez por room                | PLUGIN (via script orquestado) + CLI_PRESERVADO                                                             |
-| 9   | Registrar el room en el roster del plugin                        | una vez por room                | PLUGIN — **paso ELIMINADO por autodetección**: la carpeta es el roster                                      |
-| 10  | Verificar la identidad SDD / el room servido                     | una vez por room (y ante dudas) | PLUGIN (muestra el resultado) + CLI_PRESERVADO (`specoe-verify-room.sh`)                                    |
-| 11  | Preflight de prerequisitos (Node, Claude Code, Git)              | una vez por máquina             | INSTALADOR_MAQUINA                                                                                          |
-| 12  | Instalar el bundle de hooks + sus dependencias (vendorizadas)    | una vez por máquina             | INSTALADOR_MAQUINA                                                                                          |
-| 13  | Copiar el CA a `~/.claude` (canal de los hooks)                  | una vez por máquina             | INSTALADOR_MAQUINA                                                                                          |
-| 14  | Verificación del canal del host (ping + fetch con CA)            | una vez por máquina             | INSTALADOR_MAQUINA                                                                                          |
-| 15  | Login SDD (una credencial, una identidad)                        | una vez por máquina y tenant    | PLUGIN (login unificado, «Integra Hub: Login») + CLI_PRESERVADO (`setup.sh --login` / paso 7 del host-flow) |
-| 16  | Instalar el `.vsix` del plugin                                   | una vez por máquina             | INSTALADOR_MAQUINA — **bootstrap**: el plugin no puede instalarse a sí mismo                                |
-| 17  | Entradas en `hosts` (`hub`/`mcp.integra.local`)                  | una vez por máquina             | **IRREDUCIBLE_UAC** — dentro del instalador de máquina; **una extensión no escala privilegios**             |
-| 18  | CA de Caddy al trust del sistema                                 | una vez por máquina             | **IRREDUCIBLE_UAC** — ídem: escribir en el trust del sistema exige elevación, y una extensión no la tiene   |
+| #   | Paso                                                                   | Frecuencia                      | Dueño                                                                                                       |
+| --- | ---------------------------------------------------------------------- | ------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| 1   | Exportar `INTEGRA_SDD_ROLE` en cada arranque de room                   | cada arranque                   | PLUGIN (env en `createTerminal`) + CLI_PRESERVADO (`specoe-launch-thinclient.sh`)                           |
+| 2   | Exportar `INTEGRA_SDD_IDENTITY_MODE` en cada arranque                  | cada arranque                   | PLUGIN + CLI_PRESERVADO (launcher); además persiste en `.mcp.json` como config estable del room             |
+| 3   | Exportar el tenant de la sesión (`INTEGRA_ACT_AS_TENANT`)              | cada arranque                   | PLUGIN + CLI_PRESERVADO (launcher)                                                                          |
+| 4   | Clonar/actualizar la carpeta del room (starter sparse)                 | una vez por room                | PLUGIN (orquesta `specoe-add-room.sh`) + CLI_PRESERVADO                                                     |
+| 5   | Fijar `specoe.role` (y `specoe.tenant`) en `project.config.local.yaml` | una vez por room                | PLUGIN (via script orquestado) + CLI_PRESERVADO                                                             |
+| 6   | Guardar la licencia del rol en el keyring                              | una vez por room                | PLUGIN (via script orquestado; claves tenant-scoped) + CLI_PRESERVADO                                       |
+| 7   | Generar el `.mcp.json` del room                                        | una vez por room                | PLUGIN (via `setup.sh --room-only` orquestado; sin rol hardcodeado) + CLI_PRESERVADO                        |
+| 8   | Escribir `integraHub.baseUrl` en settings del room                     | una vez por room                | PLUGIN (via script orquestado) + CLI_PRESERVADO                                                             |
+| 9   | Registrar el room en el roster del plugin                              | una vez por room                | PLUGIN — **paso ELIMINADO por autodetección**: la carpeta es el roster                                      |
+| 10  | Verificar la identidad SDD / el room servido                           | una vez por room (y ante dudas) | PLUGIN (muestra el resultado) + CLI_PRESERVADO (`specoe-verify-room.sh`)                                    |
+| 11  | Preflight de prerequisitos (Node, Claude Code, Git)                    | una vez por máquina             | INSTALADOR_MAQUINA                                                                                          |
+| 12  | Instalar el bundle de hooks + sus dependencias (vendorizadas)          | una vez por máquina             | INSTALADOR_MAQUINA                                                                                          |
+| 13  | Copiar el CA a `~/.claude` (canal de los hooks)                        | una vez por máquina             | INSTALADOR_MAQUINA                                                                                          |
+| 14  | Verificación del canal del host (ping + fetch con CA)                  | una vez por máquina             | INSTALADOR_MAQUINA                                                                                          |
+| 15  | Login SDD (una credencial, una identidad)                              | una vez por máquina y tenant    | PLUGIN (login unificado, «Integra Hub: Login») + CLI_PRESERVADO (`setup.sh --login` / paso 7 del host-flow) |
+| 16  | Instalar el `.vsix` del plugin                                         | una vez por máquina             | INSTALADOR_MAQUINA — **bootstrap**: el plugin no puede instalarse a sí mismo                                |
+| 17  | Entradas en `hosts` (`hub`/`mcp.integra.local`)                        | una vez por máquina             | **IRREDUCIBLE_UAC** — dentro del instalador de máquina; **una extensión no escala privilegios**             |
+| 18  | CA de Caddy al trust del sistema                                       | una vez por máquina             | **IRREDUCIBLE_UAC** — ídem: escribir en el trust del sistema exige elevación, y una extensión no la tiene   |
 
 > Los pasos 1–10 son por-room o por-arranque y los cubre el plugin (con su equivalente CLI siempre
 > disponible). Los 11–18 son por-máquina y los cubre `specoe-setup-host.sh` en **una sola corrida**.

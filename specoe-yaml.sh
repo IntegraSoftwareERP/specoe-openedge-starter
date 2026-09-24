@@ -187,3 +187,86 @@ specoe_yaml_set_list() {
   done
   _specoe_yaml_write "$file" "$keypath" "[$joined]" ""
 }
+
+# ---------------------------------------------------------------------------
+# TKT-0448 — la config PROPIA del room vive en un archivo local no versionado
+# ---------------------------------------------------------------------------
+#
+# EL PROBLEMA. project.config.yaml esta versionado en el starter y el instalador lo editaba
+# (specoe.role/tenant/work-repo, hub.api-url, los campos del gate de TKT-0307). Cada release que
+# tocaba ese archivo hacia fallar el `git pull --ff-only` del room por "cambios locales", y adoptar
+# la version nueva pisaba los valores reales con las sentinelas de la plantilla.
+#
+# LA DECISION (Operador, 2026-09-23, comment Hub cmueglfsr01gdny8myu61lp5d). Lo que el room declara
+# para si vive en project.config.local.yaml, al lado del versionado y con su MISMA forma
+# (`seccion:` / `  clave: 'valor'`), asi los tres lectores anclados de este yaml (este archivo, el
+# del hook de arranque y el del plugin) lo leen sin un parser nuevo. El versionado queda como lo
+# publica el starter y el pull no vuelve a chocar.
+#
+# LA REGLA, igual en los tres lenguajes: si el local DECLARA la clave, gana —aunque este vacia, que
+# es una declaracion—; si no la declara, vale la del versionado. Un room que todavia no se migro no
+# tiene local, y se comporta exactamente como antes de este ticket.
+SPECOE_ROOM_LOCAL_CONFIG='project.config.local.yaml'
+
+# `specoe_yaml_has <archivo> <seccion>.<clave>` — exit 0 si la clave esta DECLARADA dentro de su
+# seccion (con cualquier valor, vacio incluido), 1 si no. Es lo que separa "el local la declara
+# vacia" de "el local no la menciona", que `specoe_yaml_get` no distingue.
+specoe_yaml_has() {
+  local file="$1" section="${2%%.*}" key="${2#*.}"
+  [ -f "$file" ] || return 1
+  awk -v sec="$section" -v key="$key" '
+    /^[^[:space:]]/ { inblock = (index($0, sec ":") == 1); next }
+    inblock && $0 ~ "^[[:space:]]+" key ":" { found = 1; exit }
+    END { exit found ? 0 : 1 }
+  ' "$file"
+}
+
+# El archivo de donde sale `<seccion>.<clave>` para el room `<dir>`: el local si la declara, el
+# versionado si no.
+_specoe_room_source() {
+  local dir="${1:-.}"
+  if specoe_yaml_has "$dir/$SPECOE_ROOM_LOCAL_CONFIG" "$2"; then
+    printf '%s\n' "$dir/$SPECOE_ROOM_LOCAL_CONFIG"
+  else
+    printf '%s\n' "$dir/project.config.yaml"
+  fi
+}
+
+# `specoe_room_get <dir> <seccion>.<clave>` — el valor que el room declara, con la precedencia de
+# arriba. Mismo contrato que `specoe_yaml_get` (vacio si nadie la declara).
+specoe_room_get() {
+  specoe_yaml_get "$(_specoe_room_source "$1" "$2")" "$2"
+}
+
+# `specoe_room_get_list <dir> <seccion>.<clave>` — idem, una ruta por linea (`specoe.work-repo`).
+specoe_room_get_list() {
+  specoe_yaml_get_list "$(_specoe_room_source "$1" "$2")" "$2"
+}
+
+# Crea el local si no existe, con un encabezado que dice que es y que NO se versiona.
+_specoe_room_local_ensure() {
+  local file="${1:-.}/$SPECOE_ROOM_LOCAL_CONFIG"
+  [ -f "$file" ] && return 0
+  cat >"$file" <<'LOCAL'
+# project.config.local.yaml — la configuracion PROPIA de esta carpeta (TKT-0448). NO se versiona.
+#
+# Lo que se declara aca gana sobre project.config.yaml, que queda tal como lo publica el starter
+# para que actualizar la carpeta no choque nunca con tus cambios. Lo escriben el instalador
+# (specoe-add-room.sh, setup.sh) y el plugin de VSCode al actualizar; si editas a mano, hacelo aca.
+LOCAL
+}
+
+# `specoe_room_set <dir> <seccion>.<clave> <valor>` — escribe en el LOCAL del room (lo crea si hace
+# falta). El versionado no se toca nunca: tocarlo es lo que hacia chocar el pull.
+specoe_room_set() {
+  _specoe_room_local_ensure "$1"
+  specoe_yaml_set "${1:-.}/$SPECOE_ROOM_LOCAL_CONFIG" "$2" "$3"
+}
+
+# `specoe_room_set_list <dir> <seccion>.<clave> <ruta>...` — idem para N valores.
+specoe_room_set_list() {
+  local dir="$1"
+  shift
+  _specoe_room_local_ensure "$dir"
+  specoe_yaml_set_list "${dir:-.}/$SPECOE_ROOM_LOCAL_CONFIG" "$@"
+}

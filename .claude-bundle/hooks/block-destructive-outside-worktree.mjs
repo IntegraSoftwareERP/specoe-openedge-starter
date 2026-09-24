@@ -185,6 +185,29 @@ function expandHome(p) {
   return p;
 }
 
+// TKT-0429 — Git Bash es el shell de todos los rooms y escribe los paths absolutos
+// a la manera de msys: `/c/Integra/...`. En Windows, Node no los entiende como
+// unidad: `path.resolve('/c/Integra')` devuelve `C:\c\Integra`, un path que NO
+// existe, y realpathNearestExisting sube hasta el primer ancestro que sí exista,
+// que es `C:\`. Resultado: TODO operando `/c/...` resolvia a la raiz del disco y
+// el hook bloqueaba operaciones legitimas DENTRO del worktree con un realpath
+// (`C:\`) que no dice nada — y eso empuja a buscarle la vuelta al hook.
+//
+// Falla hacia el lado seguro (bloquea de mas), pero un diente que muerde por el
+// motivo equivocado se desarma solo. `cygpath -w` hace esta misma conversion.
+function fromMsysPath(p) {
+  if (process.platform !== 'win32') return p;
+  const m = /^\/([A-Za-z])(\/|$)/.exec(p);
+  // `/c` -> `C:/` y `/c/Integra` -> `C:/Integra`. `/tmp/x` no matchea: exige UNA
+  // letra seguida de `/` o de fin de string.
+  return m ? `${m[1].toUpperCase()}:${p.slice(2) || '/'}` : p;
+}
+
+// El operando tal como lo escribe el usuario, llevado a la forma que Node resuelve.
+function toNativePath(p) {
+  return fromMsysPath(expandHome(p));
+}
+
 // realpath del ancestro EXISTENTE mas cercano (sube dirname hasta uno que exista).
 // Resuelve junctions/symlinks Windows. Nunca tira por ENOENT.
 function realpathNearestExisting(absPath) {
@@ -209,7 +232,7 @@ function realpathNearestExisting(absPath) {
 // realpath-de-ancestro-existente. Devuelve null si no se puede determinar.
 function resolveOperand(operand, vcwd) {
   if (vcwd === null) return null;
-  const expanded = expandHome(operand);
+  const expanded = toNativePath(operand);
   const abs = path.isAbsolute(expanded) ? expanded : path.resolve(vcwd, expanded);
   return realpathNearestExisting(abs);
 }
@@ -450,6 +473,68 @@ function rmOperands(argv) {
   return ops;
 }
 
+// ---------------------------------------------------------------------------
+// TKT-0429 — prefijos del shell delante del comando
+// ---------------------------------------------------------------------------
+//
+// El comando se parte en segmentos por `&& || ; | \n` y se gatea el segmento cuyo
+// PRIMER token es el destructivo. En `for d in x; do rm -rf X; done` el segmento
+// queda `do rm -rf X`: el primer token es `do`, y el `rm` nunca se miraba. Fail-OPEN.
+// Lo mismo con `then`, y con cualquier prefijo que no fuera una asignacion `VAR=val`.
+//
+// No es teorico: el 2026-09-19 paso asi un `rm -rf` real (legitimo y ordenado por el
+// Operador, pero el hook no lo evaluo). Con el mismo cwd, el `rm -rf` directo sobre
+// otros destinos fuera del worktree fue bloqueado.
+//
+// Se pelan genericamente, antes de mirar `cmd0`, para que el arreglo cubra tambien a
+// `git clean` y `git stash` y no solo a `rm`.
+
+// Prefijos que no llevan flags propios: palabras reservadas del shell y envoltorios pelados.
+const BARE_PREFIXES = new Set(['do', 'then', 'else', 'elif', '!', '{', 'time', 'exec', 'builtin']);
+
+// Prefijos que SI llevan flags propios antes del comando real (`sudo -u x rm`, `xargs -0 rm`).
+const FLAGGED_PREFIXES = new Set(['command', 'nohup', 'xargs', 'sudo', 'env']);
+
+// Pela asignaciones de env y prefijos conocidos; devuelve el argv del comando real.
+function stripShellPrefixes(tokens) {
+  let k = 0;
+  while (k < tokens.length) {
+    const t = tokens[k];
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(t)) {
+      k++;
+      continue;
+    }
+    if (BARE_PREFIXES.has(t)) {
+      k++;
+      continue;
+    }
+    if (FLAGGED_PREFIXES.has(t)) {
+      k++;
+      while (k < tokens.length && tokens[k].startsWith('-')) k++;
+      continue;
+    }
+    break;
+  }
+  return tokens.slice(k);
+}
+
+// ¿Queda un destructivo DETRAS de algo que no supimos pelar? Devuelve su nombre, o null.
+//
+// Se exige la forma completa —`rm` con flag recursivo, `git` con stash/clean— y no la
+// mera presencia del token: si no, `echo "ojo con rm -rf"` bloquearia. El precio de
+// afinarlo es que un destructivo con una forma que no reconocemos escondido detras de un
+// prefijo que TAMPOCO reconocemos sigue pasando; el piso es el mismo de hoy, no peor.
+function hiddenDestructive(argv) {
+  for (let i = 1; i < argv.length; i++) {
+    if (argv[i] === 'rm' && rmIsRecursive(argv.slice(i))) return 'rm -r';
+    if (argv[i] === 'git') {
+      const sub = argv.slice(i + 1).find((t) => !t.startsWith('-'));
+      if (sub === 'stash' || sub === 'clean') return `git ${sub}`;
+    }
+  }
+  return null;
+}
+
 function gitCleanOperands(rest) {
   // rest = tokens despues de 'clean'
   const ops = [];
@@ -563,12 +648,23 @@ function main() {
       const tokens = tokenize(seg);
       if (tokens.length === 0) continue;
 
-      // saltear asignaciones de env al inicio (VAR=val)
-      let k = 0;
-      while (k < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[k])) k++;
-      const argv = tokens.slice(k);
+      // TKT-0429 — pela asignaciones de env Y palabras reservadas del shell (`do`,
+      // `then`, ...) antes de mirar el primer token. Sin esto, `do rm -rf X` no se
+      // evaluaba.
+      const argv = stripShellPrefixes(tokens);
       if (argv.length === 0) continue;
       const cmd0 = argv[0];
+
+      // TKT-0429 — falla-CERRADO: quedo un destructivo detras de un prefijo que no
+      // supimos interpretar. Mismo criterio que el `$(` de mas arriba: lo que no se
+      // parsea con confianza no pasa.
+      const oculto = hiddenDestructive(argv);
+      if (oculto) {
+        blockFailClosed(
+          `prefijo no interpretable ("${cmd0}") delante de un comando destructivo (${oculto})`,
+          cmd,
+        );
+      }
 
       // cd: actualiza cwd virtual
       if (cmd0 === 'cd' || cmd0 === 'pushd') {
@@ -577,7 +673,7 @@ function main() {
           vcwd = null; // home / desconocido -> destructivo posterior falla-cerrado
           continue;
         }
-        const expanded = expandHome(target);
+        const expanded = toNativePath(target);
         const next = path.isAbsolute(expanded)
           ? expanded
           : vcwd === null

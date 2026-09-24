@@ -128,9 +128,10 @@ fi
 # BASE: lo que TODA carpeta necesita, sea un room SDD o un proyecto ERP.
 # `paths.workspace-root` entra porque es un path absoluto al workspace del cliente: dejarlo en
 # el valor del template apunta a una ruta que no existe en la maquina.
-# Deliberadamente AFUERA: `specoe.role` y `hub.api-url`, porque los reescribe el propio
-# instalador antes de que el check corra (el sed de specoe-add-room.sh y el de --hub de mas
-# abajo). Compararlos daria falso positivo sobre una instalacion sana.
+# Deliberadamente AFUERA: `specoe.role` y `hub.api-url`, porque los escribe el propio
+# instalador antes de que el check corra (specoe-add-room.sh y el --hub de mas abajo, los dos en
+# project.config.local.yaml desde TKT-0448). Compararlos daria falso positivo sobre una
+# instalacion sana.
 SPECOE_CONFIG_FIELDS_BASE="project.name project.vendor paths.workspace-root"
 
 # ERP: los DOS campos del backend OpenEdge. Estaban en la lista unica hasta TKT-0309, asi que
@@ -154,7 +155,8 @@ SPECOE_CONFIG_FIELDS_ERP="database.logical-name pasoe.instance-name"
 # sale vacio y se exige el universo completo. Un starter viejo no relaja el check por accidente.
 specoe_config_fields() {
   local role
-  role="$(specoe_yaml_get "${1:-project.config.yaml}" specoe.role)"
+  # TKT-0448 — el rol lo declara el room: project.config.local.yaml gana sobre el versionado.
+  role="$(specoe_room_get "$(dirname "${1:-project.config.yaml}")" specoe.role)"
   if [ -n "$role" ]; then
     echo "$SPECOE_CONFIG_FIELDS_BASE"
   else
@@ -384,6 +386,14 @@ else
   # repartirlo antes habria distribuido el hueco junto con el freno.
   install_force "$BUNDLE_DIR/hooks/block-destructive-outside-worktree.mjs" "$CLAUDE_HOME/hooks/block-destructive-outside-worktree.mjs"
   install_force "$BUNDLE_DIR/hooks/block-no-verify.mjs"           "$CLAUDE_HOME/hooks/block-no-verify.mjs"
+  # TKT-0453 — el tercero de la familia, con el mismo agujero: aborta el merge de un PR y el push
+  # a la rama por defecto (SPEC-0223 P7). Sin el, el agente del dev podia mergear su propio PR.
+  install_force "$BUNDLE_DIR/hooks/block-merge-and-default-branch-push.mjs" "$CLAUDE_HOME/hooks/block-merge-and-default-branch-push.mjs"
+
+  # TKT-0453 — el INFRA_CONTEXT del tenant al arrancar (TKT-0389): como se opera cada proyecto, para
+  # que el agente no improvise un deploy. Autentica por `hub-channel.mjs`, instalado arriba; sin
+  # canal no sirve nada y no bloquea. Viaja SIN adaptar: es el mismo archivo que en integra-hub.
+  install_force "$BUNDLE_DIR/hooks/infra-context-session-init.mjs" "$CLAUDE_HOME/hooks/infra-context-session-init.mjs"
 
   # TKT-0362 — el auditor de los tres de arriba. Un hook puede no correr por tres motivos que
   # desde adentro de una sesion se ven identicos: no pasa nada. Este los distingue al arrancar.
@@ -624,11 +634,13 @@ log "  Login OK — tenant '$TENANT_SLUG'. UserSddToken + machineId guardados en
 # la sesion arrancaria con el aviso de "no declara tenant" el primer dia. No se pisa un tenant
 # ya declarado: si la carpeta dice otro, esa declaracion es del operador y el aviso del arranque
 # es la respuesta correcta, no una reescritura silenciosa.
+# TKT-0448 — se lee y se escribe con la precedencia del room, y la escritura va a
+# project.config.local.yaml: el versionado no se toca, o el proximo pull de la carpeta choca.
 if [ -n "$TENANT_SLUG" ] && [ -f project.config.yaml ]; then
-  ROOM_TENANT_ACTUAL="$(specoe_yaml_get project.config.yaml specoe.tenant)"
+  ROOM_TENANT_ACTUAL="$(specoe_room_get . specoe.tenant)"
   if [ -z "$ROOM_TENANT_ACTUAL" ]; then
-    specoe_yaml_set project.config.yaml specoe.tenant "$TENANT_SLUG"
-    log "  specoe.tenant='$TENANT_SLUG' declarado en project.config.yaml (lo exporta el launcher como INTEGRA_SDD_TENANT)."
+    specoe_room_set . specoe.tenant "$TENANT_SLUG"
+    log "  specoe.tenant='$TENANT_SLUG' declarado en $SPECOE_ROOM_LOCAL_CONFIG (lo exporta el launcher como INTEGRA_SDD_TENANT)."
   elif [ "$ROOM_TENANT_ACTUAL" != "$TENANT_SLUG" ]; then
     warn "  Esta carpeta declara specoe.tenant='$ROOM_TENANT_ACTUAL' y el login fue del tenant '$TENANT_SLUG'."
     warn "    → No lo piso: si la carpeta es del otro tenant, hacé el login con el usuario de ESE tenant; si la declaracion esta mal, corregila a mano."
@@ -675,15 +687,10 @@ if [ "$DO_ROOM" = 1 ]; then
 # ----- 2. Override hub.api-url si se paso --hub -----
 
 if [ -n "$HUB_URL" ]; then
-  log "Actualizando hub.api-url a $HUB_URL en project.config.yaml..."
-  # Reemplaza la linea 'api-url: ...' dentro de la seccion hub
-  # Soporta tanto "api-url:" como "  api-url:" indentado
-  if grep -qE "^\s*api-url:" project.config.yaml; then
-    sed -i.bak -E "s|^(\s*)api-url:.*|\1api-url: \"$HUB_URL\"|" project.config.yaml
-    rm -f project.config.yaml.bak
-  else
-    warn "No se encontro 'api-url:' en project.config.yaml. Agregar manualmente bajo 'hub:'."
-  fi
+  # TKT-0448 — la URL del Hub de ESTA carpeta es config propia del room: va al local. Antes era un
+  # sed sobre el versionado, que dejaba el archivo modificado y hacia chocar el pull siguiente.
+  log "Declarando hub.api-url=$HUB_URL en $SPECOE_ROOM_LOCAL_CONFIG..."
+  specoe_room_set . hub.api-url "$HUB_URL"
 fi
 
 # ----- 3. Validar config -----
@@ -718,7 +725,10 @@ if ! ( git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
 fi
 
 SPECOE_CONFIG_FIELDS="$(specoe_config_fields project.config.yaml)"
-CONFIG_ROOM_ROLE="$(specoe_yaml_get project.config.yaml specoe.role)"
+# TKT-0448 — todos los valores del gate con la precedencia del room: lo que declara
+# project.config.local.yaml gana; el versionado sigue siendo la REFERENCIA de plantilla contra la
+# que se compara (CONFIG_TEMPLATE_REF, git show HEAD).
+CONFIG_ROOM_ROLE="$(specoe_room_get . specoe.role)"
 if [ -n "$CONFIG_ROOM_ROLE" ]; then
   log "  Carpeta declarada como room SDD (specoe.role='$CONFIG_ROOM_ROLE'): el check NO exige los campos del backend OpenEdge ($SPECOE_CONFIG_FIELDS_ERP) — no los lee nada del flujo SDD (TKT-0309)."
 else
@@ -728,7 +738,7 @@ fi
 CONFIG_EMPTY_FIELDS=""
 CONFIG_TEMPLATE_FIELDS=""
 for field in $SPECOE_CONFIG_FIELDS; do
-  value="$(specoe_yaml_get project.config.yaml "$field")"
+  value="$(specoe_room_get . "$field")"
   if [ -z "$value" ] || [ "$value" = '""' ]; then
     CONFIG_EMPTY_FIELDS="$CONFIG_EMPTY_FIELDS $field"
     continue
@@ -758,21 +768,31 @@ if [ -n "$CONFIG_EMPTY_FIELDS" ] || [ -n "$CONFIG_TEMPLATE_FIELDS" ]; then
   for field in $CONFIG_EMPTY_FIELDS $CONFIG_TEMPLATE_FIELDS; do
     echo "$field" >>"$CONFIG_PENDING_FILE"
   done
-  warn "project.config.yaml todavia no describe a este cliente:"
+  warn "La config de esta carpeta todavia no describe a este cliente:"
   for field in $CONFIG_EMPTY_FIELDS; do
     warn "  - $field — VACIO"
   done
   for field in $CONFIG_TEMPLATE_FIELDS; do
-    warn "  - $field — sigue en el valor del template ('$(specoe_yaml_get project.config.yaml "$field")')"
+    warn "  - $field — sigue en el valor del template ('$(specoe_room_get . "$field")')"
   done
   warn ""
   warn "  El corte es a proposito: con estos valores el resto del flujo falla mas adelante y lejos de la causa."
-  warn "  Editá los campos de arriba en $(pwd)/project.config.yaml y volvé a correr el MISMO comando."
+  # TKT-0448 — la config propia de la carpeta se declara en el local. NO se siembra ahi con el valor
+  # de la plantilla: una sentinela en el local taparia una edicion posterior del versionado (el local
+  # gana), y el dev que siguiera el habito de siempre quedaria cortado sin entender por que. Editar
+  # el versionado sigue funcionando: el plugin mueve esa edicion al local en el proximo Actualizar.
+  warn "  Declaralos en $(pwd)/$SPECOE_ROOM_LOCAL_CONFIG (la config propia de esta carpeta; project.config.yaml"
+  warn "  es del starter y se actualiza solo), por ejemplo:"
+  for field in $CONFIG_EMPTY_FIELDS $CONFIG_TEMPLATE_FIELDS; do
+    warn "      ${field%%.*}:"
+    warn "        ${field#*.}: '<valor de este cliente>'"
+  done
+  warn "  y volvé a correr el MISMO comando."
   warn "  Si esto salio de specoe-add-room.sh, la instanciacion del room es de DOS PASADAS: la primera clona la"
   warn "  carpeta, fija el rol y guarda la licencia (add-room imprime abajo que quedo hecho); la segunda, ya con"
   warn "  el yaml editado, completa la config. El yaml recien existe despues del clone, asi que no hay forma de"
   warn "  editarlo antes de la primera pasada."
-  err "Config incompleta o sin editar:${CONFIG_EMPTY_FIELDS}${CONFIG_TEMPLATE_FIELDS} — editar project.config.yaml y reintentar."
+  err "Config incompleta o sin editar:${CONFIG_EMPTY_FIELDS}${CONFIG_TEMPLATE_FIELDS} — editar $SPECOE_ROOM_LOCAL_CONFIG y reintentar."
 fi
 
 # La config quedo completa: se borra la marca del corte anterior. Sin esto, un room que YA paso
@@ -842,10 +862,11 @@ log "Generando/actualizando .mcp.json (specoe + integra-hub modo USER)..."
 # Ninguna de las dos se parchea suelta: las dos pasan por specoe_yaml_get, que ya resuelve comilla
 # simple, comilla doble, valor pelado y comentario inline, y ademas scopea por seccion (asi una
 # clave homonima de otro bloque no gana por estar antes en el archivo).
-ROOM_ROLE="$(specoe_yaml_get project.config.yaml specoe.role)"
-MCP_HUB_URL="${HUB_URL:-$(specoe_yaml_get project.config.yaml hub.api-url)}"
+# TKT-0448 — con la precedencia del room: project.config.local.yaml gana sobre el versionado.
+ROOM_ROLE="$(specoe_room_get . specoe.role)"
+MCP_HUB_URL="${HUB_URL:-$(specoe_room_get . hub.api-url)}"
 MCP_HUB_URL="${MCP_HUB_URL:-https://hub.integra.local/api/v1}"
-ROOM_TENANT="$(specoe_yaml_get project.config.yaml specoe.tenant)"
+ROOM_TENANT="$(specoe_room_get . specoe.tenant)"
 # SPEC-0187 P7 — el tenant tampoco viaja al .mcp.json, por la misma razon que el rol (P2): es de
 # la SESION. El launcher lo exporta como INTEGRA_SDD_TENANT desde esta clave, y el hook de
 # licencia la lee del yaml cuando la carpeta se abre a mano.
@@ -854,7 +875,7 @@ if [ -n "$ROOM_TENANT" ]; then
 else
   log "  specoe.tenant vacío — la carpeta opera en modo single-tenant (claves sin dimension tenant). Declaralo con specoe-add-room.sh --tenant <slug> o corriendo ./setup.sh --login."
 fi
-[ -n "$ROOM_ROLE" ] || warn "  specoe.role está vacío en project.config.yaml — es la DECLARACIÓN del rol del room, la consumen los launchers/UI (nunca los hooks ni el .mcp.json: el rol efectivo lo declara cada SESIÓN exportando INTEGRA_SDD_ROLE, SPEC-0187 P2). Fijalo con specoe-add-room.sh <ROL>."
+[ -n "$ROOM_ROLE" ] || warn "  specoe.role está vacío (ni $SPECOE_ROOM_LOCAL_CONFIG ni project.config.yaml lo declaran) — es la DECLARACIÓN del rol del room, la consumen los launchers/UI (nunca los hooks ni el .mcp.json: el rol efectivo lo declara cada SESIÓN exportando INTEGRA_SDD_ROLE, SPEC-0187 P2). Fijalo con specoe-add-room.sh <ROL>."
 
 NODE_BIN="$(specoe_node_bin)"
 MCP_CA="$(specoe_local_ca)"
@@ -977,152 +998,18 @@ fs.writeFileSync(FILE, JSON.stringify(doc, null, 2) + '\n');
 console.log(`  [WRITE]   integraHub.baseUrl = ${hubUrl}`);
 EOF
 
-# ----- 5.8. Activar los hooks del Hub en el settings del room (TKT-0321) -----
+# ----- 5.8. (RETIRADO, TKT-0448) El settings del room ya no se escribe acá -----
 #
-# COPIAR NO ES ACTIVAR. El bloque de MAQUINA de mas arriba deja los cuatro hooks del Hub en
-# ~/.claude/hooks/, pero un hook que no esta registrado en un settings.json no corre nunca. El
-# `ls` los muestra instalados y el gate no existe: es el modo de falla con mas riesgo de pasar
-# por bueno, y esta medido en la maquina del Staff, donde ack-task-enforcer.mjs esta en disco y
-# NO figura en el settings.
+# Hasta TKT-0448 este paso MERGEABA entradas de hooks en .claude/settings.json del room (TKT-0321),
+# porque cuando ese archivo divergía el `pull --ff-only` cortaba y el versionado no llegaba. Pero
+# el merge era la CAUSA de la divergencia: dejaba el archivo modificado, y el release siguiente que
+# tocaba el settings (0.2.14→0.2.33 le sumó 119 líneas) hacía chocar el pull de todos los rooms.
+# Y como no pisaba entradas existentes, nunca bajaba cambios ni bajas del starter.
 #
-# POR QUE EN EL SETTINGS DEL ROOM Y NO EN EL DEL HOST: el enforcer no mira el cwd — solo el
-# tool_name y el session_id. Registrado a nivel maquina gatearia TODA sesion de Claude Code de
-# esa computadora, incluidos los proyectos que no son de Integra, y es fail-CLOSED. El settings
-# del room acota el gate a los rooms, que es exactamente su alcance.
-#
-# POR QUE ADEMAS DE VENIR EN EL ARCHIVO VERSIONADO: el .claude/settings.json del starter cubre
-# los rooms NUEVOS. Este merge cubre los que YA existen — el dev re-corre specoe-add-room.sh (que
-# hace el pull y llama a este mismo --room-only) y las entradas aparecen. Si el archivo divergio,
-# el pull --ff-only corta y el archivo versionado no llegaria: el merge es lo que hace que la
-# activacion no dependa de que el clon quede limpio.
-#
-# MERGE, NO REESCRITURA, y por identidad del ARCHIVO del hook: si ya hay una entrada que nombra
-# al hook, no se toca (el dev puede haberle cambiado el timeout). Solo se agregan las que faltan.
-log "Activando los hooks del Hub en .claude/settings.json..."
-mkdir -p .claude
-
-"$NODE_BIN" - <<'EOF'
-const fs = require('fs');
-const FILE = '.claude/settings.json';
-
-// Las tres activaciones. `match` es la subcadena que identifica al hook dentro del `command`:
-// alcanza el nombre del archivo y no hay dos hooks con el mismo.
-const ENTRIES = [
-  {
-    event: 'SessionStart',
-    matcher: null,
-    match: 'ack-task-session-init.mjs',
-    hook: { type: 'command', command: 'node $HOME/.claude/hooks/ack-task-session-init.mjs', timeout: 5, shell: 'bash' },
-  },
-  {
-    event: 'PreToolUse',
-    // IC-08: lista exacta, NO regex libre. El propio hook la re-chequea como cinturon.
-    matcher: 'Edit|Write|Bash|NotebookEdit',
-    match: 'ack-task-enforcer.mjs',
-    hook: { type: 'command', command: 'node $HOME/.claude/hooks/ack-task-enforcer.mjs', timeout: 5, shell: 'bash' },
-  },
-  // TKT-0325 / TKT-0327 — los dos de disciplina de git. Van en el settings del ROOM por el
-  // mismo motivo que el enforcer: block-no-verify mira el comando (matcher Bash); desde
-  // TKT-0374/0375 block-destructive-outside-worktree ademas mira el archivo editado (matcher
-  // Bash|Edit|Write|NotebookEdit). A nivel maquina gatearian TODA sesion de Claude Code de esa
-  // computadora, incluidos proyectos que no son de Integra — y las reglas que hacen cumplir son
-  // de los repos de Integra, no del universo.
-  {
-    event: 'PreToolUse',
-    // TKT-0375 — TKT-0374 le agrego a este hook una rama independiente que bloquea
-    // Edit/Write/NotebookEdit directo en el checkout principal (antes solo Bash entraba).
-    matcher: 'Bash|Edit|Write|NotebookEdit',
-    match: 'block-destructive-outside-worktree.mjs',
-    hook: { type: 'command', command: 'node $HOME/.claude/hooks/block-destructive-outside-worktree.mjs', timeout: 5, shell: 'bash' },
-  },
-  {
-    event: 'PreToolUse',
-    matcher: 'Bash',
-    match: 'block-no-verify.mjs',
-    hook: { type: 'command', command: 'node $HOME/.claude/hooks/block-no-verify.mjs', timeout: 5, shell: 'bash' },
-  },
-  // TKT-0362 — el auditor de los tres de arriba. `SessionStart` y SIN matcher: ese evento no
-  // acepta ninguno (verificado contra los settings vivos, el global y el de este starter), y
-  // ponerle uno seria declarar un cableado que Claude Code no aplica.
-  {
-    event: 'SessionStart',
-    matcher: null,
-    match: 'hooks-audit.mjs',
-    hook: { type: 'command', command: 'node $HOME/.claude/hooks/hooks-audit.mjs', timeout: 5, shell: 'bash' },
-  },
-];
-
-// El verificador de claims va por tool del MCP: una entrada por mutacion del Hub que admite
-// tokens de verificacion. Es la misma lista que corre hoy en las maquinas del equipo.
-for (const tool of [
-  'spec_comment',
-  'spec_log_decision',
-  'spec_log_bugfix',
-  'spec_create',
-  'spec_update_phase',
-  'decision_create',
-]) {
-  ENTRIES.push({
-    event: 'PreToolUse',
-    matcher: `mcp__integra-hub__${tool}`,
-    match: 'executable-verification-hub-mutation.mjs',
-    hook: { type: 'command', command: 'node $HOME/.claude/hooks/executable-verification-hub-mutation.mjs', timeout: 15, shell: 'bash' },
-  });
-}
-
-let doc = {};
-let existing = null;
-try {
-  existing = fs.readFileSync(FILE, 'utf8');
-} catch {
-  /* no existe: se crea de cero */
-}
-if (existing !== null && existing.trim() !== '') {
-  try {
-    const parsed = JSON.parse(existing);
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('el contenido no es un objeto JSON');
-    doc = parsed;
-  } catch (e) {
-    // Mismo criterio que el settings de VSCode: antes que pisar configuracion ajena, no tocar y
-    // decirlo. Pero aca lo que queda sin activar es un GATE, asi que el mensaje lo nombra.
-    console.error(`  [SKIP]    .claude/settings.json existe y no pude leerlo como JSON (${e.message}).`);
-    console.error('            NO lo toco para no perderte configuracion — pero OJO: sin las entradas de PreToolUse');
-    console.error('            los hooks del Hub estan copiados y NO corren. Arreglale el JSON al archivo y volve a');
-    console.error('            correr el mismo comando, o copiale las entradas del .claude/settings.json del starter.');
-    process.exit(0);
-  }
-}
-
-doc.hooks = doc.hooks && typeof doc.hooks === 'object' && !Array.isArray(doc.hooks) ? doc.hooks : {};
-
-let agregadas = 0;
-for (const entry of ENTRIES) {
-  const grupos = Array.isArray(doc.hooks[entry.event]) ? doc.hooks[entry.event] : [];
-  doc.hooks[entry.event] = grupos;
-
-  const yaEsta = grupos.some(
-    (g) =>
-      (g?.matcher ?? null) === entry.matcher &&
-      Array.isArray(g?.hooks) &&
-      g.hooks.some((h) => typeof h?.command === 'string' && h.command.includes(entry.match)),
-  );
-  if (yaEsta) continue;
-
-  // Se agrega un grupo propio en vez de meter el hook en uno existente: los grupos se
-  // distinguen por `matcher`, y meter un hook con otro matcher adentro de un grupo ajeno le
-  // cambiaria el disparo a los dos.
-  const grupo = entry.matcher === null ? { hooks: [entry.hook] } : { matcher: entry.matcher, hooks: [entry.hook] };
-  grupos.push(grupo);
-  agregadas += 1;
-}
-
-if (agregadas === 0) {
-  console.log('  [OK]      los hooks del Hub ya estaban activados');
-} else {
-  fs.writeFileSync(FILE, JSON.stringify(doc, null, 2) + '\n');
-  console.log(`  [WRITE]   ${agregadas} entrada(s) de hook agregada(s) a .claude/settings.json`);
-}
-EOF
+# DECISIÓN (Operador, 2026-09-23): el .claude/settings.json versionado es del STARTER y de nadie
+# más. Llega completo con el clone y con cada pull; en los rooms que ya lo tenían modificado, el
+# plugin de VSCode lo restaura a la versión del starter al actualizar (con backup). Si necesitás
+# algo propio de tu máquina, va en .claude/settings.local.json, que no se versiona.
 
 fi # cierra: if DO_ROOM (parte de carpeta — config + .mcp.json + settings de workspace)
 
@@ -1151,7 +1038,7 @@ else
   log ""
   # TKT-0256: mismo criterio que la lectura del paso 5.5 — el resumen final mostraba la URL con
   # las comillas simples del template adentro, o sea distinta de la que decia haber configurado.
-  HUB_SHOW="$(specoe_yaml_get project.config.yaml hub.api-url)"
+  HUB_SHOW="$(specoe_room_get . hub.api-url)"
   log "Hub: ${HUB_SHOW:-<no configurado>}"
   log "(default piloto interno: hub.integra.local. Suite on-premise: contactar a Integra Software)"
 fi

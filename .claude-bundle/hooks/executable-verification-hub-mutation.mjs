@@ -69,6 +69,14 @@
  *       ALCANCE HONESTO: cubre afirmaciones sobre ARCHIVOS de un repo git. Una ausencia
  *       que no viva en git (una fila de una base, un endpoint) no puede usar este tipo —
  *       para eso sigue estando `absence`, con su caducidad y todo.
+ *
+ * v1.6 (SPEC-0220 P5, T5.6, ADR-018) — contenido TIPADO. Las seis tools que este hook matchea
+ *       mandan desde P5 su contenido como valor tipado (`{ type, ...campos }`) y no como string.
+ *       Sin adaptar, el body quedaba vacio y el paso 4b salia ALLOW sin evaluar un token: la
+ *       verificacion se apagaba sola, fail-open y sin rojo (RE-P5-008). Ahora el body es el texto
+ *       de las hojas del valor (sin `verification`) y los tokens salen tambien de su
+ *       `verification: Evidence[]`, con la precedencia del param `verification_tokens`. De paso
+ *       `decision_create` empieza a leerse por su campo real, `body`, que el default no miraba.
  */
 
 import { createWriteStream, mkdirSync, existsSync, readFileSync } from 'node:fs';
@@ -203,17 +211,119 @@ function isSubstantiveClaim(body) {
 }
 
 // =====================================================================
+// SPEC-0220 P5 (T5.6, ADR-018) — valores tipados
+//
+// Desde P5 las seis tools que este hook matchea mandan su contenido como VALOR TIPADO
+// (`{ type: '<typeKey>', ...campos }`, registro typed-content del backend) y no como string:
+// `tool_input.content` / `.description` / `.body` pasan a ser objetos. Leyendo solo strings, el
+// body quedaba vacio, el paso 4b salia ALLOW sin evaluar un token y la verificacion ejecutable se
+// apagaba sola, fail-open y sin rojo (RE-P5-008).
+//
+// El body de un valor tipado es el texto de TODAS sus hojas string —prosa, citas, codigo— menos el
+// subarbol `verification` (que no es claim: son los tokens) y el `type` de la raiz. Los tokens salen
+// de ese `verification: Evidence[]`, con la misma precedencia que el param `verification_tokens`
+// sobre los tokens inline. Un string sigue leyendose como antes (tool vieja, o una tool que no se
+// migro): el hook atiende a las dos formas durante el cutover.
+// =====================================================================
+
+/** Campos de contenido de cada tool matcheada, en el orden en que se leen. */
+const TYPED_CONTENT_FIELDS = {
+  'mcp__integra-hub__spec_comment': ['content'],
+  'mcp__integra-hub__spec_log_decision': ['content'],
+  'mcp__integra-hub__spec_log_bugfix': ['content'],
+  'mcp__integra-hub__spec_create': ['description'],
+  'mcp__integra-hub__spec_update_phase': ['content', 'description', 'skipJustification'],
+  'mcp__integra-hub__decision_create': ['body'],
+};
+
+function isTypedValue(v) {
+  return v !== null && typeof v === 'object' && !Array.isArray(v) && typeof v.type === 'string';
+}
+
+/** Los valores tipados del payload de `toolName`, en el orden de TYPED_CONTENT_FIELDS. */
+function typedValuesOf(toolName, toolInput) {
+  if (!toolInput || typeof toolInput !== 'object') return [];
+  if (toolName === 'mcp__integra-hub__spec_comment' && (toolInput.category || 'comment') === 'comment') {
+    return [];
+  }
+  return (TYPED_CONTENT_FIELDS[toolName] ?? []).map((f) => toolInput[f]).filter(isTypedValue);
+}
+
+/** Texto de las hojas string de un valor tipado, sin `verification` ni el `type` de la raiz. */
+function typedText(value, isRoot = true) {
+  if (typeof value === 'string') return [value];
+  if (Array.isArray(value)) return value.flatMap((v) => typedText(v, false));
+  if (value === null || typeof value !== 'object') return [];
+  const out = [];
+  for (const [key, child] of Object.entries(value)) {
+    if (key === 'verification') continue;
+    if (isRoot && key === 'type') continue;
+    out.push(...typedText(child, false));
+  }
+  return out;
+}
+
+/**
+ * Una Evidence (pieza del registro, backend pieces.ts: `{ type, claim, src, quote?, confirmedBy? }`)
+ * a la forma que entiende `mapOneStructured`. `src` lleva el path / target / URL / fecha segun el
+ * tipo y `quote` la cita o el ancla — el mismo mapeo que usa el MCP al convertir
+ * `verification_tokens` (mcp-server/src/typed-content.ts#tokensToEvidence).
+ */
+function evidenceToStructured(e) {
+  if (!e || typeof e !== 'object') return null;
+  switch (e.type) {
+    case 'presence':
+      return mapOneStructured('presence', { src: e.src, quote: e.quote });
+    case 'absence':
+      return mapOneStructured('absence', { target: e.src, confirmedBy: e.confirmedBy });
+    case 'absence_at':
+      return mapOneStructured('absence-at', { target: e.src, asOf: e.quote ?? e.confirmedBy });
+    case 'external':
+      return mapOneStructured('external', { src: e.src });
+    case 'operator_decision':
+      return mapOneStructured('operator-decision', { date: e.src, quote: e.quote });
+    // Evidence NO declara gate_required (el backend lo rechaza), pero si un emisor lo manda igual
+    // tiene que BLOQUEAR como hoy (fail-closed, seccion 5.4) — nunca desaparecer callado.
+    case 'gate_required':
+      return mapOneStructured('gate-required', { reason: e.quote ?? e.claim });
+    default:
+      return null;
+  }
+}
+
+/** Los tokens de los `verification` de los valores tipados, en la lista interna del Paso 5. */
+function mapTypedEvidence(typedValues, startIndex = 0) {
+  const out = [];
+  let idx = startIndex;
+  for (const value of typedValues) {
+    if (!Array.isArray(value.verification)) continue;
+    for (const e of value.verification) {
+      const t = evidenceToStructured(e);
+      if (!t) continue;
+      t.raw = `[typed:${t.type}]`;
+      t.index = idx++;
+      out.push(t);
+    }
+  }
+  return out;
+}
+
+// =====================================================================
 // extractBody — per tool, devuelve el field correcto del payload
 // =====================================================================
 function extractBody(toolName, toolInput) {
   if (!toolInput || typeof toolInput !== 'object') return '';
+
+  // SPEC-0220 P5 (T5.6) — contenido tipado: el texto de sus hojas, sin `verification`.
+  const typed = typedValuesOf(toolName, toolInput);
+  if (typed.length > 0) return typed.flatMap((v) => typedText(v)).join('\n');
 
   // spec_comment: solo aplica para category decision|bugfix
   // (comments simples no requieren tokens — bypass natural)
   if (toolName === 'mcp__integra-hub__spec_comment') {
     const cat = toolInput.category || 'comment';
     if (cat === 'comment') return '';
-    return toolInput.content || '';
+    return typeof toolInput.content === 'string' ? toolInput.content : '';
   }
 
   // spec_create / spec_update_phase: description
@@ -221,7 +331,8 @@ function extractBody(toolName, toolInput) {
     toolName === 'mcp__integra-hub__spec_create' ||
     toolName === 'mcp__integra-hub__spec_update_phase'
   ) {
-    return toolInput.description || toolInput.content || '';
+    const text = toolInput.description || toolInput.content || '';
+    return typeof text === 'string' ? text : '';
   }
 
   // decision_supersede: RESERVED, sin efecto HOY — devolver vacío
@@ -229,8 +340,16 @@ function extractBody(toolName, toolInput) {
     return '';
   }
 
-  // Default: spec_log_decision, spec_log_bugfix, decision_create → content
-  return toolInput.content || toolInput.description || '';
+  // SPEC-0220 P5 (T5.6) — decision_create manda su contenido en `body`, no en content/description:
+  // hasta P5 este default no lo leia, el body quedaba vacio y el hook dejaba pasar TODA decision
+  // sustantiva sin tokens (fail-open previo al cambio de forma, destapado al adaptar el hook).
+  if (toolName === 'mcp__integra-hub__decision_create') {
+    return typeof toolInput.body === 'string' ? toolInput.body : '';
+  }
+
+  // Default: spec_log_decision, spec_log_bugfix → content
+  const text = toolInput.content || toolInput.description || '';
+  return typeof text === 'string' ? text : '';
 }
 
 // =====================================================================
@@ -1069,8 +1188,14 @@ async function main() {
   body = extractBody(toolName, toolInput);
   const ids = extractIds(toolName, toolInput);
 
-  // TKT-0045 P1 — param estructurado verification_tokens (precedencia sobre inline)
-  const structuredTokens = mapStructuredTokens(toolInput.verification_tokens);
+  // TKT-0045 P1 — param estructurado verification_tokens (precedencia sobre inline).
+  // SPEC-0220 P5 (T5.6) — y los `verification: Evidence[]` de los valores tipados, con la MISMA
+  // precedencia: los dos son tokens estructurados, el inline de un body queda de fallback.
+  const paramTokens = mapStructuredTokens(toolInput.verification_tokens);
+  const structuredTokens = [
+    ...paramTokens,
+    ...mapTypedEvidence(typedValuesOf(toolName, toolInput), paramTokens.length),
+  ];
 
   // Paso 3: bypass mechanism
   const bypassReason = process.env.INTEGRA_HOOK_VERIFY_BYPASS;

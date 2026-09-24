@@ -114,7 +114,10 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { applyCaChannel, probeCaChannel, describeNetworkError } from '../hooks/ca-channel.mjs';
-import { buildAdditionalContext } from '../hooks/specoe-room-bootstrap.mjs';
+import {
+  buildAdditionalContext,
+  readRoomScalarWithSource,
+} from '../hooks/specoe-room-bootstrap.mjs';
 
 // ----- parametros de corrida -----
 //
@@ -250,19 +253,18 @@ function decodeJwtPayload(token) {
 
 /**
  * URL del Hub con la MISMA precedencia que specoe-license-check.mjs:
- * env INTEGRA_HUB_URL > hub.api-url del project.config.yaml del room > fallback interno.
- * Reimplementada a proposito (ver cabecera): el hook no se importa.
+ * env INTEGRA_HUB_URL > hub.api-url del room > fallback interno.
+ * Reimplementada a proposito (ver cabecera): el hook de licencia no se importa. La lectura del yaml
+ * SI sale del hook de arranque, que este script ya importa: TKT-0448 — project.config.local.yaml
+ * gana sobre el versionado, y la regla vive una sola vez del lado de los hooks.
  */
 async function resolveHubUrl() {
   if (process.env.INTEGRA_HUB_URL) {
     return { url: process.env.INTEGRA_HUB_URL, source: 'env INTEGRA_HUB_URL' };
   }
-  try {
-    const yaml = await fs.readFile(CONFIG_FILE, 'utf8');
-    const m = yaml.match(/^\s*api-url:\s*['"]?([^'"\n]+?)['"]?\s*$/m);
-    if (m && m[1]) return { url: m[1].trim(), source: `${CONFIG_FILE} (hub.api-url)` };
-  } catch {
-    /* sin yaml en la carpeta — cae al fallback */
+  const { value, source } = await readRoomScalarWithSource(ROOM_DIR, 'hub', 'api-url');
+  if (value && value.trim()) {
+    return { url: value.trim(), source: `${path.join(ROOM_DIR, source)} (hub.api-url)` };
   }
   return { url: FALLBACK_HUB_URL, source: 'fallback interno del bundle' };
 }

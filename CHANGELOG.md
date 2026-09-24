@@ -2,6 +2,40 @@
 
 All notable changes to this project. Automatic — regenerado por `./scripts/changelog.sh`.
 
+## 0.2.34 - 2026-09-24 (paridad de los hooks del Hub con integra-hub)
+
+El dev de un tenant no operaba igual que IntegraSuiteAI (TKT-0453). De los hooks que instala
+`integra-hub/hooks/install.mjs`, tres le llegaban atrasados y dos no le llegaban nunca, y nada lo
+decía: un hook viejo no se cae, sigue corriendo degradado.
+
+- **Re-vendorizados desde master de integra-hub** (`9b30707`; `hooks-audit.mjs` desde `e25288b`):
+  - `executable-verification-hub-mutation.mjs`: la copia anterior no leía el contenido tipado de
+    SPEC-0220, así que desde el cutover toda mutación tipada al Hub pasaba sin evaluar.
+  - `block-destructive-outside-worktree.mjs`: trae el fix de TKT-0429. Un `rm -rf` después de
+    `do`/`then` pasaba, y los paths msys `/c/...` no resolvían a `C:\`.
+  - `hooks-audit.mjs`: TKT-0408, y además distingue los módulos (integra-hub #803). `hub-channel.mjs`
+    se declara `"role": "module"` en el MANIFEST: se audita instalado y al día pero no cableado,
+    porque nadie lo cablea, lo importan los hooks. Hasta acá el arranque de todo dev lo reportaba como
+    fantasma (`NO cableado`), así que el audit no podía dar verde nunca.
+  - `hub-channel.mjs`: trae TKT-0448, que lee la URL del Hub del room con la precedencia de
+    `project.config.local.yaml`.
+  - `block-no-verify.mjs`: mismo contenido; sólo se mueve su `sourceSha`.
+- **Entran los dos que no viajaban**, instalados por `setup.sh --host-only` y cableados en
+  `.claude/settings.json` con el evento y el matcher que declara `install.mjs`:
+  - `block-merge-and-default-branch-push.mjs` (PreToolUse, `Bash`): aborta el merge de un PR y el
+    push a la rama por defecto (SPEC-0223 P7). Hasta acá el agente del dev podía mergear su PR.
+  - `infra-context-session-init.mjs` (SessionStart): sirve el INFRA_CONTEXT del tenant al arrancar
+    (TKT-0389). Autentica por `hub-channel.mjs` desde integra-hub #801, así que viaja sin adaptar.
+- **Queda afuera `block-memory-norma-sin-fuente.mjs`**: sólo tiene efecto con engram, y engram no es
+  parte del setup del dev (decisión del Operador).
+- **Chequeo de paridad** (`scripts/check-hooks-parity.sh`, interno, no se publica): compara por
+  sha256 cada archivo que el starter trae de integra-hub contra el HEAD del canónico y contra su
+  `sourceSha`, y exige que viaje cada hook que el canónico instala. Corre en `verify-vendor-drift`;
+  su test, contra un `gh` de mentira, en el CI.
+
+Para recibirlo, el dev actualiza la carpeta del room y corre `./setup.sh --host-only`: es lo que
+reinstala los hooks de máquina. El Actualizar del plugin no lo hace.
+
 ## 0.2.33 - 2026-09-23 (re-vendorizado del plugin VSCode 0.4.0)
 
 El plugin vendorizado era el 0.3.0 (`fec7d97`). Despues de ese release entraron a `main` de

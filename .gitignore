@@ -22,3 +22,7 @@ coverage/
 # borra el paso que pasa (TKT-0307). Es estado local de la carpeta, y sin esta linea quedaria
 # untracked frenando la segunda pasada por el criterio de divergencia acotada de arriba.
 .specoe-config-pending
+# TKT-0448 — la config PROPIA de la carpeta (rol, tenant, repo de trabajo, URL del Hub, campos del
+# gate de config): la escriben el instalador y el plugin de VSCode, gana sobre project.config.yaml y
+# NO se versiona. Versionarla es lo que hacia chocar el pull de cada room en cada release.
+project.config.local.yaml

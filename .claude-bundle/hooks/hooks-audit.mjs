@@ -79,6 +79,7 @@ import { homedir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 
 const HOOKS_HOME = join(homedir(), '.claude', 'hooks');
 const MANIFEST = join(HOOKS_HOME, 'integra-hooks-manifest.json');
@@ -121,6 +122,13 @@ const BUNDLE_HOOKS_BASEPATH = '.claude-bundle/hooks';
  * `event`/`matcher` quedan `undefined` a propósito: ese manifiesto no los declara, y
  * inventarlos haría que el arreglo sugerido mintiera. Sin ellos el diagnóstico de
  * "no cableado" sigue siendo correcto — sólo es menos específico.
+ *
+ * TKT-0453 — `role: "module"` marca un archivo del que DEPENDEN los hooks y que no es
+ * un hook: `hub-channel.mjs`, el canal hacia el Hub de ack-task e infra-context. Vive en
+ * la misma carpeta y se instala igual, pero no se cablea en ningún `settings.json`, así
+ * que auditarlo como hook daba "no cableado" en cada arranque del dev, para siempre. Lo
+ * declara el MANIFEST y no una lista de nombres acá: el que sabe qué instala y qué cablea
+ * es el starter. Sin `role`, el componente es un hook, como hasta ahora.
  */
 export function hooksDelVendorManifest(vendor) {
   // La clave es `components`. TKT-0362 la escribió primero como `artifacts` —inventada, no
@@ -134,6 +142,7 @@ export function hooksDelVendorManifest(vendor) {
       name: a.file,
       sha256: a.packageSha256,
       canal: 'starter',
+      modulo: a.role === 'module',
     }));
 }
 
@@ -189,6 +198,11 @@ export function diagnosticar(
       }
     }
   }
+
+  // Un módulo SÍ se audita instalado y al día —si falta, los hooks que lo importan fallan
+  // en la resolución, sin mensaje (TKT-0232)—, pero no se cablea: nadie lo invoca por su
+  // nombre desde un settings.json, lo importan los hooks.
+  if (hook.modulo) return null;
 
   const cableado = settingsTextos.some((txt) => txt.includes(hook.name));
   if (!cableado) {
@@ -283,20 +297,28 @@ export function auditar({
     });
 
   const hallazgos = hooks
-    .map((h) =>
-      diagnosticar(h, {
+    .map((h) => {
+      const d = diagnosticar(h, {
         hooksHome,
         settingsTextos,
         sourceDir: source,
         hay,
         shaDe,
-      }),
-    )
+      });
+      return d && h.modulo ? { ...d, nombre: `${d.nombre} (módulo)` } : d;
+    })
     .filter(Boolean);
 
   if (hallazgos.length === 0) {
+    // TKT-0453 — el verde cuenta HOOKS: un módulo no se cablea, y sumarlo al "N/N ...
+    // cableados" diría algo que no es cierto de él. Se nombra aparte.
+    const nModulos = hooks.filter((h) => h.modulo).length;
+    const nHooks = hooks.length - nModulos;
+    const modulos = nModulos
+      ? ` (y ${nModulos} ${nModulos === 1 ? 'módulo' : 'módulos'} de los que dependen, al día)`
+      : '';
     return [
-      `[hooks-audit] ${hooks.length}/${hooks.length} hooks de integra-hub instalados, al día y cableados.`,
+      `[hooks-audit] ${nHooks}/${nHooks} hooks de integra-hub instalados, al día y cableados${modulos}.`,
     ];
   }
 
@@ -308,6 +330,67 @@ export function auditar({
   ];
 }
 
+/**
+ * TKT-0408 (d) — staleness del checkout del room. Un checkout de room que quedó
+ * atrás de `origin` invalida las coordenadas (archivo:línea) que se citan desde
+ * él: el contenido puede seguir siendo válido, pero la línea citada ya no apunta
+ * a lo mismo. Hallazgo (A) del ticket + reproducido en vivo el 2026-09-14 (el
+ * checkout raíz de IntegraSuiteAI, usado para citar contrato-adversarial/SKILL.md,
+ * estaba 9 commits detrás de origin/master).
+ *
+ * `runGit` entra inyectado por el mismo motivo que `hay`/`leer`/`shaDe` en
+ * `diagnosticar`: un test que corriera git de verdad dependería de la red y del
+ * estado real de ESTE checkout, y diría algo distinto en cada máquina.
+ *
+ * Fail-safe explícito: timeout corto en cada llamada a git y try/catch alrededor
+ * de todo — sin red, sin `.git`, o con git ausente, el auditor reporta el problema
+ * y sigue. Nunca bloquea el arranque de sesión (mismo contrato que `auditar`).
+ */
+function defaultRunGit(cwd, args) {
+  return execFileSync('git', args, {
+    cwd,
+    encoding: 'utf8',
+    timeout: 5000,
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+}
+
+export function auditarStaleness({ room, hay = existsSync, runGit = defaultRunGit, branch }) {
+  if (!room || !hay(join(room, '.git'))) return [];
+
+  try {
+    let base = branch;
+    if (!base) {
+      // HEAD simbólico de origin (ej. "refs/remotes/origin/master") → "master".
+      // Si el remoto no lo declara (repo sin fetch de HEAD), cae a 'master'.
+      try {
+        const ref = runGit(room, ['symbolic-ref', 'refs/remotes/origin/HEAD']).trim();
+        base = ref.split('/').pop() || 'master';
+      } catch {
+        base = 'master';
+      }
+    }
+
+    runGit(room, ['fetch', 'origin', base, '--quiet']);
+    const counts = runGit(room, ['rev-list', '--left-right', '--count', `HEAD...origin/${base}`]).trim();
+    const behind = Number((counts.split(/\s+/)[1] ?? '').trim());
+
+    if (!Number.isFinite(behind) || behind === 0) {
+      return [`[hooks-audit] checkout al día con origin/${base}.`];
+    }
+
+    return [
+      `[hooks-audit] checkout ${behind} commit(s) detrás de origin/${base} — una cita a` +
+        ' línea de un archivo versionado en este room puede no apuntar a lo mismo que en origin.',
+      `  Arreglo: git pull (o recrear el worktree desde origin/${base}) antes de citar líneas.`,
+    ];
+  } catch (e) {
+    // No es un problema DEL checkout — es que no se pudo medir (sin red, sin git, etc.).
+    // Se reporta distinto de "detrás" para no confundir un fallo de red con staleness real.
+    return [`[hooks-audit] no se pudo auditar staleness del checkout: ${e && e.message ? e.message : e}`];
+  }
+}
+
 function main() {
   try {
     const room = roomRoot();
@@ -317,7 +400,8 @@ function main() {
       hooksHome: HOOKS_HOME,
       room,
     });
-    process.stdout.write(lineas.join('\n') + '\n');
+    const staleness = auditarStaleness({ room });
+    process.stdout.write([...lineas, ...staleness].join('\n') + '\n');
   } catch (e) {
     // Fail-safe: el auditor nunca impide arrancar la sesión.
     process.stdout.write(`[hooks-audit] no se pudo auditar: ${e && e.message ? e.message : e}\n`);

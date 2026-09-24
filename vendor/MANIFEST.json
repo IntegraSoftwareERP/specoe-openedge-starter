@@ -1,14 +1,15 @@
 {
-  "starterVersion": "0.2.30",
+  "starterVersion": "0.2.34",
   "schemaVersion": 2,
-  "generatedAt": "2026-09-23",
+  "generatedAt": "2026-09-24",
   "hashPolicy": {
     "note": "TKT-0252 — dos hashes con dos propositos distintos. Ninguno reemplaza al otro: el que verifica procedencia mira contentSha256, el que verifica la copia mira packageSha256.",
     "packageSha256": "sha256 del archivo tal cual quedo en vendor/. CHECKSUM DE COPIA: detecta corrupcion en el canal de publicacion (clon, normalizacion de fin de linea, transferencia). NO prueba procedencia cuando el artefacto es un contenedor: vsce escribe timestamps dentro del .vsix, asi que empaquetar el MISMO commit dos veces da dos valores distintos.",
     "contentSha256": "sha256 del contenido descomprimido, calculado por entrada (ruta + contenido, ignorando fechas, orden y metodo de compresion). Estable entre corridas del empaquetador sobre el mismo commit: es lo que ata el artefacto al codigo del sourceSha declarado. Solo lo declaran los artefactos con artifactKind=zip; en un archivo plano el packageSha256 YA es el hash de su contenido.",
     "generator": "integra-hub-vscode: node scripts/vsix-content-hash.js <archivo>",
     "schemaVersion2": "renombra el campo 'sha256' de la v1 a 'packageSha256' y agrega 'contentSha256' + 'artifactKind'. Un consumidor que lea 'sha256' esta leyendo un manifiesto v1.",
-    "basePath": "TKT-0321 — directorio del componente, relativo a la raiz del starter. Ausente = 'vendor', que es donde vivian los dos primeros componentes. Existe porque los hooks del Hub NO pueden vivir en vendor/: el instalador copia a ~/.claude/hooks/ desde .claude-bundle/hooks/ con un allowlist por archivo, asi que el artefacto tiene que estar ahi. Lo que los hace 'vendorizados' no es la carpeta sino la declaracion de procedencia: sourceRepo + sourceSha + hash, que es lo que verifican check-vendor-drift.sh y test-vendor-manifest.sh."
+    "basePath": "TKT-0321 — directorio del componente, relativo a la raiz del starter. Ausente = 'vendor', que es donde vivian los dos primeros componentes. Existe porque los hooks del Hub NO pueden vivir en vendor/: el instalador copia a ~/.claude/hooks/ desde .claude-bundle/hooks/ con un allowlist por archivo, asi que el artefacto tiene que estar ahi. Lo que los hace 'vendorizados' no es la carpeta sino la declaracion de procedencia: sourceRepo + sourceSha + hash, que es lo que verifican check-vendor-drift.sh y test-vendor-manifest.sh.",
+    "role": "TKT-0453 — solo para componentes con basePath '.claude-bundle/hooks'. 'module' = archivo del que DEPENDEN los hooks y que no es un hook (hoy hub-channel.mjs): setup.sh lo instala y hooks-audit lo audita instalado y al dia, pero no lo busca cableado en ningun settings.json, porque nadie lo invoca por su nombre: lo importan los hooks. Ausente = hook. Existe porque sin el, hooks-audit reportaba hub-channel.mjs como 'NO cableado' en cada arranque de todo dev (desde TKT-0362)."
   },
   "components": [
     {
@@ -41,11 +42,12 @@
       "file": "hub-channel.mjs",
       "basePath": ".claude-bundle/hooks",
       "artifactKind": "file",
+      "role": "module",
       "sourceRepo": "IntegraSoftwareERP/integra-hub",
       "sourcePath": ".claude-bundle/hooks/hub-channel.mjs",
-      "sourceSha": "9d627310c395e5352bff0085db61c4ff670663fe",
-      "packageSha256": "f484a16af3265f2f792d0850661067d19a8817e6d2f9e6f817067a5ddf9b4759",
-      "note": "TKT-0321 — canal de identidad + TLS de los hooks del Hub. No es un hook: es la dependencia de los otros dos, y si no viaja, los dos fallan en la RESOLUCION del import (sin mensaje, en cada arranque)."
+      "sourceSha": "9b307079bc3672d460628797b9f60672457bda7a",
+      "packageSha256": "bd136747e460e7f6f994e864bfdca96e3e8da05441c13193e47de6fe5c36d43f",
+      "note": "TKT-0321 — canal de identidad + TLS de los hooks del Hub. No es un hook: es la dependencia de los otros dos, y si no viaja, los dos fallan en la RESOLUCION del import (sin mensaje, en cada arranque). TKT-0453 lo re-vendoriza desde 9b30707: trae integra-hub #802 (TKT-0448), que lee la URL del Hub del room con la precedencia de project.config.local.yaml, y desde integra-hub #801 es tambien la dependencia de infra-context-session-init. TKT-0453: role 'module' — no es un hook, lo importan ack-task e infra-context; hooks-audit lo audita instalado y al dia pero no cableado."
     },
     {
       "name": "ack-task-session-init",
@@ -76,9 +78,9 @@
       "artifactKind": "file",
       "sourceRepo": "IntegraSoftwareERP/integra-hub",
       "sourcePath": "hooks/executable-verification-hub-mutation.mjs",
-      "sourceSha": "9d627310c395e5352bff0085db61c4ff670663fe",
-      "packageSha256": "70bd03122bbb85174be240adf7d6e3f6232aaee63c5dfe94c399190f90f78731",
-      "note": "TKT-0321 — hook PreToolUse que verifica los claims de las mutaciones al Hub. Es el unico de los cuatro cuyo sourcePath NO esta en .claude-bundle/: en integra-hub vive en hooks/, con su propia suite y su propio instalador. La union de los dos canales de ese repo no entra en este ticket; lo que si entra es que el artefacto llegue."
+      "sourceSha": "9b307079bc3672d460628797b9f60672457bda7a",
+      "packageSha256": "6e790bfa357da3617933eaef5f2c43167a5f0d2f9d9642cce358041965d8ef2d",
+      "note": "TKT-0321 — hook PreToolUse que verifica los claims de las mutaciones al Hub. Es el unico de los cuatro cuyo sourcePath NO esta en .claude-bundle/: en integra-hub vive en hooks/, con su propia suite y su propio instalador. La union de los dos canales de ese repo no entra en este ticket; lo que si entra es que el artefacto llegue. TKT-0453 lo re-vendoriza desde 9b30707: la copia de 9d62731 no leia el contenido tipado de SPEC-0220, asi que desde el cutover toda mutacion tipada al Hub pasaba SIN evaluar en la maquina del dev."
     },
     {
       "name": "block-no-verify",
@@ -87,9 +89,9 @@
       "artifactKind": "file",
       "sourceRepo": "IntegraSoftwareERP/integra-hub",
       "sourcePath": "hooks/block-no-verify.mjs",
-      "sourceSha": "88bfc9ec37e8670e9b6c949f1d05a1ec6886b7a4",
+      "sourceSha": "9b307079bc3672d460628797b9f60672457bda7a",
       "packageSha256": "c4bf72c0c7f0b16664932e25d57190aea08cef25440345fb0f3c5c5955245ea5",
-      "note": "TKT-0325 — hook PreToolUse que aborta --no-verify y la manipulacion de core.hooksPath. OJO con lo que hace y lo que NO: integra-hub no tiene ningun hook de git, asi que saltearlos no saltea ninguna verificacion. Lo que evita es el trail falso — que alguien declare despues que 'lo rehizo dejando correr los hooks', que es indistinguible de la verdad porque git calla en los dos casos."
+      "note": "TKT-0325 — hook PreToolUse que aborta --no-verify y la manipulacion de core.hooksPath. OJO con lo que hace y lo que NO: integra-hub no tiene ningun hook de git, asi que saltearlos no saltea ninguna verificacion. Lo que evita es el trail falso — que alguien declare despues que 'lo rehizo dejando correr los hooks', que es indistinguible de la verdad porque git calla en los dos casos. TKT-0453 mueve el sourceSha a 9b30707 junto con los otros cinco hooks de integra-hub/hooks/: el contenido es el mismo que en 88bfc9e (mismo packageSha256)."
     },
     {
       "name": "block-destructive-outside-worktree",
@@ -98,9 +100,9 @@
       "artifactKind": "file",
       "sourceRepo": "IntegraSoftwareERP/integra-hub",
       "sourcePath": "hooks/block-destructive-outside-worktree.mjs",
-      "sourceSha": "25b7e396745b7120818a318b2469ab13065d4e01",
-      "packageSha256": "bdefdf391922e4f5369f18395971f27cea398851de991ae6f58e9fbff97dbedd",
-      "note": "TKT-0120 el hook, TKT-0325 su versionado, TKT-0327 su arreglo, TKT-0362 el sourceSha corregido al merge — y recien acá su distribucion. Aborta los destructivos cuyo path RESUELTO escapa del worktree y el git stash mutador desde un worktree linked. Vivia desde TKT-0120 unicamente en la maquina del Operador: ningun dev del tenant lo tuvo nunca. Se vendoriza DESPUES de TKT-0327 a proposito — antes de ese arreglo tenia un fail-OPEN en Windows y mandarlo asi habria repartido el hueco. TKT-0374 agrega una rama independiente: bloquea tambien Edit/Write/NotebookEdit directo en el checkout PRINCIPAL de un repo con worktrees (antes solo Bash entraba a este hook) — TKT-0375 revendoriza ese fix a este canal."
+      "sourceSha": "9b307079bc3672d460628797b9f60672457bda7a",
+      "packageSha256": "1d5da92b1bac82123031f1ae89b02e918954ebde1230b339c1bd6656dec2d835",
+      "note": "TKT-0120 el hook, TKT-0325 su versionado, TKT-0327 su arreglo, TKT-0362 el sourceSha corregido al merge — y recien acá su distribucion. Aborta los destructivos cuyo path RESUELTO escapa del worktree y el git stash mutador desde un worktree linked. Vivia desde TKT-0120 unicamente en la maquina del Operador: ningun dev del tenant lo tuvo nunca. Se vendoriza DESPUES de TKT-0327 a proposito — antes de ese arreglo tenia un fail-OPEN en Windows y mandarlo asi habria repartido el hueco. TKT-0374 agrega una rama independiente: bloquea tambien Edit/Write/NotebookEdit directo en el checkout PRINCIPAL de un repo con worktrees (antes solo Bash entraba a este hook) — TKT-0375 revendoriza ese fix a este canal. TKT-0453 lo re-vendoriza desde 9b30707 con el fix de TKT-0429: un rm -rf despues de do/then pasaba (fail-open) y los paths msys /c/... no resolvian a C:\\."
     },
     {
       "name": "hooks-audit",
@@ -109,9 +111,31 @@
       "artifactKind": "file",
       "sourceRepo": "IntegraSoftwareERP/integra-hub",
       "sourcePath": "hooks/hooks-audit.mjs",
-      "sourceSha": "f92cec59e5fc0ec3b0011e8bbf51fdc792adada0",
-      "packageSha256": "e27e7f74dd531e690b8bba7e105b2a8bbd140cae90ed1e2e4227ab1cb86db3c4",
-      "note": "TKT-0325 el auditor, TKT-0362 su llegada aca. Hook SessionStart: compara lo que DEBERIA estar corriendo contra lo que esta y reporta las tres formas de fantasma (no instalado / instalado pero viejo / instalado y sin cablear). Los tres se ven igual desde adentro de una sesion: no pasa nada. Lo que lo hace util de ESTE lado es que lee DOS manifiestos: el dev de un tenant no clona integra-hub, asi que nunca tiene integra-hooks-manifest.json -- el auditor lee tambien este archivo, filtrando por basePath. La version vendorizada es la del fix del canal (leia una clave inventada y devolvia cero hooks contra el manifiesto real)."
+      "sourceSha": "e25288b0ccdb9dba90ec82685fa795bde8a8acf7",
+      "packageSha256": "52d5833b38af3d14b4715588c63c95d8dfb245f810396fb57ddf155d6d51865d",
+      "note": "TKT-0325 el auditor, TKT-0362 su llegada aca. Hook SessionStart: compara lo que DEBERIA estar corriendo contra lo que esta y reporta las tres formas de fantasma (no instalado / instalado pero viejo / instalado y sin cablear). Los tres se ven igual desde adentro de una sesion: no pasa nada. Lo que lo hace util de ESTE lado es que lee DOS manifiestos: el dev de un tenant no clona integra-hub, asi que nunca tiene integra-hooks-manifest.json -- el auditor lee tambien este archivo, filtrando por basePath. La version vendorizada es la del fix del canal (leia una clave inventada y devolvia cero hooks contra el manifiesto real). TKT-0453 lo re-vendoriza desde e25288b (integra-hub #803): trae TKT-0408 y distingue los componentes con role 'module' (ver hashPolicy.role). Audita tambien los dos hooks que entran en este release: los lee de este MANIFEST, filtrando por basePath."
+    },
+    {
+      "name": "block-merge-and-default-branch-push",
+      "file": "block-merge-and-default-branch-push.mjs",
+      "basePath": ".claude-bundle/hooks",
+      "artifactKind": "file",
+      "sourceRepo": "IntegraSoftwareERP/integra-hub",
+      "sourcePath": "hooks/block-merge-and-default-branch-push.mjs",
+      "sourceSha": "9b307079bc3672d460628797b9f60672457bda7a",
+      "packageSha256": "8b2f0231de14d8083c320e840c40cd488f926247a0e3a38289c37e23850d343b",
+      "note": "TKT-0453 — hook PreToolUse (matcher Bash) que aborta el merge de un PR (gh pr merge y su equivalente por API) y el push cuyo destino resuelve a la rama por defecto (SPEC-0223 P7). Hasta este ticket vivia solo en la maquina del Operador: el agente de un dev podia mergear PRs y pushear a main/master. Contencion LOCAL, no garantia: detecta por token literal."
+    },
+    {
+      "name": "infra-context-session-init",
+      "file": "infra-context-session-init.mjs",
+      "basePath": ".claude-bundle/hooks",
+      "artifactKind": "file",
+      "sourceRepo": "IntegraSoftwareERP/integra-hub",
+      "sourcePath": "hooks/infra-context-session-init.mjs",
+      "sourceSha": "9b307079bc3672d460628797b9f60672457bda7a",
+      "packageSha256": "89edd3c57093234483feb9bc54289cd07eac34f243de471cb2705c4cfddde722",
+      "note": "TKT-0453 — hook SessionStart que sirve el INFRA_CONTEXT del tenant al arrancar (TKT-0389). Se vendoriza SIN adaptar: desde integra-hub #801 resuelve el canal por hub-channel.mjs y, si no esta, por integra-hub-auth.mjs, asi que el mismo archivo autentica en la maquina del dev (identidad SDD + ca-channel) y en la del Operador. Informativo: nunca bloquea; sin canal no sirve nada y la sesion arranca igual."
     },
     {
       "name": "ack-task-command",
