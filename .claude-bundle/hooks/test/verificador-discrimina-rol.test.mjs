@@ -27,6 +27,22 @@ import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
+import {
+  USE_SYSTEM_CA_SKIP,
+  jwt as jwtReal,
+  makeFixture,
+  installProxy,
+  installMachineHooks,
+  writeCache as writeCacheP4,
+  writeMcp as writeMcpP4,
+  canonicalEntry,
+  cleanEnv,
+  runNode,
+  startSkillServer,
+  selfSignedCert,
+  startHttpsHub,
+} from './helpers/proxy-room.mjs';
+
 const execFileAsync = promisify(execFile);
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -232,3 +248,183 @@ test('C. el token del .mcp.json es de OTRO rol — el chequeo 5 da FAIL', async 
     await server.close();
   }
 });
+
+// ---------- SPEC-0237 P4 (T4.4, ADR-007) — la entrada del PROXY ----------
+//
+// Con la entrada del proxy no hay token en el .mcp.json: el proxy toma el del cache. El 3 exige la
+// forma canonica (se la juzga el propio proxy) y un JWT vigente del rol declarado; el 4 baja el
+// contrato solo si el rol del cache es el declarado; el 5 LANZA el proxy vendorizado como lo
+// declara la entrada y le habla MCP por stdio contra el skill-server falso. Las filas: sano (y su
+// exit 0, con un Hub https de prueba para el chequeo 1), divergente, entrada tocada a mano y rol
+// declarado desde el yaml del room. Las tres filas de arriba son la SSE: siguen como estaban.
+
+/** Room al dia: proxy vendorizado con su MANIFEST, entrada canonica, cache con `cacheToken`. */
+async function roomConProxy(name, { cacheToken, entrada = null }) {
+  const fx = makeFixture(name);
+  installProxy(fx.room, 'ok');
+  installMachineHooks(fx.home);
+  writeCacheP4(fx.room, cacheToken);
+  writeMcpP4(fx.room, { mcpServers: { specoe: entrada ?? (await canonicalEntry()) } });
+  return fx;
+}
+
+async function verificarP4(fx, { skillUrl, rol = null, hubUrl = null }) {
+  const r = await runNode(VERIFIER, [fx.room], {
+    env: cleanEnv({
+      HOME: fx.home,
+      USERPROFILE: fx.home,
+      SPECOE_SKILL_SERVER_URL: skillUrl,
+      SPECOE_VERIFY_CHECK_TIMEOUT_MS: '8000',
+      SPECOE_VERIFY_TOTAL_TIMEOUT_MS: '40000',
+      ...(rol ? { INTEGRA_SDD_ROLE: rol } : {}),
+      ...(hubUrl ? { INTEGRA_HUB_URL: hubUrl } : {}),
+    }),
+    timeout: 90000,
+  });
+  const linea = (id) => r.stdout.split('\n').find((l) => l.includes(` ${id} [`)) ?? '';
+  return {
+    code: r.code,
+    stdout: r.stdout,
+    jwt: linea('mcp-json-jwt'),
+    contrato: linea('contrato-room'),
+    conectable: linea('specoe-conectable'),
+  };
+}
+
+test(
+  'D. entrada del proxy, cache del rol declarado — 3, 4 y 5 OK',
+  { skip: USE_SYSTEM_CA_SKIP },
+  async () => {
+    const cache = jwtReal({ sddRole: 'CC_DEV' });
+    const server = await startSkillServer({ contratos: { [cache]: CONTRATO_CC_DEV } });
+    try {
+      const fx = await roomConProxy('p4-sano', { cacheToken: cache });
+      const r = await verificarP4(fx, { skillUrl: server.url, rol: 'CC_DEV' });
+      assert.match(r.jwt, /: OK —/, `chequeo 3:\n${r.stdout}`);
+      assert.match(r.jwt, /entrada del proxy canonica/);
+      assert.match(r.contrato, /: OK —/, `chequeo 4:\n${r.stdout}`);
+      assert.match(r.conectable, /: OK —/, `chequeo 5:\n${r.stdout}`);
+      assert.match(r.conectable, /por stdio/, 'el 5 tenia que hablarle al proxy, no al server');
+      assert.match(r.conectable, /EL MISMO contrato/);
+      // El 5 paso POR el proxy: la sesion SSE la abrio el proxy (el 4 abre la suya), con el JWT
+      // del cache.
+      assert.equal(
+        server.gets.filter((g) => g.token === cache).length,
+        2,
+        'el 4 y el proxy abren /sse',
+      );
+    } finally {
+      await server.close();
+    }
+  },
+);
+
+const TLS = USE_SYSTEM_CA_SKIP
+  ? null
+  : selfSignedCert(fs.mkdtempSync(path.join(os.tmpdir(), 'specoe-p4-tls-')));
+
+test(
+  'D2. room sano con la entrada del proxy — los cinco en verde y exit 0',
+  {
+    skip:
+      USE_SYSTEM_CA_SKIP ||
+      (!TLS &&
+        'sin openssl no hay Hub https de prueba: el chequeo 1 (canal TLS) no se puede poner en verde'),
+  },
+  async () => {
+    const cache = jwtReal({ sddRole: 'CC_DEV' });
+    const server = await startSkillServer({ contratos: { [cache]: CONTRATO_CC_DEV } });
+    const hub = await startHttpsHub(TLS);
+    try {
+      const fx = await roomConProxy('p4-exit0', { cacheToken: cache });
+      fs.writeFileSync(path.join(fx.home, '.claude', 'caddy-local-root.crt'), TLS.cert);
+      const r = await verificarP4(fx, { skillUrl: server.url, rol: 'CC_DEV', hubUrl: hub.url });
+      assert.equal(r.code, 0, `el room sano tenia que dar exit 0:\n${r.stdout}`);
+      assert.match(r.stdout, /veredicto: SERVIDO/);
+    } finally {
+      await hub.close();
+      await server.close();
+    }
+  },
+);
+
+test(
+  'E. entrada del proxy, cache con JWT vigente de OTRO rol — 3, 4 y 5 FAIL con los dos roles',
+  { skip: USE_SYSTEM_CA_SKIP },
+  async () => {
+    const cache = jwtReal({ sddRole: 'ENGINEERING' });
+    const server = await startSkillServer({ contratos: { [cache]: CONTRATO_ENGINEERING } });
+    try {
+      const fx = await roomConProxy('p4-divergente', { cacheToken: cache });
+      const r = await verificarP4(fx, { skillUrl: server.url, rol: 'CC_DEV' });
+      for (const [n, l] of [
+        ['3', r.jwt],
+        ['4', r.contrato],
+        ['5', r.conectable],
+      ]) {
+        assert.match(l, /: FAIL —/, `chequeo ${n} tenia que dar rojo:\n${r.stdout}`);
+        assert.match(l, /ENGINEERING/, `chequeo ${n}: falta el rol servido`);
+        assert.match(l, /CC_DEV/, `chequeo ${n}: falta el rol declarado`);
+      }
+      // El 4 no baja el contrato del rol equivocado: la unica apertura con ese JWT es la del proxy.
+      assert.equal(server.gets.length, 1, 'el 4 no tenia que abrir /sse con el JWT de otro rol');
+      assert.notEqual(r.code, 0);
+    } finally {
+      await server.close();
+    }
+  },
+);
+
+for (const [que, agregado] of [
+  ['url', { url: 'https://mcp.integra.local/sse' }],
+  ['headers con JWT', { headers: { Authorization: `Bearer ${jwtReal({ sddRole: 'CC_DEV' })}` } }],
+  ['env con JWT', { env: { SPECOE_SKILL_JWT: jwtReal({ sddRole: 'CC_DEV' }) } }],
+]) {
+  test(
+    `F. entrada del proxy con ${que} agregado a mano — 3 FAIL`,
+    { skip: USE_SYSTEM_CA_SKIP },
+    async () => {
+      const cache = jwtReal({ sddRole: 'CC_DEV' });
+      const server = await startSkillServer({ contratos: { [cache]: CONTRATO_CC_DEV } });
+      try {
+        const entrada = { ...(await canonicalEntry()), ...agregado };
+        const fx = await roomConProxy(`p4-tocada-${que.split(' ')[0]}`, {
+          cacheToken: cache,
+          entrada,
+        });
+        const r = await verificarP4(fx, { skillUrl: server.url, rol: 'CC_DEV' });
+        assert.match(r.jwt, /: FAIL —/, `chequeo 3:\n${r.stdout}`);
+        assert.match(r.jwt, /NO es la canonica/);
+        assert.match(r.jwt, new RegExp(Object.keys(agregado)[0]), 'tenia que nombrar lo agregado');
+        // El .mcp.json del room no se toco: el juicio corre sobre una copia.
+        assert.deepEqual(
+          JSON.parse(fs.readFileSync(path.join(fx.room, '.mcp.json'), 'utf8')).mcpServers.specoe,
+          entrada,
+        );
+      } finally {
+        await server.close();
+      }
+    },
+  );
+}
+
+test(
+  'G. sin INTEGRA_SDD_ROLE el rol declarado sale de specoe.role del room',
+  { skip: USE_SYSTEM_CA_SKIP },
+  async () => {
+    const cache = jwtReal({ sddRole: 'ENGINEERING' });
+    const server = await startSkillServer({ contratos: { [cache]: CONTRATO_ENGINEERING } });
+    try {
+      const fx = await roomConProxy('p4-rol-yaml', { cacheToken: cache });
+      fs.writeFileSync(
+        path.join(fx.room, 'project.config.local.yaml'),
+        "specoe:\n  role: 'CC_DEV'\n",
+      );
+      const r = await verificarP4(fx, { skillUrl: server.url });
+      assert.match(r.jwt, /: FAIL —/, r.stdout);
+      assert.match(r.jwt, /project\.config\.local\.yaml \(specoe\.role\)/);
+    } finally {
+      await server.close();
+    }
+  },
+);

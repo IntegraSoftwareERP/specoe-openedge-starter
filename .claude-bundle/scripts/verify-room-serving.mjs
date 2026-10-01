@@ -102,6 +102,23 @@
 // lo tiene que detectar. La resolucion de la URL del Hub se reimplementa abajo por la
 // misma razon, con la misma precedencia que usa el hook.
 //
+// ----- SPEC-0237 P4: LA ENTRADA DEL PROXY (ADR-007) -----
+//
+// Desde SPEC-0237 la entrada `specoe` del .mcp.json de un room al dia es la del PROXY local:
+// `node --use-system-ca vendor/specoe-mcp-proxy.mjs`, por stdio, SIN JWT. El proxy toma el JWT del
+// cache del room —el mismo con el que el hook baja el contrato— y lo renueva solo. Con esa entrada
+// no hay "token del .mcp.json" que comparar, y la divergencia que queda es otra: que el room sirva
+// un rol distinto del que DECLARA. Rol declarado: INTEGRA_SDD_ROLE, y si no esta, specoe.role del
+// room (project.config.local.yaml gana sobre project.config.yaml). Con la entrada del proxy:
+//   3. exige que el room traiga el proxy de su MANIFEST, que la entrada sea la CANONICA —se le
+//      pregunta al propio proxy, corriendo su --install-entry sobre una copia del .mcp.json: si no
+//      la cambiaria, es la suya— y un JWT vigente en el cache, del rol declarado;
+//   4. baja el contrato con ese JWT solo si su rol es el declarado;
+//   5. lanza el proxy COMO LO DECLARA la entrada, le habla MCP por stdio y exige el mismo contrato
+//      que el 4: es lo que hace Claude Code al arrancar.
+// Con la entrada SSE (room atrasado), los cinco chequeos son los de siempre. Sin rol declarado,
+// 3 y 5 no comparan rol: se cruzan contra el contrato del cache, como con la SSE.
+//
 // ----- EXCLUSION EXPLICITA: EL MCP integra-hub NO SE CHEQUEA -----
 //
 // Este verificador NO exige en ningun caso que el server MCP `integra-hub` conecte, ni
@@ -112,11 +129,21 @@
 // La exclusion va escrita aca, en el codigo, y no solo en la documentacion.
 
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
+import readline from 'node:readline';
+import { spawn } from 'node:child_process';
 import { applyCaChannel, probeCaChannel, describeNetworkError } from '../hooks/ca-channel.mjs';
 import {
   buildAdditionalContext,
   readRoomScalarWithSource,
+  // SPEC-0237 P4 — la entrada del proxy: se reconoce, se juzga y se lanza con lo mismo que usan
+  // los hooks, no con una copia de su forma.
+  isProxyEntry,
+  roomProxyStatus,
+  runProxyInstallEntry,
+  declaredRoleFromEnv,
+  PROXY_VENDOR_PATH,
 } from '../hooks/specoe-room-bootstrap.mjs';
 
 // ----- parametros de corrida -----
@@ -160,7 +187,9 @@ const PREFIX = 'SPECOE-VERIFY';
 const CHECKS = [
   { n: 1, id: 'canal-tls-hub', titulo: 'canal TLS al Hub' },
   { n: 2, id: 'jwt-licencia', titulo: 'JWT de licencia en el cache del room' },
-  { n: 3, id: 'mcp-json-jwt', titulo: '.mcp.json con JWT real' },
+  // SPEC-0237 P4 — mismo id (ancla de grep); el titulo cubre las dos formas de la entrada: la SSE
+  // lleva su JWT en el header y la del proxy lo toma del cache.
+  { n: 3, id: 'mcp-json-jwt', titulo: '.mcp.json: entrada specoe con JWT usable' },
   { n: 4, id: 'contrato-room', titulo: 'contrato del room bajado del skill-server' },
   // TKT-0225 — el id no se renombra (es ancla de grep documentada en el QUICKSTART); lo que
   // cambio es la vara: conectable Y sirviendo el rol del room.
@@ -288,6 +317,50 @@ async function readMcpJson() {
   const raw = await fs.readFile(MCP_JSON_FILE, 'utf8');
   return JSON.parse(raw);
 }
+
+/** La entrada `specoe` del .mcp.json, o null si no se puede leer (los chequeos 3 y 5 lo nombran). */
+async function readSpecoeEntry() {
+  try {
+    return (await readMcpJson())?.mcpServers?.specoe ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** El JWT del cache de licencia del room, o null. */
+async function readCacheToken() {
+  try {
+    return JSON.parse(await fs.readFile(CACHE_FILE, 'utf8'))?.token ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** El claim sddRole de un JWT, normalizado como el rol declarado. null si no lo trae. */
+function rolDelToken(token) {
+  const r = decodeJwtPayload(token)?.sddRole;
+  return typeof r === 'string' && r.trim() ? r.trim().toUpperCase() : null;
+}
+
+/**
+ * SPEC-0237 P4 (ADR-007) — el rol que el room DECLARA: INTEGRA_SDD_ROLE (la del launcher o el plugin,
+ * normalizada como la del hook de licencia) y, si no esta, specoe.role del room con su precedencia
+ * (project.config.local.yaml gana). `{ rol, fuente }` o null si no declara ninguno.
+ */
+async function resolveRolDeclarado() {
+  const env = declaredRoleFromEnv();
+  if (env) return { rol: env, fuente: 'env INTEGRA_SDD_ROLE' };
+  try {
+    const { value, source } = await readRoomScalarWithSource(ROOM_DIR, 'specoe', 'role');
+    const rol = typeof value === 'string' ? value.trim().toUpperCase() : '';
+    if (rol) return { rol, fuente: `${path.join(ROOM_DIR, source)} (specoe.role)` };
+  } catch {
+    /* sin yaml legible: no hay rol declarado */
+  }
+  return null;
+}
+
+const JWT_SHAPE = /[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+/;
 
 // ----- cliente MCP/SSE minimo -----
 //
@@ -458,6 +531,131 @@ class SseSession {
       this.controller.abort();
     } catch {
       /* ya cerrado */
+    }
+  }
+}
+
+// ----- SPEC-0237 P4 — cliente MCP minimo por stdio, para hablarle al proxy -----
+//
+// Con la entrada del proxy el chequeo 5 lanza el proceso COMO LO DECLARA el .mcp.json (command y
+// args, con el room como cwd: el path del proxy es relativo) y le habla MCP por stdio, un mensaje
+// JSON-RPC por linea. Es lo que hace Claude Code al arrancar. Misma interfaz que SseSession
+// (request/notify/close) para que el handshake y el pedido del contrato sean el MISMO codigo que en
+// los chequeos por SSE. Sin SDK, por la misma razon que SseSession. Cerrar la sesion cierra el
+// stdin y mata el proceso: el proxy termina cuando se le cierra el stdin, pero el corte de un
+// deadline no puede depender de eso.
+class StdioSession {
+  constructor(command, args, { cwd, env }) {
+    this.command = command;
+    this.args = args;
+    this.cwd = cwd;
+    this.env = env;
+    this.pending = new Map();
+    this.nextId = 1;
+    this.closed = false;
+    this.child = null;
+    this.finished = null;
+    this.stderrTail = '';
+    SESIONES_ABIERTAS.add(this);
+  }
+
+  start() {
+    try {
+      this.child = spawn(this.command, this.args, {
+        cwd: this.cwd,
+        env: this.env,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        windowsHide: true,
+      });
+    } catch (err) {
+      this.finished = `no se pudo lanzar: ${err?.message}`;
+      return { ok: false, reason: this.finished };
+    }
+    this.child.on('error', (err) => this.fail(`no se pudo lanzar: ${err?.message}`));
+    this.child.on('exit', (code, signal) => this.fail(`el proceso termino (${code ?? signal})`));
+    this.child.stdin.on('error', () => {});
+    this.child.stderr.on('data', (c) => {
+      this.stderrTail = (this.stderrTail + c.toString('utf8')).slice(-600);
+    });
+    readline.createInterface({ input: this.child.stdout }).on('line', (line) => {
+      let msg;
+      try {
+        msg = JSON.parse(line);
+      } catch {
+        return; // una linea que no es JSON-RPC no es respuesta de nadie
+      }
+      if (msg && msg.id !== undefined && this.pending.has(msg.id)) {
+        const resolve = this.pending.get(msg.id);
+        this.pending.delete(msg.id);
+        resolve(msg);
+      }
+    });
+    return { ok: true };
+  }
+
+  fail(reason) {
+    if (!this.finished) this.finished = reason;
+    for (const [id, resolve] of this.pending) {
+      this.pending.delete(id);
+      resolve({ error: { message: this.describe(reason) } });
+    }
+  }
+
+  describe(reason) {
+    const tail = this.stderrTail.trim();
+    return tail ? `${reason}; stderr: ${tail}` : reason;
+  }
+
+  write(obj) {
+    if (this.closed || this.finished || !this.child?.stdin?.writable) return false;
+    this.child.stdin.write(JSON.stringify(obj) + '\n');
+    return true;
+  }
+
+  request(method, params, timeoutMs) {
+    const id = this.nextId++;
+    return new Promise((resolve) => {
+      const timer = setTimeout(
+        () => {
+          this.pending.delete(id);
+          resolve({ error: { message: `sin respuesta a ${method} por stdio en ${timeoutMs} ms` } });
+        },
+        Math.max(0, timeoutMs),
+      );
+      this.pending.set(id, (msg) => {
+        clearTimeout(timer);
+        resolve(msg);
+      });
+      if (!this.write({ jsonrpc: '2.0', id, method, params })) {
+        clearTimeout(timer);
+        this.pending.delete(id);
+        resolve({
+          error: {
+            message: this.describe(this.finished ?? 'el stdin del proceso no esta abierto'),
+          },
+        });
+      }
+    });
+  }
+
+  async notify(method, params) {
+    this.write({ jsonrpc: '2.0', method, params });
+  }
+
+  close() {
+    SESIONES_ABIERTAS.delete(this);
+    if (this.closed) return;
+    this.closed = true;
+    this.fail('sesion cerrada por el verificador');
+    try {
+      this.child?.stdin?.end();
+    } catch {
+      /* ya cerrado */
+    }
+    try {
+      this.child?.kill();
+    } catch {
+      /* ya termino */
     }
   }
 }
@@ -672,6 +870,7 @@ async function checkMcpJsonJwt() {
         'licencia. El entry se reescribe solo en la primera corrida que valide.',
     };
   }
+  if (isProxyEntry(entry)) return checkMcpJsonProxy(entry);
   const auth = entry?.headers?.Authorization;
   if (typeof auth !== 'string' || !auth.trim()) {
     return {
@@ -715,6 +914,118 @@ async function checkMcpJsonJwt() {
     detalle:
       `el server specoe declara un JWT real (rol ${payload.sddRole ?? 'sin claim sddRole'}` +
       `${expMs ? `, exp ${new Date(expMs).toISOString()}` : ''}), no el placeholder.`,
+  };
+}
+
+// ----- chequeo 3 con la entrada del proxy (SPEC-0237 P4, ADR-007) -----
+//
+// Tres cosas, y ninguna se conforma con que la entrada "se parezca":
+//   - el room trae el proxy que declara su MANIFEST (el archivo con ese sha): Claude Code lanza
+//     ESE archivo;
+//   - la entrada es la canonica. No se compara contra una copia de la forma: se le pregunta al
+//     PROPIO proxy, corriendo su --install-entry sobre una copia del .mcp.json en un temporal. Si
+//     no la cambiaria, es la suya; si la reescribiria, alguien le agrego algo (url, headers, env,
+//     un JWT) o le saco algo;
+//   - hay en el cache un JWT vigente, y es del rol que el room declara: es el que el proxy va a
+//     presentar.
+
+/** Le pregunta al proxy del room si la entrada es la suya, sin tocar la carpeta. */
+async function juzgarFormaDelProxy(entry) {
+  const extras = Object.keys(entry).filter((k) => !['type', 'command', 'args'].includes(k));
+  const conJwt = JWT_SHAPE.test(JSON.stringify(entry));
+  const pistas =
+    (extras.length ? `; trae claves que la entrada del proxy no lleva: ${extras.join(', ')}` : '') +
+    (conJwt ? '; lleva un string con forma de JWT, y la entrada del proxy no lleva ninguno' : '');
+  let tmp = null;
+  try {
+    tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'specoe-verify-entrada-'));
+    await fs.copyFile(MCP_JSON_FILE, path.join(tmp, '.mcp.json'));
+    const r = await runProxyInstallEntry({
+      roomDir: ROOM_DIR,
+      targetDir: tmp,
+      timeoutMs: Math.max(1000, Math.min(5000, deadlineMs())),
+    });
+    if (r.outcome === 'UNCHANGED') return { ok: true };
+    if (r.outcome === 'WRITTEN') {
+      return {
+        ok: false,
+        detalle: `el propio proxy la reescribiria (su --install-entry sobre una copia del .mcp.json no la deja igual)${pistas}`,
+      };
+    }
+    return {
+      ok: false,
+      detalle: `el proxy no pudo juzgarla: ${r.error ?? 'sin detalle'}${pistas}`,
+    };
+  } catch (err) {
+    return { ok: false, detalle: `no se pudo preparar la copia para juzgarla: ${err?.message}` };
+  } finally {
+    if (tmp) await fs.rm(tmp, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+async function checkMcpJsonProxy(entry) {
+  const proxy = await roomProxyStatus(ROOM_DIR);
+  if (!proxy.ok) {
+    return {
+      ok: false,
+      detalle:
+        `${MCP_JSON_FILE} declara specoe con la entrada del proxy (${PROXY_VENDOR_PATH}), pero ` +
+        `${proxy.detalle}. Claude Code lanzaria un proxy que no es el que declara el room, o ninguno.`,
+      accion:
+        'actualiza la carpeta del room (el Actualizar del plugin de VSCode, o git pull --ff-only en ' +
+        'la carpeta): vendor/ trae el proxy y su MANIFEST juntos. Si el archivo se toco a mano, el ' +
+        'pull lo restituye.',
+    };
+  }
+  const forma = await juzgarFormaDelProxy(entry);
+  if (!forma.ok) {
+    return {
+      ok: false,
+      detalle: `la entrada specoe de ${MCP_JSON_FILE} lanza el proxy pero NO es la canonica: ${forma.detalle}.`,
+      accion:
+        `en la carpeta del room corre: node --use-system-ca ${PROXY_VENDOR_PATH} --install-entry ` +
+        '(o reabri la sesion: el hook de licencia la reescribe). No le agregues url, headers, env ' +
+        'ni JWT a mano: el proxy toma el JWT del cache del room y lo renueva solo.',
+    };
+  }
+  const token = await readCacheToken();
+  const payload = token ? decodeJwtPayload(token) : null;
+  const expMs = typeof payload?.exp === 'number' ? payload.exp * 1000 : null;
+  if (!payload || expMs === null || expMs <= Date.now()) {
+    return {
+      ok: false,
+      detalle:
+        `la entrada del proxy es la canonica, pero en ${CACHE_FILE} no hay un JWT vigente ` +
+        `(${!token ? 'no hay token' : !payload ? 'el token no se puede decodificar' : expMs === null ? 'el JWT no declara exp' : `vencio ${new Date(expMs).toISOString()}`}). ` +
+        'El proxy no tiene con que abrir la sesion hasta que lo renueve.',
+      accion:
+        'reabri la sesion de Claude Code en esta carpeta: el hook de licencia deja un JWT nuevo en ' +
+        'el cache. Si no lo deja, su mensaje de arranque dice por que.',
+    };
+  }
+  const servido = rolDelToken(token);
+  const declarado = await resolveRolDeclarado();
+  if (declarado && servido !== declarado.rol) {
+    return {
+      ok: false,
+      detalle:
+        `la entrada del proxy es la canonica y el JWT del cache esta vigente, pero es del rol ` +
+        `${servido ?? 'sin claim sddRole (bundle producto)'} y el room declara ${declarado.rol} ` +
+        `(${declarado.fuente}). El proxy presenta el JWT del cache: los tools MCP servirian el rol ` +
+        `${servido ?? 'producto'}, no el declarado.`,
+      accion:
+        'abri la carpeta con el rol que le corresponde (el plugin de VSCode o ' +
+        './specoe-launch-thinclient.sh <ROL>) y mira el aviso de rol del arranque: el hook de ' +
+        'licencia pide el rol declarado y el Hub decide cual concede.',
+    };
+  }
+  return {
+    ok: true,
+    detalle:
+      `entrada del proxy canonica (${PROXY_VENDOR_PATH}, sha ${proxy.sha256.slice(0, 12)} del ` +
+      `MANIFEST, sin JWT en el .mcp.json) y JWT vigente en el cache hasta ` +
+      `${new Date(expMs).toISOString()}, rol ${servido ?? 'sin claim sddRole'}` +
+      `${declarado ? ` = declarado (${declarado.fuente})` : ' — el room no declara rol: no se compara'}.`,
   };
 }
 
@@ -762,6 +1073,26 @@ async function checkContratoRoom() {
         'que tu usuario tenga UN solo rol SDD activo. En MACHINE-mode: instala esta carpeta ' +
         'como room con ./specoe-add-room.sh <ROL> <LICENSE_KEY>.',
     };
+  }
+
+  // SPEC-0237 P4 (ADR-007) — con la entrada del proxy, el JWT del cache es el que sirve los tools
+  // MCP de la sesion. Si es de otro rol que el declarado, bajar el contrato con el certificaria el
+  // gobierno del rol equivocado: no se baja.
+  if (isProxyEntry(await readSpecoeEntry())) {
+    const declarado = await resolveRolDeclarado();
+    const servido = rolDelToken(token);
+    if (declarado && servido !== declarado.rol) {
+      return {
+        ok: false,
+        detalle:
+          `el JWT del cache es del rol ${servido} y el room declara ${declarado.rol} ` +
+          `(${declarado.fuente}). Con la entrada del proxy ese JWT es el que sirve los tools MCP, ` +
+          'asi que bajar el contrato con el daria el gobierno del rol equivocado: no se baja.',
+        accion:
+          'abri la carpeta con el rol que le corresponde (el plugin de VSCode o ' +
+          './specoe-launch-thinclient.sh <ROL>) y volve a correr el verificador.',
+      };
+    }
   }
 
   const session = new SseSession(DEFAULT_SKILL_SERVER_URL, `Bearer ${token}`);
@@ -889,6 +1220,7 @@ async function checkSpecoeConectable() {
       accion: 'reabri la sesion de Claude Code en esta carpeta (ver chequeo 3).',
     };
   }
+  if (isProxyEntry(entry)) return checkSpecoeProxy(entry);
   const url = expandEnvPlaceholders(entry.url);
   const auth = expandEnvPlaceholders(entry?.headers?.Authorization ?? '');
   if (!url.value || url.unresolved) {
@@ -1004,6 +1336,106 @@ async function checkSpecoeConectable() {
         `no se pudo abrir la sesion contra ${url.value}: ${net.code ?? 'sin codigo'} — ` +
         `${net.cause ?? net.message}. El MCP specoe NO figuraria connected.`,
       accion: `verifica que ${url.value} este arriba y revisa el chequeo 1 (canal TLS).`,
+    };
+  } finally {
+    session.close();
+  }
+}
+
+// ----- chequeo 5 con la entrada del proxy (SPEC-0237 P4, ADR-007) -----
+//
+// Se lanza el proxy COMO LO DECLARA la entrada (command, args, el room como cwd) y se le habla MCP
+// por stdio: lo mismo que hace Claude Code. Se le pide `room_contract_get` y se exige el MISMO
+// contrato que bajo el 4. El rol servido es el del JWT del cache, que es el unico que el proxy
+// presenta; si el room declara otro, el 5 da rojo nombrando los dos.
+
+async function checkSpecoeProxy(entry) {
+  const declarado = await resolveRolDeclarado();
+  const servido = rolDelToken(await readCacheToken());
+  const lanzado = [entry.command, ...entry.args].join(' ');
+  const env = {
+    ...process.env,
+    ...(entry.env && typeof entry.env === 'object' ? entry.env : {}),
+    CLAUDE_PROJECT_DIR: ROOM_DIR,
+  };
+  const session = new StdioSession(entry.command, entry.args, { cwd: ROOM_DIR, env });
+  try {
+    const st = session.start();
+    if (!st.ok) {
+      return {
+        ok: false,
+        detalle: `no se pudo lanzar el proxy como lo declara ${MCP_JSON_FILE} (${lanzado}): ${st.reason}. El MCP specoe NO figuraria connected.`,
+        accion: `verifica que '${entry.command}' este en el PATH de esta maquina y que ${PROXY_VENDOR_PATH} este en el room (chequeo 3).`,
+      };
+    }
+    const pedido = await handshakeYContrato(session);
+    if (!pedido.ok && pedido.etapa === 'initialize') {
+      return {
+        ok: false,
+        detalle: `el proxy (${lanzado}, cwd ${ROOM_DIR}) no completo el initialize por stdio: ${pedido.detalle}. El MCP specoe NO figuraria connected.`,
+        accion: 'mira el log del proxy: ~/.claude/logs/specoe-mcp-proxy-<fecha>.log.',
+      };
+    }
+    const server = pedido.serverInfo;
+    const sesion =
+      `el proxy arranco como lo declara ${MCP_JSON_FILE} (${lanzado}) y completo el initialize ` +
+      `por stdio${server?.name ? ` (server ${server.name} ${server.version ?? ''}`.trimEnd() + ')' : ''}`;
+    const roles =
+      `rol del JWT del cache ${servido ?? 'sin claim sddRole'}` +
+      `${declarado ? `, rol declarado ${declarado.rol} (${declarado.fuente})` : ', el room no declara rol'}`;
+
+    if (!pedido.ok) {
+      return {
+        ok: false,
+        detalle: `${sesion}, PERO no le sirvio el contrato del room: ${pedido.detalle} (${roles}). El room NO esta servido.`,
+        accion: pedido.detalle.includes('SPECOE-PROXY-SIN-CREDENCIAL')
+          ? 'el proxy no tiene un JWT usable: reabri la sesion de Claude Code en esta carpeta (el hook de licencia lo deja en el cache) y mira el log del proxy (~/.claude/logs/specoe-mcp-proxy-<fecha>.log).'
+          : 'si el JWT del cache no trae rol, el room corre como producto: mira el chequeo 4 y el mensaje de arranque del hook de licencia.',
+      };
+    }
+
+    if (declarado && servido !== declarado.rol) {
+      return {
+        ok: false,
+        detalle:
+          `${sesion} y le sirvio el contrato del rol ${servido ?? 'sin claim sddRole (producto)'} —el ` +
+          `del JWT del cache, que es el que presenta el proxy—, pero el room declara ${declarado.rol} ` +
+          `(${declarado.fuente}). Los tools MCP de la sesion servirian el rol ${servido ?? 'producto'}.`,
+        accion:
+          'abri la carpeta con el rol que le corresponde (el plugin de VSCode o ' +
+          './specoe-launch-thinclient.sh <ROL>) y volve a correr el verificador.',
+      };
+    }
+
+    if (!CONTRATO_DEL_CACHE.texto) {
+      return {
+        ok: false,
+        detalle:
+          `${sesion} y le sirvio un contrato de room (${pedido.contrato.length} chars), pero el ` +
+          'chequeo 4 no dejo el contrato del cache: sin el no se puede afirmar que sea el mismo.',
+        accion: 'resolve primero el chequeo 4 (contrato del room) y volve a correr el verificador.',
+      };
+    }
+
+    if (pedido.contrato !== CONTRATO_DEL_CACHE.texto) {
+      return {
+        ok: false,
+        detalle:
+          `${sesion} y le sirvio contrato de room, pero es OTRO que el que bajo el chequeo 4 ` +
+          `(${pedido.contrato.length} vs ${CONTRATO_DEL_CACHE.texto.length} chars, ${roles}): el ` +
+          'proxy y el hook resuelven a roles DISTINTOS.',
+        accion:
+          'reabri la sesion de Claude Code en esta carpeta; si persiste, mira el log del proxy ' +
+          '(~/.claude/logs/specoe-mcp-proxy-<fecha>.log): con un JWT renovado a otro rol, el proxy ' +
+          'y el cache divergieron.',
+      };
+    }
+
+    return {
+      ok: true,
+      detalle:
+        `${sesion} y le sirvio EL MISMO contrato de room que bajo el chequeo 4 ` +
+        `(${pedido.contrato.length} chars, ${roles}): la sesion corre con el rol del room, no como producto.`,
     };
   } finally {
     session.close();

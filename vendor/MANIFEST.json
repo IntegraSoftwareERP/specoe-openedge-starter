@@ -1,7 +1,7 @@
 {
   "starterVersion": "0.2.34",
   "schemaVersion": 2,
-  "generatedAt": "2026-09-24",
+  "generatedAt": "2026-10-01",
   "hashPolicy": {
     "note": "TKT-0252 — dos hashes con dos propositos distintos. Ninguno reemplaza al otro: el que verifica procedencia mira contentSha256, el que verifica la copia mira packageSha256.",
     "packageSha256": "sha256 del archivo tal cual quedo en vendor/. CHECKSUM DE COPIA: detecta corrupcion en el canal de publicacion (clon, normalizacion de fin de linea, transferencia). NO prueba procedencia cuando el artefacto es un contenedor: vsce escribe timestamps dentro del .vsix, asi que empaquetar el MISMO commit dos veces da dos valores distintos.",
@@ -29,13 +29,26 @@
       "name": "integra-hub-vscode",
       "file": "integra-hub-vscode.vsix",
       "artifactKind": "zip",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "sourceRepo": "IntegraSoftwareERP/integra-hub-vscode",
       "sourcePath": ".",
-      "sourceSha": "c28e26f792a486d2ecc5b8557a26a760ef26d6ce",
-      "packageSha256": "cd1367f48e08647dd04a251eacd6a250a83cf1d5a6fc525d38e168ba09ad75fc",
-      "contentSha256": "9b992ff5855065b97964775dbda9720ab124987ba13767a36b060a0028b490ad",
+      "sourceSha": "2d5d929168685e198a7d5a582da3a24b3a21bd3b",
+      "packageSha256": "0fd358c15bd5c60cf0d3cb739fa0ceb1e88b6e7585901ecfcafe98c4d8338aba",
+      "contentSha256": "f005cb6795f67a4da91909887a6d628a86761c4d596d806cffe95c49dc267540",
       "reproducibility": "vsce NO es determinista: dos corridas del commit dcb3790 dieron dos packageSha256 distintos (952d5b3f... y 4fdc4fd8...) con el mismo contenido — las dos dan el mismo contentSha256 797c0cd9... VERIFICADO 2026-08-10 empaquetando dos veces desde dcb3790, que reproduce lo medido el 2026-07-31 sobre 7c58a55 (tres corridas, tres packageSha256, un solo contentSha256)."
+    },
+    {
+      "name": "specoe-mcp-proxy",
+      "file": "specoe-mcp-proxy.mjs",
+      "artifactKind": "file",
+      "version": "0.1.0",
+      "sourceRepo": "IntegraSoftwareERP/specoe-platform",
+      "sourcePath": "packages/specoe-mcp-proxy",
+      "sourceSha": "5480bc3dae20b25f7c45351e9094cc067fada840",
+      "packageSha256": "40bd30f50639336b13f9191ac0c416d9a9d9fabc8fad66a551bb597ab9237956",
+      "versionCommand": "node vendor/specoe-mcp-proxy.mjs --version",
+      "reproducibility": "esbuild 0.27.7 con version y commit por define, sin fechas ni rutas absolutas: VERIFICADO 2026-10-01 construyendo dos veces desde 5480bc3 (npm run build -w packages/specoe-mcp-proxy) — las dos corridas dieron el mismo sha byte a byte. Por eso, como integra-hub-mcp, NO necesita contentSha256: su packageSha256 ya identifica el contenido.",
+      "note": "SPEC-0237 P4 — el proxy stdio del MCP specoe (P3, #170). La entrada specoe del .mcp.json lo lanza con node --use-system-ca vendor/specoe-mcp-proxy.mjs, sin JWT: el proxy lo toma del cache del room y renueva y reabre /sse solo. Los hooks de la maquina escriben ESA entrada solo si este componente esta declarado y el archivo tiene este packageSha256; si no, la SSE de antes (room atrasado). --version imprime version y commit: specoe-mcp-proxy 0.1.0 5480bc3dae20b25f7c45351e9094cc067fada840."
     },
     {
       "name": "hub-channel",

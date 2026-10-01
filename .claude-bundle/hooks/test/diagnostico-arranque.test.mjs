@@ -61,6 +61,7 @@ import {
   OUTCOME_ROLE_NOT_GRANTED,
   ROLE_REJECTED_PREFIX,
   DIAG_PREFIX,
+  MCP_RESTART_PREFIX,
 } from '../specoe-license-check.mjs';
 import { SDD_IDENTITY_SERVICE, SDD_IDENTITY_USER_NAME } from '../sdd-identity.mjs';
 
@@ -102,6 +103,23 @@ function tmpDir(name) {
 function fakeJwt(payload) {
   const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
   return `${b64({ alg: 'none', typ: 'JWT' })}.${b64(payload)}.sig`;
+}
+
+// TKT-0454 — el room en regimen: el .mcp.json que dejo la sesion anterior trae un JWT vivo. Sin
+// esto el hook suma el aviso SPECOE-MCP-REINICIAR (el MCP specoe de ESTA sesion conecto sin un
+// JWT que sirva), que es cierto para una carpeta sin .mcp.json pero no es lo que mide este test.
+function writeLiveMcpJson(projectDir) {
+  const exp = Math.floor(Date.now() / 1000) + 50 * 60;
+  const doc = {
+    mcpServers: {
+      specoe: {
+        type: 'sse',
+        url: 'https://mcp.integra.local/sse',
+        headers: { Authorization: `Bearer ${fakeJwt({ sub: 'lic-sesion-anterior', exp })}` },
+      },
+    },
+  };
+  fs.writeFileSync(path.join(projectDir, '.mcp.json'), JSON.stringify(doc, null, 2) + '\n');
 }
 
 /**
@@ -436,6 +454,7 @@ test('(d) E2E: respuesta sin machineAuthorization deja el mensaje de sesion byte
   });
   const home = tmpDir('home-d');
   const project = tmpDir('proj-d');
+  writeLiveMcpJson(project);
   try {
     await seedUserId(home, USER_ID);
     const r = await runHook({
@@ -473,6 +492,7 @@ test('(e) sin identidad SDD y sin rol declarado, el output completo del hook no 
   });
   const home = tmpDir('home-e');
   const project = tmpDir('proj-e');
+  writeLiveMcpJson(project);
   try {
     const r = await runHook({ projectDir: project, home, hubUrl: hub.url });
 
@@ -488,7 +508,12 @@ test('(e) sin identidad SDD y sin rol declarado, el output completo del hook no 
       MENSAJE_VIGENTE,
       'una instalacion de producto no puede ganar ni una linea de diagnostico',
     );
-    for (const prefijo of [STARTUP_DIAG_PREFIX, ROLE_REJECTED_PREFIX, DIAG_PREFIX]) {
+    for (const prefijo of [
+      STARTUP_DIAG_PREFIX,
+      ROLE_REJECTED_PREFIX,
+      DIAG_PREFIX,
+      MCP_RESTART_PREFIX,
+    ]) {
       assert.ok(!r.stdout.includes(prefijo), `apareció ${prefijo} en una instalacion de producto`);
     }
   } finally {

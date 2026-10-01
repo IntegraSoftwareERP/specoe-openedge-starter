@@ -31,7 +31,24 @@ import {
   buildAdditionalContext,
   buildTokenDivergenceWarning,
   DIVERGENCE_PREFIX,
+  UNGOVERNED_PREFIX,
+  detectRoleDivergence,
 } from '../specoe-room-bootstrap.mjs';
+import {
+  ROOM_BOOTSTRAP as BOOTSTRAP,
+  JWT_SHAPE,
+  jwt as jwtReal,
+  makeFixture,
+  writeCache as writeCacheP4,
+  writeMcp as writeMcpP4,
+  ledgerEntries,
+  readLedger,
+  canonicalEntry,
+  cleanEnv,
+  runNode,
+  hookContext,
+  startSkillServer,
+} from './helpers/proxy-room.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -181,4 +198,207 @@ test('6. E2E sin .mcp.json — sin advertencia', async () => {
   writeCache(dir, jwt({ sub: 'cache' }));
   const res = await runBootstrap(dir);
   assert.ok(!res.context.includes(DIVERGENCE_PREFIX));
+});
+
+// ---------- SPEC-0237 P4 (T4.3, ADR-007) — la entrada del PROXY ----------
+//
+// Con la entrada del proxy el .mcp.json no lleva JWT: los tools MCP corren con el del cache, el
+// mismo con el que el hook baja el contrato. La divergencia que queda es de ROL: el claim sddRole
+// del cache contra el rol que la sesion declara (INTEGRA_SDD_ROLE). Tres filas —sano, divergente y
+// la SSE de siempre—, cada una contra un skill-server falso que sirve el contrato POR TOKEN, asi
+// que el hook recorre su camino real hasta inyectar.
+
+const CONTRATO_CC_DEV = '# Contrato del room CC_DEV\n';
+const CONTRATO_ENGINEERING = '# Contrato del room ENGINEERING\n';
+
+async function bootstrapP4(fx, { skillUrl, rol = null }) {
+  const r = await runNode(BOOTSTRAP, [], {
+    env: cleanEnv({
+      CLAUDE_PROJECT_DIR: fx.room,
+      HOME: fx.home,
+      USERPROFILE: fx.home,
+      SPECOE_SKILL_SERVER_URL: skillUrl,
+      ...(rol ? { INTEGRA_SDD_ROLE: rol } : {}),
+    }),
+  });
+  return { ...hookContext(r.stdout), stdout: r.stdout };
+}
+
+test('7. puro: detectRoleDivergence compara el claim del cache contra el rol declarado', () => {
+  assert.equal(
+    detectRoleDivergence({ cacheToken: jwt({ sddRole: 'CC_DEV' }), declaredRole: 'CC_DEV' }),
+    null,
+  );
+  assert.deepEqual(
+    detectRoleDivergence({ cacheToken: jwt({ sddRole: 'ENGINEERING' }), declaredRole: 'CC_DEV' }),
+    { servido: 'ENGINEERING', declarado: 'CC_DEV' },
+  );
+  assert.deepEqual(
+    detectRoleDivergence({ cacheToken: jwt({ sub: 'producto' }), declaredRole: 'CC_DEV' }),
+    {
+      servido: null,
+      declarado: 'CC_DEV',
+    },
+  );
+  // Sin rol declarado o sin token no hay con que comparar: no es divergencia.
+  assert.equal(
+    detectRoleDivergence({ cacheToken: jwt({ sddRole: 'CC_DEV' }), declaredRole: null }),
+    null,
+  );
+  assert.equal(detectRoleDivergence({ cacheToken: null, declaredRole: 'CC_DEV' }), null);
+});
+
+test('8. E2E entrada del proxy y cache del rol declarado — sin SPECOE-ROOM-TOKEN-DIVERGENTE', async () => {
+  const cache = jwtReal({ sddRole: 'CC_DEV' });
+  const server = await startSkillServer({ contratos: { [cache]: CONTRATO_CC_DEV } });
+  const fx = makeFixture('div-sano');
+  writeCacheP4(fx.room, cache);
+  writeMcpP4(fx.room, { mcpServers: { specoe: await canonicalEntry() } });
+  try {
+    // El rol declarado viaja como lo exporta un launcher escrito a mano: se normaliza.
+    const res = await bootstrapP4(fx, { skillUrl: server.url, rol: ' cc_dev ' });
+    assert.equal(res.json?.specoeRoomContractStatus, 'injected', res.stdout);
+    assert.ok(
+      !res.context.includes(DIVERGENCE_PREFIX),
+      `el room sano no puede avisar:\n${res.context}`,
+    );
+    assert.equal(res.json?.specoeTokenDivergence, undefined);
+  } finally {
+    await server.close();
+  }
+});
+
+test('9. E2E entrada del proxy y cache con JWT vigente de OTRO rol — el aviso nombra los dos roles', async () => {
+  const cache = jwtReal({ sddRole: 'ENGINEERING' });
+  const server = await startSkillServer({ contratos: { [cache]: CONTRATO_ENGINEERING } });
+  const fx = makeFixture('div-otro-rol');
+  writeCacheP4(fx.room, cache);
+  writeMcpP4(fx.room, { mcpServers: { specoe: await canonicalEntry() } });
+  try {
+    const res = await bootstrapP4(fx, { skillUrl: server.url, rol: 'CC_DEV' });
+    assert.equal(res.json?.specoeRoomContractStatus, 'injected', res.stdout);
+    assert.ok(
+      res.context.includes(`[[${DIVERGENCE_PREFIX}]]`),
+      `faltaba el aviso:\n${res.context}`,
+    );
+    assert.match(res.context, /declara el rol CC_DEV/);
+    assert.match(res.context, /es de ENGINEERING/);
+    assert.equal(res.json?.specoeTokenDivergence, true);
+  } finally {
+    await server.close();
+  }
+});
+
+test('10. E2E entrada del proxy sin rol declarado — no hay con que comparar, sin aviso', async () => {
+  const cache = jwtReal({ sddRole: 'ENGINEERING' });
+  const server = await startSkillServer({ contratos: { [cache]: CONTRATO_ENGINEERING } });
+  const fx = makeFixture('div-sin-rol');
+  writeCacheP4(fx.room, cache);
+  writeMcpP4(fx.room, { mcpServers: { specoe: await canonicalEntry() } });
+  try {
+    const res = await bootstrapP4(fx, { skillUrl: server.url });
+    assert.ok(!res.context.includes(DIVERGENCE_PREFIX), res.context);
+  } finally {
+    await server.close();
+  }
+});
+
+test('11. E2E entrada SSE con token distinto al del cache — el aviso de siempre, sin cambios', async () => {
+  const cache = jwtReal({ sddRole: 'CC_DEV', jti: 'cache' });
+  const mcp = jwtReal({ sddRole: 'ENGINEERING', jti: 'mcp' });
+  const server = await startSkillServer({ contratos: { [cache]: CONTRATO_CC_DEV } });
+  const fx = makeFixture('div-sse');
+  writeCacheP4(fx.room, cache);
+  writeMcpP4(fx.room, {
+    mcpServers: {
+      specoe: { type: 'sse', url: server.url, headers: { Authorization: `Bearer ${mcp}` } },
+    },
+  });
+  try {
+    // Con la SSE el rol declarado no entra: se comparan tokens, como desde TKT-0225.
+    const res = await bootstrapP4(fx, { skillUrl: server.url, rol: 'CC_DEV' });
+    // El texto lleva la ruta del .mcp.json del proceso que lo arma: se compara sin ella.
+    const sinRuta = (t) => t.replace(/de \S+\.mcp\.json declara/, 'de <.mcp.json> declara');
+    assert.ok(
+      sinRuta(res.context).includes(sinRuta(buildTokenDivergenceWarning('CC_DEV', 'ENGINEERING'))),
+      `tenia que salir el aviso de tokens de siempre:\n${res.context}`,
+    );
+  } finally {
+    await server.close();
+  }
+});
+
+// ---------- SPEC-0237 P4 (T4.3, ADR-003) — la apertura de /sse del hook en el registro ----------
+
+test('12. cada apertura de /sse del hook deja una linea sse_open source bootstrap, con claims y sin el JWT', async () => {
+  const cache = jwtReal({ sddRole: 'CC_DEV', tenantId: 'tenant-p4' });
+  const server = await startSkillServer({ contratos: { [cache]: CONTRATO_CC_DEV } });
+  const fx = makeFixture('ledger-open');
+  writeCacheP4(fx.room, cache);
+  try {
+    const res = await bootstrapP4(fx, { skillUrl: server.url });
+    assert.equal(res.json?.specoeRoomContractStatus, 'injected', res.stdout);
+    assert.equal(server.gets.length, 1);
+    const opens = ledgerEntries(fx.room).filter((e) => e.kind === 'sse_open');
+    assert.equal(opens.length, 1, readLedger(fx.room));
+    const [e] = opens;
+    assert.equal(e.source, 'bootstrap');
+    assert.equal(e.status, 'open');
+    assert.equal(e.httpStatus, 200);
+    assert.equal(e.sddRole, 'CC_DEV');
+    assert.equal(e.tenantId, 'tenant-p4');
+    assert.equal(typeof e.iat, 'number');
+    assert.equal(typeof e.exp, 'number');
+    assert.ok(!readLedger(fx.room).includes(cache), 'el registro no puede guardar el token');
+    assert.doesNotMatch(readLedger(fx.room), JWT_SHAPE);
+  } finally {
+    await server.close();
+  }
+});
+
+test('13. una apertura rechazada (401) queda anotada como rejected', async () => {
+  const cache = jwtReal({ sddRole: 'CC_DEV' });
+  const server = await startSkillServer({ rechazar: [cache] });
+  const fx = makeFixture('ledger-401');
+  writeCacheP4(fx.room, cache);
+  try {
+    const res = await bootstrapP4(fx, { skillUrl: server.url });
+    assert.equal(res.json?.specoeRoomContractStatus, 'ungoverned', res.stdout);
+    const [e] = ledgerEntries(fx.room).filter((x) => x.kind === 'sse_open');
+    assert.equal(e?.source, 'bootstrap');
+    assert.equal(e?.status, 'rejected');
+    assert.equal(e?.httpStatus, 401);
+  } finally {
+    await server.close();
+  }
+});
+
+test('14. con 12 aperturas en la ultima hora el hook NO abre: el tope del room cuenta tambien al bootstrap', async () => {
+  const cache = jwtReal({ sddRole: 'CC_DEV' });
+  const server = await startSkillServer({ contratos: { [cache]: CONTRATO_CC_DEV } });
+  const fx = makeFixture('ledger-tope');
+  writeCacheP4(fx.room, cache);
+  const hace = (min) => new Date(Date.now() - min * 60000).toISOString();
+  const previas = Array.from({ length: 12 }, (_, i) =>
+    JSON.stringify({
+      kind: 'sse_open',
+      id: `p${i}`,
+      ts: hace(50 - i),
+      source: 'proxy',
+      status: 'open',
+    }),
+  );
+  fs.writeFileSync(
+    path.join(fx.room, '.claude', 'specoe-room-ledger.jsonl'),
+    previas.join('\n') + '\n',
+  );
+  try {
+    const res = await bootstrapP4(fx, { skillUrl: server.url });
+    assert.equal(server.gets.length, 0, 'abrio /sse con el tope agotado');
+    assert.equal(res.json?.specoeRoomContractStatus, 'ungoverned');
+    assert.ok(res.context.includes(`[[${UNGOVERNED_PREFIX}:sse-tope]]`), res.context);
+    assert.equal(ledgerEntries(fx.room).filter((x) => x.kind === 'sse_open').length, 12);
+  } finally {
+    await server.close();
+  }
 });

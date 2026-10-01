@@ -47,7 +47,16 @@ import {
 import { loadKeyring, loadMachineId } from './vendor-deps.mjs';
 // TKT-0448 — la config del room se lee con la precedencia del room (project.config.local.yaml gana
 // sobre el versionado) y con el lector ANCLADO a la seccion, el mismo del hook de arranque.
-import { readRoomScalar, readRoomScalarWithSource } from './specoe-room-bootstrap.mjs';
+import {
+  readRoomScalar,
+  readRoomScalarWithSource,
+  expandEnvPlaceholders,
+  // SPEC-0237 P4 — la entrada del proxy del room (ADR-005) y el rol declarado de la sesion.
+  isProxyEntry,
+  roomProxyStatus,
+  runProxyInstallEntry,
+  declaredRoleFromEnv,
+} from './specoe-room-bootstrap.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -102,6 +111,9 @@ const ESCAPE_HATCH_FILE = path.join(PROJECT_DIR, '.claude', 'specoe-allow-degrad
 // skill-server. Un .mcp.json declarando `specoe` con un token de esa edad es la misma
 // mentira que el placeholder sin expandir.
 const SKILL_JWT_MAX_AGE_MS = 55 * 60 * 1000;
+// TKT-0454 — el mismo umbral visto desde el `exp` del JWT: le tienen que quedar al menos 5 min.
+const SKILL_JWT_TTL_MS = 60 * 60 * 1000;
+const SKILL_JWT_MIN_LEFT_MS = SKILL_JWT_TTL_MS - SKILL_JWT_MAX_AGE_MS;
 
 // ----- fingerprint generation (cliente-side) -----
 // Composicion: machineId (node-machine-id) + cpuModel + cpuCount + diskSerial nativo.
@@ -175,7 +187,7 @@ async function getDiskSerial() {
   }
 }
 
-async function computeLocalFingerprint() {
+export async function computeLocalFingerprint() {
   const machineId = await getMachineId();
   const cpus = os.cpus() || [];
   const cpuModel = cpus[0]?.model ?? 'unknown';
@@ -192,19 +204,46 @@ async function computeLocalFingerprint() {
 }
 
 // ----- cache helpers -----
+//
+// SPEC-0237 P2 — exportados: el CLI de renovacion (specoe-license-renew.mjs) lee y escribe el
+// MISMO cache con las MISMAS funciones. Dos escritores con dos formatos es como el bootstrap y el
+// verificador terminan leyendo algo que ninguno de los dos escribio. `file` existe para la suite.
 
-async function readCache() {
+export async function readCache({ file = CACHE_FILE } = {}) {
   try {
-    const raw = await fs.readFile(CACHE_FILE, 'utf8');
+    const raw = await fs.readFile(file, 'utf8');
     return JSON.parse(raw);
   } catch {
     return null;
   }
 }
 
-async function writeCache(data) {
-  await fs.mkdir(path.dirname(CACHE_FILE), { recursive: true });
-  await fs.writeFile(CACHE_FILE, JSON.stringify(data, null, 2), { mode: 0o600 });
+// En Windows el rename sobre un archivo que otro proceso tiene abierto puede rebotar un instante.
+const RENAME_RETRY_CODES = new Set(['EPERM', 'EACCES', 'EBUSY']);
+
+/**
+ * SPEC-0237 P2 (ADR-002) — el cache se escribe a un temporal y se renombra. Hasta aca era un
+ * fs.writeFile directo, que trunca y despues escribe: specoe-room-bootstrap.mjs y el verificador lo
+ * releen en paralelo y podian agarrar un JSON a medias. Con un segundo escritor (el CLI, desde un
+ * proceso de larga vida) esa ventana deja de ser del arranque y pasa a ser de cualquier momento.
+ * El rename deja ver el archivo viejo o el nuevo, nunca uno partido.
+ */
+export async function writeCache(data, { file = CACHE_FILE } = {}) {
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}.tmp`;
+  await fs.writeFile(tmp, JSON.stringify(data, null, 2), { mode: 0o600 });
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await fs.rename(tmp, file);
+      return;
+    } catch (err) {
+      if (!RENAME_RETRY_CODES.has(err?.code) || attempt >= 20) {
+        await fs.rm(tmp, { force: true }).catch(() => {});
+        throw err;
+      }
+      await new Promise((r) => setTimeout(r, 25));
+    }
+  }
 }
 
 function isCacheWithinGrace(cache, graceHours) {
@@ -245,7 +284,7 @@ async function resolveRole() {
 // multi-tenant, que es exactamente el pisado silencioso que la fase cierra.
 // Parser minimo con el mismo criterio que `role:` y `api-url:`: la unica clave `tenant:` del
 // yaml vive bajo `specoe:`.
-async function resolveTenant() {
+export async function resolveTenant() {
   const fromEnv = resolveSessionTenant();
   if (fromEnv) return fromEnv;
   // TKT-0448 — con la precedencia del room: project.config.local.yaml gana sobre el versionado.
@@ -268,7 +307,7 @@ export function licenseAccountsFor(tenantSlug, role) {
   return accounts.filter(Boolean);
 }
 
-async function getLicenseKey(tenantSlug = null) {
+export async function getLicenseKey(tenantSlug = null) {
   // 1. Env var
   if (process.env.SPECOE_LICENSE_KEY) return process.env.SPECOE_LICENSE_KEY;
 
@@ -348,7 +387,7 @@ async function openCaChannel() {
 // Parser minimo sin dep: la unica clave `api-url:` del yaml vive bajo `hub:`.
 // Devuelve tambien QUE fuente gano: `fetch failed` no distinguia "no llegue al Hub" de
 // "le pegue al host equivocado", y reconstruirlo costo una corrida manual.
-async function resolveHubUrl() {
+export async function resolveHubUrl() {
   if (process.env.INTEGRA_HUB_URL) {
     return { url: process.env.INTEGRA_HUB_URL, source: 'env INTEGRA_HUB_URL' };
   }
@@ -356,6 +395,114 @@ async function resolveHubUrl() {
   const { value, source } = await readRoomScalarWithSource(PROJECT_DIR, 'hub', 'api-url');
   if (value && value.trim()) return { url: value.trim(), source };
   return { url: FALLBACK_HUB_URL, source: 'fallback interno' };
+}
+
+// ----- SPEC-0237 P2 — atribucion de cada validate al room (ADR-010) -----
+//
+// O12 cuenta las llamadas de UN room a POST /license/validate en un registro fuera del proxy: el
+// access log del Caddy del Hub. Para filtrarlas ahi cada POST lleva dos headers. El Hub los
+// ignora; son para el log.
+//   - X-Specoe-Room: sha256 del machine-id mas la ruta REAL del room, truncado a 16 hex. Mismo
+//     valor desde el hook y desde el CLI del mismo room, distinto para otro room, y sin la ruta ni
+//     el machine-id en claro (el log del Caddy no es un lugar para ninguno de los dos).
+//   - X-Specoe-Caller: `hook` (este archivo) o `proxy` (el CLI que spawnea el proxy).
+// La ruta pasa por realpath: la misma carpeta abierta como `c:\x` o `C:\x\` es el mismo room.
+
+export const ROOM_HEADER = 'X-Specoe-Room';
+export const CALLER_HEADER = 'X-Specoe-Caller';
+export const CALLER_HOOK = 'hook';
+export const CALLER_PROXY = 'proxy';
+
+export async function computeRoomAttribution({ projectDir = PROJECT_DIR, machineId } = {}) {
+  let real;
+  try {
+    real = await fs.realpath(projectDir);
+  } catch {
+    real = path.resolve(projectDir);
+  }
+  const mid = machineId ?? (await getMachineId());
+  return createHash('sha256').update(`${mid}\n${real}`).digest('hex').slice(0, 16);
+}
+
+export function attributionHeaders({ room, caller }) {
+  return { [ROOM_HEADER]: room, [CALLER_HEADER]: caller };
+}
+
+// ----- SPEC-0237 P2 — la llamada del hook en el registro del room (ADR-003) -----
+//
+// El tope de validate es "a lo sumo una por 60 s CONTANDO LA DEL HOOK": el CLI de renovacion tiene
+// que ver la llamada de este hook para no pisarla. El hook anota la suya pero NUNCA se frena por el
+// registro (`force`): frenarlo cambiaria sus decisiones de retiro y de gracia, y eso no se toca.
+//
+// Todo es best-effort. El modulo se importa en caliente y cualquier falla —no instalado, lock
+// ocupado, disco— se loguea y el hook sigue exactamente igual que sin registro. El lock se espera
+// poco: el presupuesto del hook es de 4,5 s y esto no puede comerselo.
+const HOOK_LEDGER_LOCK_WAIT_MS = 1000;
+let ledgerModule;
+
+async function loadLedger() {
+  if (ledgerModule === undefined) {
+    try {
+      ledgerModule = await import('./specoe-room-ledger.mjs');
+    } catch (err) {
+      ledgerModule = null;
+      await logLine({
+        level: 'warn',
+        msg: 'registro del room no disponible — la llamada del hook no se anota',
+        error: err?.message,
+      });
+    }
+  }
+  return ledgerModule;
+}
+
+async function ledgerReserveHookCall(room) {
+  try {
+    const ledger = await loadLedger();
+    if (!ledger) return null;
+    const r = await ledger.reserveValidate({
+      projectDir: PROJECT_DIR,
+      source: ledger.SOURCE_HOOK,
+      room,
+      force: true,
+      lockWaitMs: HOOK_LEDGER_LOCK_WAIT_MS,
+    });
+    if (!r.id) {
+      await logLine({
+        level: 'warn',
+        msg: 'registro del room ocupado — la llamada del hook no se anota',
+      });
+      return null;
+    }
+    return { ledger, id: r.id };
+  } catch (err) {
+    await logLine({
+      level: 'warn',
+      msg: 'registro del room: no se pudo anotar la llamada',
+      error: err?.message,
+    });
+    return null;
+  }
+}
+
+async function ledgerRecordHookOutcome(call, httpStatus, room) {
+  if (!call) return;
+  try {
+    await call.ledger.recordValidateOutcome({
+      projectDir: PROJECT_DIR,
+      id: call.id,
+      httpStatus,
+      source: call.ledger.SOURCE_HOOK,
+      room,
+      lockWaitMs: HOOK_LEDGER_LOCK_WAIT_MS,
+    });
+  } catch (err) {
+    await logLine({
+      level: 'warn',
+      msg: 'registro del room: no se pudo anotar el desenlace',
+      error: err?.message,
+    });
+  }
 }
 
 // Contexto del proceso, una vez por corrida. Es el dato que hubiera cerrado el incidente
@@ -420,7 +567,82 @@ async function activateFingerprint(hubUrl, licenseKey, fingerprint) {
 //       ${SPECOE_SKILL_JWT} del .mcp.json se expande con la var fresca de este arranque.
 //   (A) reescribe .mcp.json con el JWT inline — garantiza header no vacio aunque (B) no
 //       cargue a tiempo. Refresca en cada arranque (el JWT de licencia vive 1h).
+// TKT-0454 — medido: NINGUNO de los dos le llega a la sesion que los escribe. Claude Code conecta
+// los servers del .mcp.json antes de que este hook arranque (ver describeLaunchSkillEntry), asi
+// que (A) sirve a la sesion SIGUIENTE y (B) no llega a tiempo para la conexion de esta. Lo que
+// esta sesion puede hacer es avisar cuando conecto con algo que no servia (buildMcpRestartNotice).
+//
+// SPEC-0237 P4 (ADR-005) — eso es la SSE de antes, y queda solo para el room ATRASADO. Si el room
+// trae el proxy que declara su vendor/MANIFEST.json (componente specoe-mcp-proxy, archivo con ese
+// sha), la entrada `specoe` es la del proxy y la escribe el PROPIO proxy del room
+// (`--install-entry`): stdio, sin JWT, sin url, sin headers. El JWT queda solo en el cache, de donde
+// el proxy lo lee y lo renueva sin reiniciar nada, asi que en este modo NO se exporta
+// SPECOE_SKILL_JWT a $CLAUDE_ENV_FILE: solo lo consumia el placeholder de la entrada SSE. La
+// restitucion despues de un retiro pasa por aca mismo y vuelve con la forma del proxy.
+// Si el proxy del room no puede escribir su entrada (no responde, .mcp.json invalido), se escribe
+// la SSE con el JWT de esta corrida: la regla del archivo —`specoe` si y solo si hay JWT usable—
+// no puede depender de que el proxy ande.
+const INSTALL_ENTRY_MIN_MS = 1000;
+const INSTALL_ENTRY_MAX_MS = 3000;
+
 async function populateSkillJwt(token) {
+  // TKT-0454 — con que entry `specoe` arranco la sesion, juzgado ANTES de pisarlo.
+  let launchDoc = null;
+  try {
+    launchDoc = JSON.parse(await fs.readFile(MCP_JSON_FILE, 'utf8'));
+  } catch {
+    /* no existe o corrupto */
+  }
+  if (!launchDoc || typeof launchDoc !== 'object') launchDoc = null;
+  const launch = describeLaunchSkillEntry(launchDoc);
+
+  const proxy = await roomProxyStatus(PROJECT_DIR);
+  if (proxy.ok) {
+    const left = HOOK_BUDGET_MS - (Date.now() - STARTED_AT);
+    const r = await runProxyInstallEntry({
+      roomDir: PROJECT_DIR,
+      timeoutMs: Math.max(INSTALL_ENTRY_MIN_MS, Math.min(INSTALL_ENTRY_MAX_MS, left)),
+    });
+    if (r.ok) {
+      await logLine({
+        level: 'info',
+        msg: '.mcp.json — entrada specoe del proxy del room (sin JWT: el proxy lo toma del cache)',
+        outcome: r.outcome,
+        proxySha256: proxy.sha256.slice(0, 12),
+        file: MCP_JSON_FILE,
+      });
+      if (launch) {
+        await logLine({
+          level: 'warn',
+          msg: '.mcp.json — la sesion arranco con un server specoe que no servia; la siguiente arranca con la entrada del proxy',
+          motivo: launch.motivo,
+          detalle: launch.detalle,
+          file: MCP_JSON_FILE,
+        });
+      }
+      return launch;
+    }
+    await logLine({
+      level: 'warn',
+      msg: '.mcp.json — el proxy del room no pudo escribir su entrada: queda la SSE con el JWT de esta corrida',
+      outcome: r.outcome,
+      error: r.error,
+      file: MCP_JSON_FILE,
+    });
+  } else {
+    // Una carpeta que no es un room (sin MANIFEST) no tiene nada de que avisar; un room sin el
+    // proxy, o con otro sha que el de su MANIFEST, es un room atrasado y queda en el log.
+    await logLine({
+      level: proxy.motivo === 'sin-manifest' ? 'info' : 'warn',
+      msg: '.mcp.json — el room no trae el proxy que declara su MANIFEST: la entrada specoe sigue siendo la SSE',
+      motivo: proxy.motivo,
+      detalle: proxy.detalle,
+    });
+  }
+  return writeSseEntry(token, launchDoc, launch);
+}
+
+async function writeSseEntry(token, launchDoc, launch) {
   // (B) $CLAUDE_ENV_FILE — mecanismo soportado para que un hook inyecte env a la sesion.
   const envFile = process.env.CLAUDE_ENV_FILE;
   if (envFile) {
@@ -436,19 +658,23 @@ async function populateSkillJwt(token) {
   }
   // (A) .mcp.json con JWT inline — fallback. Preserva otros mcpServers si el archivo existe;
   // resuelve la url del server `specoe` inline (nunca deja un ${...} sin expandir).
+  //
+  // TKT-0454 — devuelve con que entry `specoe` arranco la sesion, juzgado ANTES de pisarlo
+  // (describeLaunchSkillEntry, en populateSkillJwt): null si servia, o el motivo si no. Es lo que
+  // usa el aviso de reinicio. Si la escritura falla devuelve null: "ya quedo el JWT nuevo" seria
+  // falso. Si no existe o es corrupto, el .mcp.json se genera desde cero.
   try {
-    let doc = { mcpServers: {} };
-    try {
-      doc = JSON.parse(await fs.readFile(MCP_JSON_FILE, 'utf8'));
-      if (!doc || typeof doc !== 'object') doc = { mcpServers: {} };
-      if (!doc.mcpServers) doc.mcpServers = {};
-    } catch {
-      /* no existe o corrupto — se genera desde cero */
-    }
+    const doc = launchDoc ?? { mcpServers: {} };
+    if (!doc.mcpServers) doc.mcpServers = {};
     const prev = doc.mcpServers.specoe || {};
+    // SPEC-0237 P4 — un room que vuelve de la entrada del proxy a la SSE (el proxy desaparecio o
+    // ya no tiene el sha del MANIFEST) conserva su skill-server propio: viaja como argumento.
+    const flag = Array.isArray(prev.args) ? prev.args.indexOf('--skill-server-url') : -1;
+    const prevUrl =
+      typeof prev.url === 'string' ? prev.url : flag >= 0 ? prev.args[flag + 1] : null;
     const url =
-      typeof prev.url === 'string' && !prev.url.includes('${')
-        ? prev.url
+      typeof prevUrl === 'string' && prevUrl.trim() && !prevUrl.includes('${')
+        ? prevUrl
         : DEFAULT_SKILL_SERVER_URL;
     doc.mcpServers.specoe = {
       type: 'sse',
@@ -458,7 +684,136 @@ async function populateSkillJwt(token) {
     await fs.writeFile(MCP_JSON_FILE, JSON.stringify(doc, null, 2) + '\n');
   } catch (err) {
     await logLine({ level: 'warn', msg: 'no se pudo actualizar .mcp.json', error: err?.message });
+    return null;
   }
+  if (launch) {
+    await logLine({
+      level: 'warn',
+      msg: '.mcp.json — la sesion arranco con un server specoe que no servia; ya quedo el JWT nuevo',
+      motivo: launch.motivo,
+      detalle: launch.detalle,
+      file: MCP_JSON_FILE,
+    });
+  }
+  return launch;
+}
+
+// ----- TKT-0454 — el JWT con el que pudo haber conectado el MCP `specoe` -----
+//
+// Este hook reescribe el .mcp.json en cada arranque con el JWT nuevo (vive 1 h), pero esa
+// reescritura NO le llega a la sesion que la hace. Medido 2026-09-25 con Claude Code 2.1.280
+// (`claude -p`, un server SSE de prueba que registra el header y un hook de SessionStart que
+// reescribe el .mcp.json): el server recibio el GET /sse con el header VIEJO ~1 s antes de que el
+// hook arrancara, y no hubo reconexion con el nuevo. La doc lo dice a su manera: "SessionStart
+// fires before the servers are available". O sea que el server `specoe` de esta sesion conecta
+// con lo que el archivo tenia al lanzar —el JWT de la sesion anterior— y si ese ya no servia,
+// responde 401 (AUTH_HEADER_REJECTED) toda la sesion. La salida es reiniciar: la sesion
+// siguiente lanza con el .mcp.json que este hook ya dejo al dia. Limite de la medicion: fue en
+// modo `-p`; el modo interactivo (extension de VSCode) no se midio.
+//
+// El aviso sale SOLO si lo que habia al lanzar no servia. Con un JWT vivo en el archivo el MCP
+// conecto bien, y avisar ahi seria ruido en cada arranque.
+
+// Prefijo estable del aviso, para grep y para la suite. Es OTRO a proposito: no contiene ni esta
+// contenido en SPECOE-DIAG, SPECOE-ROL-RECHAZADO, SPECOE-ARRANQUE ni en los SPECOE-ROOM-* del hook
+// de arranque, asi que un probe puede afirmar cada uno por separado sobre el mismo texto.
+export const MCP_RESTART_PREFIX = 'SPECOE-MCP-REINICIAR';
+
+/** El `exp` (segundos epoch) de un JWT, sin verificar firma. null si no se puede leer. */
+export function decodeJwtExp(jwtToken) {
+  try {
+    const [, payloadB64] = String(jwtToken ?? '').split('.');
+    if (!payloadB64) return null;
+    const payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8'));
+    return typeof payload?.exp === 'number' ? payload.exp : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Con que entry `specoe` pudo haber conectado Claude Code al lanzar la sesion. `doc` es el
+ * .mcp.json tal como estaba ANTES de que este hook lo reescriba (null = no habia uno legible).
+ * Devuelve null si ese entry servia, o `{ motivo, detalle }` si no. Pura: la suite la ejercita
+ * sin disco. Un JWT sin `exp` no se puede juzgar y devuelve null: no se inventa un aviso.
+ */
+export function describeLaunchSkillEntry(doc, { now = Date.now(), env = process.env } = {}) {
+  if (!doc) {
+    return { motivo: 'sin-archivo', detalle: 'no habia un .mcp.json legible en esta carpeta' };
+  }
+  const entry = doc?.mcpServers?.specoe;
+  if (!entry) {
+    return {
+      motivo: 'sin-server',
+      detalle:
+        'el .mcp.json no declaraba el server specoe (este hook lo retira cuando una corrida no tiene JWT usable)',
+    };
+  }
+  // SPEC-0237 P4 (ADR-008) — la sesion arranco con la entrada del PROXY: Claude Code habla con un
+  // proceso local que toma el JWT del cache, lo renueva y reabre /sse solo. No hay nada que
+  // reiniciar, este como este el cache al arrancar, y avisarlo seria pedir lo que el proxy existe
+  // para evitar. El aviso queda para la SSE que no servia y para la ausencia de entrada: el room
+  // atrasado y la sesion siguiente a un retiro.
+  if (isProxyEntry(entry)) return null;
+  const auth = entry?.headers?.Authorization;
+  if (typeof auth !== 'string' || !auth.trim()) {
+    return { motivo: 'sin-token', detalle: 'el server specoe no tenia header Authorization' };
+  }
+  const expandido = expandEnvPlaceholders(auth, env);
+  if (expandido.includes('${')) {
+    return {
+      motivo: 'placeholder',
+      detalle: 'el header Authorization del server specoe tenia un ${...} sin expandir',
+    };
+  }
+  const exp = decodeJwtExp(expandido.replace(/^Bearer\s+/i, '').trim());
+  if (exp === null) return null;
+  const leftMs = exp * 1000 - now;
+  if (leftMs <= 0) {
+    return {
+      motivo: 'vencido',
+      detalle: `el JWT del server specoe habia vencido hace ${Math.ceil(-leftMs / 60000)} min`,
+    };
+  }
+  if (leftMs < SKILL_JWT_MIN_LEFT_MS) {
+    return {
+      motivo: 'por-vencer',
+      detalle: `al JWT del server specoe le quedaban menos de ${Math.ceil(leftMs / 60000)} min`,
+    };
+  }
+  return null;
+}
+
+/** El aviso de reinicio listo para concatenar, o null cuando lo que habia al lanzar servia. */
+export function buildMcpRestartNotice(launch) {
+  if (!launch) return null;
+  return (
+    `\n\n[[${MCP_RESTART_PREFIX}:${launch.motivo}]] ATENCION: el MCP specoe de ESTA sesion no ` +
+    `va a andar. Claude Code conecta los servers del .mcp.json antes de que corran los hooks de ` +
+    `SessionStart, asi que specoe conecto con lo que el archivo tenia al lanzar, y eso no servia ` +
+    `(${launch.detalle}): va a responder 401 (AUTH_HEADER_REJECTED) —ya, o cuando venza ese ` +
+    `JWT— o no va a aparecer en /mcp. ` +
+    `Este hook ya dejo el JWT nuevo en el .mcp.json, pero le llega recien a la sesion siguiente. ` +
+    `Accion: cerra esta sesion y abri otra enseguida. No toques la licencia ni las credenciales ` +
+    `por esto. Afecta SOLO al server specoe (contrato y skills del room): el MCP integra-hub no ` +
+    `usa este JWT y sus tools siguen andando. La sesion arranca igual — esto no corta el arranque.`
+  );
+}
+
+/**
+ * TKT-0454 — persiste una validacion exitosa. El ORDEN es el contrato: primero el .mcp.json y
+ * AL FINAL el cache. specoe-room-bootstrap.mjs corre en paralelo y relee el cache hasta verlo
+ * fresco; cuando lo ve, el .mcp.json tiene que estar ya al dia, o su comparacion de tokens
+ * (TKT-0225) agarra la mitad de esta escritura y declara una divergencia que no existe. El cache
+ * es el punto de commit. Las dos escrituras se inyectan para que la suite fije el orden.
+ */
+export async function persistValidatedLicense(
+  cached,
+  { syncMcp = populateSkillJwt, saveCache = writeCache } = {},
+) {
+  const launch = await syncMcp(cached.token);
+  await saveCache(cached);
+  return launch;
 }
 
 // T2.3 — camino SIMETRICO de populateSkillJwt(). Hasta ahora el .mcp.json solo se tocaba
@@ -498,9 +853,12 @@ async function withdrawSkillServer() {
 
 // Regla unica del archivo: el .mcp.json declara `specoe` si y solo si ESTA corrida tiene
 // un JWT usable. Cualquier otro estado es fingir que el room esta servido.
+// TKT-0454 — devuelve lo que devuelve populateSkillJwt (el veredicto del entry con el que arranco
+// la sesion) para que el camino de grace tambien pueda avisar; retirar el entry no avisa nada.
 async function syncSkillServerEntry(token) {
-  if (token) await populateSkillJwt(token);
-  else await withdrawSkillServer();
+  if (token) return populateSkillJwt(token);
+  await withdrawSkillServer();
+  return null;
 }
 
 function usableCachedToken(cache) {
@@ -695,9 +1053,11 @@ export function buildFailureContext(diag) {
  *
  * Normaliza trim+upper porque el valor viene de un launcher escrito a mano. Sin la env
  * devuelve null, y el body del validate queda byte-a-byte como antes de esta fase.
+ * SPEC-0237 P4 — la normalizacion vive en specoe-room-bootstrap.mjs (declaredRoleFromEnv): el
+ * aviso de divergencia de rol de ese hook y el verificador del room comparan contra ESTE valor.
  */
 export function resolveDeclaredRole(env = process.env) {
-  return env.INTEGRA_SDD_ROLE?.trim().toUpperCase() || null;
+  return declaredRoleFromEnv(env);
 }
 
 /** Unico outcome de `roleResolution` que produce mensaje propio: el rechazo. */
@@ -1008,8 +1368,11 @@ export function buildStartupDiagnosis({
   return null;
 }
 
-/** La via de escape esta activa? Devuelve por que, o null. */
-async function escapeHatchReason(escapeFile = ESCAPE_HATCH_FILE) {
+/**
+ * La via de escape esta activa? Devuelve por que, o null. Exportada porque el CLI de renovacion
+ * la respeta igual que este hook frente a la deriva: un criterio de JWT usable, no dos.
+ */
+export async function escapeHatchReason(escapeFile = ESCAPE_HATCH_FILE) {
   if (process.env[ESCAPE_HATCH_ENV]) return `la variable ${ESCAPE_HATCH_ENV}`;
   try {
     await fs.access(escapeFile);
@@ -1203,6 +1566,13 @@ async function main() {
         msg: 'arranque BLOQUEADO — hooks del Hub desactualizados en esta maquina',
         drifted: deriva.drifted.map((d) => `${d.file}: ${d.motivo}`),
       });
+      // TKT-0454 — la regla de syncSkillServerEntry: el .mcp.json declara `specoe` si y solo si
+      // ESTA corrida tiene un JWT usable. Este camino sale antes de validar, asi que no lo tiene:
+      // se retira el entry, igual que el camino sin licencia. Hasta aca quedaba el JWT inline de
+      // la ultima corrida buena, y el MCP specoe respondia 401 en vez de no aparecer. No cambia la
+      // sesion en curso (Claude Code conecta los MCP antes de este hook): cambia las siguientes,
+      // mientras dure la deriva.
+      await syncSkillServerEntry(null);
       return blockOnHubHooksDrift(deriva.drifted);
     }
   }
@@ -1284,15 +1654,26 @@ async function main() {
   // requests nuevos, cero lecturas de disco. Sin la env queda null y el body es el de antes.
   const declaredRole = resolveDeclaredRole();
 
+  // SPEC-0237 P2 — el room al que se atribuye la llamada (ADR-010) y su anotacion en el registro
+  // del room (ADR-003). Los dos van ANTES del fetch: la reserva tiene que estar en el registro
+  // mientras el request esta en vuelo, o un CLI de renovacion del mismo room podria llamar en el
+  // mismo minuto. Ninguno de los dos cambia lo que el hook decide despues.
+  const room = await computeRoomAttribution({ machineId: fingerprint.machineId });
+  const ledgerCall = await ledgerReserveHookCall(room);
+
   const validateUrl = `${hubUrl}/license/validate`;
   // Que fallo exactamente: `net` => no hubo respuesta (red/TLS); `httpStatus` => el Hub
   // contesto y rechazo. Son excluyentes y son los que eligen el escenario del mensaje.
   let net = null;
   let httpStatus = null;
+  let outcomeRecorded = false;
   try {
     const res = await fetch(validateUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...attributionHeaders({ room, caller: CALLER_HOOK }),
+      },
       body: JSON.stringify({
         licenseKey,
         fingerprint,
@@ -1301,6 +1682,8 @@ async function main() {
       }),
       signal: AbortSignal.timeout(fetchDeadlineMs()),
     });
+    await ledgerRecordHookOutcome(ledgerCall, res.status, room);
+    outcomeRecorded = true;
     // El request llego: el TLS valido. ESTA es la linea de exito del canal, y sale
     // recien aca porque es el unico punto donde el efecto quedo comprobado.
     await logLine({ level: 'info', msg: 'canal TLS verificado contra el Hub', hubUrl });
@@ -1317,9 +1700,9 @@ async function main() {
         tier: body.tier,
         features: body.features,
       };
-      await writeCache(cached);
-      // poblar el JWT del skill-server para el MCP `specoe`.
-      await populateSkillJwt(body.token);
+      // poblar el JWT del skill-server para el MCP `specoe` y DESPUES el cache (TKT-0454: el
+      // cache es el punto de commit que espera specoe-room-bootstrap.mjs).
+      const mcpLaunch = await persistValidatedLicense(cached);
       await logLine({ level: 'info', msg: 'license validated', tier: body.tier });
       // SPEC-0176 P2 — el veredicto de rol del Hub. La linea de log va SIEMPRE (es como se
       // cuentan las poblaciones); el aviso al dev sale solo cuando le negaron un rol que
@@ -1356,7 +1739,8 @@ async function main() {
               `SpecOE license: tier=${body.tier}, features=${body.features.length}` +
               (roleNotice ?? '') +
               (startupNotice ?? '') +
-              (tenantNotice ?? ''),
+              (tenantNotice ?? '') +
+              (buildMcpRestartNotice(mcpLaunch) ?? ''),
           },
         }),
       );
@@ -1367,6 +1751,9 @@ async function main() {
     // Fallthrough al grace period
   } catch (err) {
     net = describeNetworkError(err);
+    // Sin respuesta (red, TLS, timeout): desenlace transitorio en el registro. Si el Hub SI
+    // respondio y lo que fallo fue leer el body, el desenlace ya quedo anotado con su status.
+    if (!outcomeRecorded) await ledgerRecordHookOutcome(ledgerCall, null, room);
     await logLine({
       level: 'warn',
       msg: 'validate network error',
@@ -1393,13 +1780,14 @@ async function main() {
   const graceHours = DEFAULT_GRACE_HOURS; // TODO: leer de tier-specific config
   if (cache && isCacheWithinGrace(cache, graceHours)) {
     await logLine({ level: 'info', msg: 'using cached license (offline grace)', tier: cache.tier });
-    await syncSkillServerEntry(usableCachedToken(cache));
+    const mcpLaunch = await syncSkillServerEntry(usableCachedToken(cache));
     emitContext(
       'cached',
       // El titular del diagnostico dice si el Hub no contesto o si contesto rechazando;
       // esta linea no lo adelanta, para no volver a poner una causa falsa arriba de todo.
       `SpecOE license (offline, cache fresco): tier=${cache.tier}. La sesion arranca por el grace period de ${graceHours} h, pero la validacion contra el Hub NO paso en esta corrida:\n` +
-        buildFailureContext(diag),
+        buildFailureContext(diag) +
+        (buildMcpRestartNotice(mcpLaunch) ?? ''),
     );
     return 0;
   }

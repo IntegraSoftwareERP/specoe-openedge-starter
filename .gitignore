@@ -13,6 +13,14 @@ coverage/
 # Licencia local (no commitear)
 .claude/specoe-license-cache.json
 .claude/integra-hub-session.json
+# SPEC-0237 P2 — el registro por room de las llamadas a validate y de las aperturas de /sse, y su
+# lock. Es estado local de la carpeta. Los temporales de la escritura atomica (cache y registro)
+# van tambien: si un proceso muere entre la escritura y el rename, el del cache lleva la licencia
+# y el JWT.
+.claude/specoe-room-ledger.jsonl
+.claude/specoe-room-ledger.lock
+.claude/specoe-room-ledger.jsonl.*.tmp
+.claude/specoe-license-cache.json.*.tmp
 # Bootstrap del room: lo genera setup.sh en runtime y lleva el JWT del skill-server inline
 # (specoe-license-check.mjs lo reescribe con el JWT fresco). Nunca se commitea. Ademas, sin
 # esta linea quedaba untracked y reportado por git status, lo que hacia imposible cualquier

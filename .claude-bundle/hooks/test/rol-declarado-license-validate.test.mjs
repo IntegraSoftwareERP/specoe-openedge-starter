@@ -91,6 +91,23 @@ function fakeJwt(payload) {
   return `${b64({ alg: 'none', typ: 'JWT' })}.${b64(payload)}.sig`;
 }
 
+// TKT-0454 — el room en regimen: el .mcp.json que dejo la sesion anterior trae un JWT vivo. Sin
+// esto el hook suma el aviso SPECOE-MCP-REINICIAR (el MCP specoe de ESTA sesion conecto sin un
+// JWT que sirva), que es cierto para una carpeta sin .mcp.json pero no es lo que mide este test.
+function writeLiveMcpJson(projectDir) {
+  const exp = Math.floor(Date.now() / 1000) + 50 * 60;
+  const doc = {
+    mcpServers: {
+      specoe: {
+        type: 'sse',
+        url: 'https://mcp.integra.local/sse',
+        headers: { Authorization: `Bearer ${fakeJwt({ sub: 'lic-sesion-anterior', exp })}` },
+      },
+    },
+  };
+  fs.writeFileSync(path.join(projectDir, '.mcp.json'), JSON.stringify(doc, null, 2) + '\n');
+}
+
 /**
  * Siembra el userId del seat en el canal del home temporal. Va por subproceso a proposito:
  * secrets.mjs congela CLAUDE_HOME al importarse, asi que setearlo desde este proceso
@@ -370,8 +387,10 @@ test('5. sin licencia / producto legitimo / rol rechazado: tres mensajes distint
     }),
   });
   await seedUserId(home, USER_ID);
+  const proj5b = tmpDir('proj5b');
+  writeLiveMcpJson(proj5b);
   const rB = await runHook({
-    projectDir: tmpDir('proj5b'),
+    projectDir: proj5b,
     home,
     hubUrl: hubB.url,
     env: { INTEGRA_SDD_ROLE: 'ENGINEERING' },
@@ -387,8 +406,10 @@ test('5. sin licencia / producto legitimo / rol rechazado: tres mensajes distint
       servedRole: null,
     }),
   });
+  const proj5c = tmpDir('proj5c');
+  writeLiveMcpJson(proj5c);
   const rC = await runHook({
-    projectDir: tmpDir('proj5c'),
+    projectDir: proj5c,
     home,
     hubUrl: hubC.url,
     env: { INTEGRA_SDD_ROLE: 'ENGINEERING' },

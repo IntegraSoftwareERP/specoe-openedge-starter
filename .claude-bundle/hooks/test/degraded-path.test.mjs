@@ -457,7 +457,13 @@ test('11b. control positivo — el contrato inyectado SI trae el sentinel', () =
 
 test('12. E2E room-bootstrap sin cache — declara la degradacion, sin sentinel', async () => {
   const dir = tmpProject('room-no-token');
-  const res = await runHook(ROOM_BOOTSTRAP, { projectDir: dir });
+  // TKT-0454 — sin cache el bootstrap espera al hook de licencia (6 s por defecto). Aca no corre
+  // ninguno, asi que la espera en 0 da el mismo resultado sin pagarla; la espera la mide
+  // carrera-license-bootstrap.test.mjs.
+  const res = await runHook(ROOM_BOOTSTRAP, {
+    projectDir: dir,
+    env: { SPECOE_BOOTSTRAP_LICENSE_WAIT_MS: '0' },
+  });
   assert.equal(res.code, 0, 'el bootstrap del room nunca bloquea');
   assert.equal(res.json?.specoeRoomContractStatus, 'ungoverned');
   const ctx = contextOf(res);

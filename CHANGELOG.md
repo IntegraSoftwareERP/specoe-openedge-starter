@@ -2,6 +2,99 @@
 
 All notable changes to this project. Automatic — regenerado por `./scripts/changelog.sh`.
 
+## 0.2.37 - 2026-10-01 (el MCP `specoe` renueva su JWT y reconecta sin reiniciar Claude Code)
+
+El MCP `specoe` dejaba de responder a la hora de abierta la sesión (SPEC-0237). Su entrada del
+`.mcp.json` era SSE con el JWT de licencia adentro: ese JWT vive 1 h, Claude Code no lo renueva ni
+reconecta, y lo que el hook de licencia reescribía le llegaba recién a la sesión siguiente. La
+salida era reiniciar. Ahora Claude Code habla con un **proxy local** que vive en la carpeta del room
+y que renueva el JWT y reabre el stream solo.
+
+- **El proxy** (`vendor/specoe-mcp-proxy.mjs`, nuevo componente `specoe-mcp-proxy` del
+  `vendor/MANIFEST.json`, construido desde `5480bc3`, build reproducible). Reenvía el MCP entre
+  Claude Code (stdio) y el skill-server (SSE) sin conocer el catálogo de tools; toma el JWT del cache
+  de la carpeta, lo renueva por el CLI de máquina antes de que venza y reabre ante cualquier corte,
+  reenviando lo que quedó en vuelo. Sin JWT usable las tools responden
+  `SPECOE-PROXY-SIN-CREDENCIAL:<motivo>` y el proxy sigue intentando solo.
+- **La entrada `specoe`** pasa a ser `{ "type": "stdio", "command": "node", "args":
+["--use-system-ca", "vendor/specoe-mcp-proxy.mjs"] }`, **sin JWT**. La escribe el propio proxy
+  (`--install-entry`): `setup.sh --room-only` (cuando falta o es la SSE, que migra) y el hook de
+  licencia en cada arranque con JWT usable, también al restituirla después de un retiro. En ese
+  modo el hook ya no exporta `SPECOE_SKILL_JWT`. `setup.sh` corta si falta el proxy.
+- **Room atrasado**: los hooks escriben la entrada del proxy solo si la carpeta trae el proxy con el
+  sha que declara su MANIFEST. Si no, queda la SSE de antes —con el problema de siempre— y el log
+  de licencia nombra el motivo. Actualizar la carpeta lo resuelve.
+- **El aviso `[[SPECOE-MCP-REINICIAR:<motivo>]]`** no sale cuando la sesión arrancó con la entrada
+  del proxy; sigue saliendo para la SSE que no servía y para la ausencia de entrada.
+- **TKT-0225 por rol**: con la entrada del proxy el `.mcp.json` no tiene token que comparar. El
+  arranque avisa `[[SPECOE-ROOM-TOKEN-DIVERGENTE]]` si el claim `sddRole` del JWT del cache difiere
+  del rol que declara la sesión (`INTEGRA_SDD_ROLE`), y el verificador (`specoe-verify-room.sh`)
+  compara contra el rol declarado (o `specoe.role` de la carpeta): el chequeo 3 exige la entrada
+  canónica —se lo pregunta al propio proxy— y un JWT vigente del rol declarado; el 4 baja el
+  contrato solo con ese JWT; el 5 lanza el proxy como lo declara la entrada y le habla MCP por stdio.
+- **Topes por room** (`.claude/specoe-room-ledger.jsonl`, nuevo, fuera de git): a lo sumo una
+  llamada a `/license/validate` por minuto (diez minutos tras un rechazo) contando el hook de
+  licencia y el CLI de renovación, y 12 aperturas de `/sse` por hora contando el proxy y el hook de
+  arranque. Con el tope de `/sse` agotado, el arranque no abre y lo declara
+  (`SPECOE-ROOM-UNGOVERNED:sse-tope`). El validate viaja atribuido al room (`X-Specoe-Room`,
+  `X-Specoe-Caller`) y el cache de licencia se escribe en forma atómica.
+- **CLI de renovación** (`~/.claude/hooks/specoe-license-renew.mjs`): el que usa el proxy para
+  pedir un JWT; aplica los mismos topes y la misma deriva de hooks que el arranque.
+
+Llega por DOS canales y hacen falta los dos: la parte de máquina (`setup.sh --host-only` o
+`specoe-setup-host.sh`: hooks, registro y CLI) y la carpeta del room (`vendor/` con el proxy). La
+entrada de los rooms ya instalados la migra el plugin de VSCode en el Actualizar: esta versión se
+publica junto con ese plugin (abajo). Docs: `docs/QUICKSTART-VSCODE.md` (la entrada y los
+chequeos) y `docs/TROUBLESHOOTING.md`.
+
+**El plugin VSCode 0.6.0** (`vendor/integra-hub-vscode.vsix`; el vendorizado era el 0.5.0 de
+`c28e26f`), re-vendorizado desde `2d5d929` (integra-hub-vscode #27, SPEC-0237 P5) con
+`npm run release:vsix` (`publishable: true`). Su Actualizar migra la entrada `specoe` de cada room
+al proxy:
+
+- Un room que trae el proxy declarado en su `vendor/MANIFEST.json`, con ese sha256, y sigue con la
+  SSE queda pendiente aunque ya esté en la versión publicada.
+- La migración corre después de los rooms y de la parte de máquina, con el `--install-entry` del
+  proxy del propio room (el plugin no copia la entrada), con 30 s de techo; si el `.mcp.json` no
+  queda con la entrada del proxy, o cambió otro server, vuelve a lo que tenía.
+- Un room sin el proxy, uno ya migrado o uno cuya parte de máquina falló conservan su `.mcp.json`
+  byte a byte.
+
+La primera actualización la corre el plugin 0.5.0: pone al día los rooms y la máquina e instala el
+0.6.0, que en su primera activación hace la migración sin preguntar. El room abre su sesión
+siguiente ya con la entrada del proxy.
+
+## 0.2.36 - 2026-09-25 (el room ya no arranca sin contrato por la carrera con la licencia)
+
+Un room podía arrancar sin su contrato de gobierno y con el MCP `specoe` en 401 aunque la
+licencia fuera válida (TKT-0454). Eran dos defectos:
+
+- **Carrera entre hooks.** `specoe-license-check.mjs` y `specoe-room-bootstrap.mjs` corren en
+  paralelo: Claude Code corre a la vez todos los hooks de un evento, y estar antes en el array de
+  `settings.json` no ordena nada. El bootstrap leía el cache de licencia apenas arrancaba. Si la
+  sesión anterior había sido hace más de 55 min, declaraba el room `SPECOE-ROOM-UNGOVERNED:no-token`
+  aunque la licencia validara un instante después. Ahora, si el cache no trae un token usable, lo
+  espera: lo relee hasta que el hook de licencia lo refresque, con un plazo de 6 s. El
+  license-check escribe primero el `.mcp.json` y al final el cache, así que cuando el bootstrap ve
+  el cache fresco el `.mcp.json` ya está al día. El motivo de `no-token` ya no dice que el hook de
+  licencia "corre antes que este".
+- **JWT vencido en el MCP `specoe`.** Medido con Claude Code 2.1.280: conecta los servers del
+  `.mcp.json` antes de que corran los hooks de SessionStart, así que el JWT que el license-check
+  reescribe le llega recién a la sesión siguiente. Pasada 1 h desde la última sesión, el MCP
+  `specoe` conecta con el JWT vencido y responde 401. Desde el hook no se arregla. Lo que cambia
+  es que ahora se avisa: cuando el `.mcp.json` con el que arrancó la sesión no servía (vencido, por
+  vencer, placeholder sin expandir, sin server `specoe` o sin archivo), el arranque lo dice con
+  `[[SPECOE-MCP-REINICIAR:<motivo>]]` y da la salida, que es cerrar la sesión y abrir otra. El MCP
+  `integra-hub` no usa ese JWT y no se ve afectado.
+- **El bloqueo por deriva de hooks dejaba `specoe` declarado.** El camino de deriva (TKT-0321)
+  salía antes de sincronizar el `.mcp.json`, así que seguía declarando `specoe` con el JWT de la
+  última corrida buena, contra la regla del propio hook (`specoe` si y sólo si la corrida tiene un
+  JWT usable). Ahora lo retira antes de bloquear, igual que el camino sin licencia. Esto no cambia
+  la sesión en curso: cambia las siguientes mientras dure la deriva.
+
+Llega con la parte de máquina (`setup.sh --host-only`, que pisa los hooks). No cambia
+`.claude/settings.json`.
+
 ## 0.2.35 - 2026-09-24 (re-vendorizado del plugin VSCode 0.5.0)
 
 El plugin vendorizado era el 0.4.0 (`f28d936`). Re-vendorizado desde `c28e26f` con
@@ -81,7 +174,6 @@ La primera actualizacion la corre el plugin 0.3.0, que todavia tiene el defecto 
 falta destrabarla a mano UNA vez por room (`git fetch --unshallow` + `git merge --ff-only
 origin/main`). Desde la 0.4.0 el boton se recupera solo.
 
-
 ## 0.2.32 - 2026-09-22 (re-vendorizado del MCP del Hub - cutover SPEC-0220)
 
 El bundle del MCP que corren los rooms (`vendor/integra-hub-mcp.mjs`) salia de `08dfddb` (2026-09-03)
@@ -94,7 +186,6 @@ Rebuildeado con `npm run build:bundle` desde `42fe929f`. Reproducibilidad re-ver
 nota del propio manifiesto: dos corridas seguidas dieron `8be6770e...` byte a byte identicas. La
 version del paquete sigue en 0.1.2 a proposito (TKT-0368): no la distingue `--version`, la distinguen
 el sourceSha y el packageSha256 del manifiesto.
-
 
 ## 0.2.31 - 2026-09-09 (SPEC-0223 P5 - re-vendorizado del plugin VSCode 0.3.0)
 

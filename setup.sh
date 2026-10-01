@@ -345,6 +345,12 @@ else
   install_force "$BUNDLE_DIR/hooks/specoe-role-check.mjs"         "$CLAUDE_HOME/hooks/specoe-role-check.mjs"
   install_force "$BUNDLE_DIR/hooks/specoe-license-check.mjs"      "$CLAUDE_HOME/hooks/specoe-license-check.mjs"
   install_force "$BUNDLE_DIR/hooks/specoe-room-bootstrap.mjs"     "$CLAUDE_HOME/hooks/specoe-room-bootstrap.mjs"
+  # SPEC-0237 P2 — el registro por room (topes de validate y de /sse) y el CLI con el que el proxy
+  # renueva el JWT sin reiniciar la sesion. El license-check anota su llamada en el registro, y el
+  # proxy spawnea el CLI desde ~/.claude/hooks: sin estas dos lineas ninguno de los dos llega a la
+  # maquina (el allowlist es POR ARCHIVO, TKT-0232).
+  install_force "$BUNDLE_DIR/hooks/specoe-room-ledger.mjs"        "$CLAUDE_HOME/hooks/specoe-room-ledger.mjs"
+  install_force "$BUNDLE_DIR/hooks/specoe-license-renew.mjs"      "$CLAUDE_HOME/hooks/specoe-license-renew.mjs"
   install_force "$BUNDLE_DIR/hooks/secrets.mjs"                   "$CLAUDE_HOME/hooks/secrets.mjs"
   install_force "$BUNDLE_DIR/hooks/credentials.mjs"               "$CLAUDE_HOME/hooks/credentials.mjs"
   # TKT-0232: lo importan specoe-license-check.mjs (hooks/) y sdd-login.mjs (scripts/). Esta
@@ -827,7 +833,11 @@ fi
 # ----- 5.5. Generar .mcp.json -----
 # El starter renderizado al repo publico NO trae .mcp.json (lleva el bearer del skill-server),
 # asi que sin este paso Claude Code no conecta a los MCP. Genera/actualiza DOS servers:
-#   - specoe (skill-server): placeholders, el SessionStart hook lo puebla con el JWT fresco.
+#   - specoe (skill-server, SPEC-0237 P4 / ADR-005): la entrada del PROXY local del room
+#     (vendor/specoe-mcp-proxy.mjs, stdio, sin JWT). La escribe el propio proxy con --install-entry
+#     —nadie mas copia su forma— cuando falta o cuando es la SSE de antes (la migra, trasladando un
+#     skill-server propio si lo habia). El proxy toma el JWT del cache del room y lo renueva solo:
+#     ya no hay placeholders que el hook de licencia tenga que poblar.
 #   - integra-hub (SPEC-0157): modo USER — la identidad sale del keyring (login SDD). El rol
 #     NO va en este archivo (SPEC-0187 P2): es de la SESIÓN — INTEGRA_SDD_ROLE la exporta el
 #     launcher CLI o el plugin VSCode y el subproceso MCP la hereda del entorno, así hook,
@@ -853,7 +863,18 @@ MCP_BUNDLE="vendor/integra-hub-mcp.mjs"
     b) esta carpeta es un room recortado y '/vendor/' no quedo en SPECOE_ROOM_KEEP (la lista INCLUSIVA de specoe-add-room.sh): entonces el clon del room NO lo trae aunque el starter lo tenga.
   Para distinguirlas: git -C \"$SCRIPT_DIR\" sparse-checkout list   (si no devuelve nada, esta carpeta no es un room recortado y es (a); si devuelve la lista y '/vendor/' no figura, es (b))."
 
-log "Generando/actualizando .mcp.json (specoe + integra-hub modo USER)..."
+# SPEC-0237 P4 — misma precondicion para el proxy del MCP specoe: la entrada que se escribe abajo la
+# arma el propio proxy y lo lanza por path relativo. Sin el archivo no hay quien la escriba, y una
+# entrada que apunte a la nada deja al room sin specoe con la corrida en verde.
+PROXY_BUNDLE="vendor/specoe-mcp-proxy.mjs"
+[ -f "$PROXY_BUNDLE" ] || err "Falta el proxy del MCP specoe: no esta '$PROXY_BUNDLE' en esta carpeta.
+  Sin ese archivo el room no puede levantar el MCP specoe, asi que corto antes de escribir el .mcp.json.
+  Hay DOS causas posibles y hay que descartar las dos:
+    a) el starter de esta carpeta es anterior al release que vendoriza el proxy — actualizalo (git -C \"$SCRIPT_DIR\" pull --ff-only) y volvé a correr el MISMO comando;
+    b) esta carpeta es un room recortado y '/vendor/' no quedo en SPECOE_ROOM_KEEP (la lista INCLUSIVA de specoe-add-room.sh): entonces el clon del room NO lo trae aunque el starter lo tenga.
+  Para distinguirlas: git -C \"$SCRIPT_DIR\" sparse-checkout list   (si no devuelve nada, esta carpeta no es un room recortado y es (a); si devuelve la lista y '/vendor/' no figura, es (b))."
+
+log "Generando/actualizando .mcp.json (specoe por el proxy + integra-hub modo USER)..."
 
 # TKT-0256: las dos lineas leian el MISMO archivo con criterios DISTINTOS — el sed de `role`
 # strippeaba comilla simple + comentario inline, el de `api-url` solo comillas dobles. Como el
@@ -890,17 +911,8 @@ try {
   if (!doc.mcpServers) doc.mcpServers = {};
 } catch { /* no existe o invalido: se genera de cero */ }
 
-// specoe: solo si falta (el hook de licencia lo re-escribe con el JWT fresco).
-if (!doc.mcpServers.specoe) {
-  doc.mcpServers.specoe = {
-    type: 'sse',
-    url: '${SPECOE_SKILL_SERVER_URL:-https://mcp.integra.local/sse}',
-    headers: { Authorization: 'Bearer ${SPECOE_SKILL_JWT}' },
-  };
-  console.log('  [CREATE]  mcpServers.specoe');
-} else {
-  console.log('  [SKIP]    mcpServers.specoe (ya existe)');
-}
+// specoe: NO se toca aca. La escribe el proxy del room con --install-entry, despues de este bloque
+// (SPEC-0237 P4): su forma no se copia en ningun escritor.
 
 // integra-hub: SIEMPRE al shape USER-mode (config derivada — sin secretos). El command sigue
 // siendo `node` con path RELATIVO al cwd del room (modelo stdio sin cambios): lo que cambia es
@@ -941,6 +953,30 @@ console.log('  [WRITE]   mcpServers.integra-hub (modo USER, sin rol: lo declara 
 
 fs.writeFileSync('.mcp.json', JSON.stringify(doc, null, 2) + '\n');
 EOF
+
+# specoe por el proxy (SPEC-0237 P4, ADR-005): se escribe cuando FALTA o cuando es la SSE de antes
+# (con JWT o con los placeholders del instalador viejo). Una entrada que ya lanza el proxy no se
+# toca: si no fuera la canonica, el hook de licencia la deja canonica en el proximo arranque. El
+# `node -e` va en UNA linea: en Git Bash un -e multilinea no ejecuta nada.
+SPECOE_ENTRY="$("$NODE_BIN" -e "let s='falta';try{const e=JSON.parse(require('fs').readFileSync('.mcp.json','utf8')).mcpServers?.specoe;if(e)s=(e.type==='sse'||typeof e.url==='string')?'sse':(Array.isArray(e.args)&&e.args.some(a=>String(a).endsWith('specoe-mcp-proxy.mjs')))?'proxy':'otra'}catch{}console.log(s)")"
+case "$SPECOE_ENTRY" in
+  falta | sse)
+    INSTALL_OUT="$("$NODE_BIN" --use-system-ca "$PROXY_BUNDLE" --install-entry)" \
+      || err "El proxy no pudo escribir la entrada specoe en .mcp.json: ${INSTALL_OUT:-sin salida}
+  El .mcp.json quedo con integra-hub y SIN specoe. Revisa que el archivo sea JSON valido y volvé a correr el MISMO comando."
+    if [ "$SPECOE_ENTRY" = "sse" ]; then
+      log "  [MIGRATE] mcpServers.specoe: de SSE a la entrada del proxy ($PROXY_BUNDLE, sin JWT)"
+    else
+      log "  [CREATE]  mcpServers.specoe (entrada del proxy: $PROXY_BUNDLE, sin JWT)"
+    fi
+    ;;
+  proxy)
+    log "  [SKIP]    mcpServers.specoe (ya lanza el proxy)"
+    ;;
+  *)
+    warn "  [SKIP]    mcpServers.specoe: entrada que no es SSE ni el proxy — este instalador no la toca, pero el hook de licencia la reemplaza por la del proxy en el proximo arranque (una sola forma de la entrada)."
+    ;;
+esac
 
 # ----- 5.6. (LIBRE) -----
 # Acá vivía «Instalar el plugin VSCode Integra Hub». SPEC-0187 P9 / T9.1 lo MUDÓ al flujo de
