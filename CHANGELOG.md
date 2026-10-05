@@ -2,6 +2,10 @@
 
 All notable changes to this project. Automatic — regenerado por `./scripts/changelog.sh`.
 
+## 0.2.39 - 2026-10-05 (plugin 0.6.1: el aviso de actualización llega a los rooms por el MCP nuevo)
+
+Re-vendoriza el plugin VSCode (`vendor/integra-hub-vscode.vsix`) en la versión 0.6.1, construida desde `e79fb9f3`. No trae cambios de código: se publica para que el plugin avise a los devs del bundle del MCP que entró en el 0.2.38, porque el aviso se dispara sólo cuando cambia el `.vsix` (TKT-0448). sha256 del paquete: `197a56ae`.
+
 ## 0.2.38 - 2026-10-05 (re-vendoriza el MCP del Hub con las tools de SPEC-0238)
 
 Re-vendoriza el bundle del MCP del Hub (`vendor/integra-hub-mcp.mjs`) desde `31fad87c`, el master de integra-hub con SPEC-0238 P2 a P7. El Hub ya exige justificación al crear dependencias y casos vinculantes y trae las lecturas de ronda del verdict; con el bundle viejo esos pedidos rebotan 422 desde los rooms SpecOE. Build reproducible: dos corridas dieron el mismo sha256 (`5b6fa7a2`). La versión del paquete sigue en 0.1.2.
