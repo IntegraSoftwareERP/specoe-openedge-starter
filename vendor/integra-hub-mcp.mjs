@@ -4235,8 +4235,8 @@ var require_core = __commonJS({
         for (const jsonPointer of keywordsJsonPointers) {
           const segments = jsonPointer.split("/").slice(1);
           let keywords = metaSchema;
-          for (const seg of segments)
-            keywords = keywords[seg];
+          for (const seg2 of segments)
+            keywords = keywords[seg2];
           for (const key in rules) {
             const rule = rules[key];
             if (typeof rule != "object")
@@ -14333,18 +14333,18 @@ function treeifyError(error48, mapper = (issue2) => issue2.message) {
 }
 function toDotPath(_path) {
   const segs = [];
-  const path3 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
-  for (const seg of path3) {
-    if (typeof seg === "number")
-      segs.push(`[${seg}]`);
-    else if (typeof seg === "symbol")
-      segs.push(`[${JSON.stringify(String(seg))}]`);
-    else if (/[^\w$]/.test(seg))
-      segs.push(`[${JSON.stringify(seg)}]`);
+  const path3 = _path.map((seg2) => typeof seg2 === "object" ? seg2.key : seg2);
+  for (const seg2 of path3) {
+    if (typeof seg2 === "number")
+      segs.push(`[${seg2}]`);
+    else if (typeof seg2 === "symbol")
+      segs.push(`[${JSON.stringify(String(seg2))}]`);
+    else if (/[^\w$]/.test(seg2))
+      segs.push(`[${JSON.stringify(seg2)}]`);
     else {
       if (segs.length)
         segs.push(".");
-      segs.push(seg);
+      segs.push(seg2);
     }
   }
   return segs.join("");
@@ -33896,7 +33896,7 @@ function specSetDocumentationShape(catalog) {
     instantiationCheck: external_exports3.record(external_exports3.string(), external_exports3.unknown()).optional().describe("SPEC-0100 F4 \u2014 { item: resultado discreto }. Requerido al registrar ADVERSARIAL_VERDICT sobre una SPEC con ENGINEERING_PLAN."),
     // SPEC-0168 P1 — declaracion de cobertura del verdict.
     coverageDeclaration: external_exports3.record(external_exports3.string(), external_exports3.unknown()).optional().describe(
-      "SPEC-0168 \u2014 { reviewedArtifactContentHash, outputUnits[], outputFamilies[], inputSources[] }. El hash sale del contentHash que spec_get_documentation expone por secci\xF3n. La granularidad de salida la fija VERDICT_COVERAGE_MODE del servidor (TKT-0388): per-family (default) o per-item. Si no sab\xE9s en qu\xE9 modo corre el Hub, mand\xE1 la declaraci\xF3n vac\xEDa: el 422 VERDICT_COVERAGE_REQUIRED devuelve expectedFamilies."
+      "SPEC-0168 \u2014 { reviewedArtifactContentHash, outputUnits[], outputFamilies[], inputSources[] }. El hash sale del contentHash que spec_get_documentation expone por secci\xF3n. La granularidad de salida la fija VERDICT_COVERAGE_MODE del servidor (TKT-0388): per-family (default) o per-item. Si no sab\xE9s en qu\xE9 modo corre el Hub, mand\xE1 la declaraci\xF3n vac\xEDa: el 422 VERDICT_COVERAGE_REQUIRED devuelve expectedFamilies. SPEC-0238 P5 \u2014 desde la segunda ronda, disposition UNCHANGED (unidad, o familia en per-family) sobre lo que el Hub calcula sin cambios contra el verdict anterior con foto (spec_artifact_changes_read); compatible con verdictScope FULL. Sobre algo cambiado, o sin verdict anterior con foto: 422 VERDICT_COVERAGE_UNCHANGED_INVALID."
     ),
     // SPEC-0109 P3 — trail append-only.
     round: external_exports3.number().int().optional().describe("n\xFAmero de ronda del trail (kinds APPEND)."),
@@ -33922,7 +33922,14 @@ function specSetDocumentationShape(catalog) {
           "TKT-0266 \u2014 que debe resolverse antes del cierre. Sobre un finding CONTRADICTION su presencia GATEA la transicion con independencia de la severidad (ADVERSARIAL_CONTRADICTION_GATING): se resuelve, o se acepta el riesgo con firma."
         ),
         referenceType: external_exports3.enum(["SPEC", "PHASE", "TASK", "ACCEPTANCE_CRITERION", "TEST_CASE", "SPEC_DOCUMENTATION"]).optional().describe("TKT-0267 \u2014 tipo del objeto que el finding nombra. Va JUNTO con referenceId: un tipo sin id no direcciona."),
-        referenceId: external_exports3.string().min(1).max(64).optional().describe("TKT-0267 \u2014 cuid del objeto referenciado. Se valida que resuelva a un objeto de ESTA SPEC; si no resuelve, el registro del verdict rebota.")
+        referenceId: external_exports3.string().min(1).max(64).optional().describe("TKT-0267 \u2014 cuid del objeto referenciado. Se valida que resuelva a un objeto de ESTA SPEC; si no resuelve, el registro del verdict rebota."),
+        // SPEC-0238 P5 (ADR-005) — unidades y origen del hallazgo. isLate NO viaja: lo calcula el Hub.
+        unitKeys: external_exports3.array(external_exports3.string().min(1)).max(20).optional().describe(
+          "SPEC-0238 P5 \u2014 unidades del artefacto revisado de las que habla el hallazgo, con las claves de cobertura (PHASE:<cuid>, PLAN_ADR:ADR-002, scope_in[3]; spec_artifact_changes_read las lista). Obligatorio en un hallazgo NUEVO desde la segunda ronda con foto (422 FINDING_UNIT_KEYS_REQUIRED); cada clave existe en el artefacto vigente o se quito desde el verdict anterior (422 FINDING_UNIT_KEY_UNKNOWN). Un hallazgo arrastrado (findingKey ya usado en un verdict anterior del mismo artefacto) no lo necesita."
+        ),
+        lateOrigin: external_exports3.string().optional().describe(
+          "SPEC-0238 P5 \u2014 origen de un hallazgo TARDIO: el Hub lo marca tardio si es nuevo y todas sus unidades siguen iguales a la primera ronda con foto, y entonces exige este campo con 20 o mas caracteres (422 LATE_FINDING_ORIGIN_REQUIRED). Uno que nombra tambien una unidad cambiada no es tardio."
+        )
       }).strict()
     ).optional().describe("SPEC-0172 P3 \u2014 findings estructurados del ADVERSARIAL_VERDICT (exige findingsSchemaVersion).")
   };
@@ -33986,7 +33993,7 @@ var evidenceRefShape = external_exports3.object({
   path: external_exports3.string().describe("Path relativo a la raiz de ese repo."),
   line: external_exports3.number().int().optional().describe("Linea dentro del path (opcional).")
 });
-var SPEC_TEST_CASE_ADD_DESCRIPTION = "Crea un TestCase sobre una SPEC. SPEC-0220: successCriterion es un valor tipado testCase.successCriterion (no texto libre; un string rebota 422 TYPED_CONTENT_LEGACY_SHAPE) y es obligatorio (sin \xE9l \u2192 422). No puede arrancar con un marker [gen:...] (\u2192 422 MARKER_NOT_ALLOWED_IN_MANUAL_ADD, TKT-0229). binding se deriva server-side: scope SPEC u originRole ENGINEERING (rol actuante) fuerzan binding=true; el resto nace no vinculante. originRole se toma del rol actuante (x-act-as-role) o del rol del user; originUserId del JWT; originSource default MANUAL. Un caso scope GROUP/PHASE referencia sus fases en phaseIds.";
+var SPEC_TEST_CASE_ADD_DESCRIPTION = "Crea un TestCase sobre una SPEC. SPEC-0220: successCriterion es un valor tipado testCase.successCriterion (no texto libre; un string rebota 422 TYPED_CONTENT_LEGACY_SHAPE) y es obligatorio (sin \xE9l \u2192 422). No puede arrancar con un marker [gen:...] (\u2192 422 MARKER_NOT_ALLOWED_IN_MANUAL_ADD, TKT-0229). binding se deriva server-side: scope SPEC u originRole ENGINEERING (rol actuante) fuerzan binding=true; el resto nace no vinculante. originRole se toma del rol actuante (x-act-as-role) o del rol del user; originUserId del JWT; originSource default MANUAL. Un caso scope GROUP/PHASE referencia sus fases en phaseIds. SPEC-0238 P3: si el alta resulta vinculante, bindingJustification es obligatoria (20+ caracteres normalizados) o 422 BINDING_JUSTIFICATION_REQUIRED; en un alta no vinculante se ignora.";
 function specTestCaseAddShape(catalog) {
   return {
     specId: external_exports3.string().describe("Spec ID (cuid)"),
@@ -33994,7 +34001,13 @@ function specTestCaseAddShape(catalog) {
     successCriterion: catalog.value("testCase.successCriterion").describe(typedFieldDescription(["testCase.successCriterion"], "Obligatorio.")),
     phaseIds: external_exports3.array(external_exports3.string()).optional().describe("cuids de las SpecPhase referenciadas (scope GROUP/PHASE). Default []."),
     originSource: external_exports3.enum(["MANUAL", "EXPECTED_OUTCOME", "RISK_FLAG"]).optional().describe("Procedencia del caso. Default MANUAL."),
-    proposedAlertLevel: external_exports3.enum(["BLOCANTE", "INFORMATIVO"]).optional().describe("Nivel de alerta propuesto (opcional).")
+    proposedAlertLevel: external_exports3.enum(["BLOCANTE", "INFORMATIVO"]).optional().describe("Nivel de alerta propuesto (opcional)."),
+    // SPEC-0238 P3 (ADR-007) — opcional en el schema: si es obligatoria depende de si el alta RESULTA
+    // vinculante (scope SPEC o rol ENGINEERING), y eso lo decide el Hub, que también cuenta el largo
+    // normalizado. El shape externo y el `.strict()` son el mismo objeto.
+    bindingJustification: external_exports3.string().optional().describe(
+      "Por qu\xE9 el caso es vinculante. OBLIGATORIA si el alta resulta vinculante (scope SPEC u originRole ENGINEERING): 20+ caracteres despu\xE9s de recortar y colapsar espacios, o 422 BINDING_JUSTIFICATION_REQUIRED. En un alta no vinculante se ignora."
+    )
   };
 }
 function makeSpecTestCaseAddHandler(client, catalog) {
@@ -34026,13 +34039,18 @@ function makeSpecTestCaseSetResultHandler(client, catalog) {
     async ({ specId, id, ...body }) => typedToolResult(await client.post(`/specs/${specId}/test-cases/${id}/result`, body))
   );
 }
-var SPEC_TEST_CASE_PROMOTE_DESCRIPTION = "Promueve un TestCase a vinculante (setea binding=true + promotedBy/promotedAt). La promoci\xF3n normal es solo de ENGINEERING (rol actuante); otros roles deben usar force=true con reason (v\xE1lvula anti-limbo del Operador, doc 10 \xA75.4). force sin reason \u2192 422. SPEC-0220: `reason` es un valor tipado testCase.promotionReason, no texto libre; un string rebota 422 TYPED_CONTENT_LEGACY_SHAPE.";
+var SPEC_TEST_CASE_PROMOTE_DESCRIPTION = "Promueve un TestCase a vinculante (setea binding=true + promotedBy/promotedAt). La promoci\xF3n normal es solo de ENGINEERING (rol actuante); otros roles deben usar force=true con reason (v\xE1lvula anti-limbo del Operador, doc 10 \xA75.4). force sin reason \u2192 422. SPEC-0220: `reason` es un valor tipado testCase.promotionReason, no texto libre; un string rebota 422 TYPED_CONTENT_LEGACY_SHAPE. SPEC-0238 P3: justification es obligatoria en la promoci\xF3n normal y en la forzada (20+ caracteres normalizados, o 422 BINDING_JUSTIFICATION_REQUIRED) y queda en bindingJustification; en la forzada reason sigue diciendo por qu\xE9 se forz\xF3.";
 function specTestCasePromoteShape(catalog) {
   return {
     specId: external_exports3.string().describe("Spec ID (cuid)"),
     id: external_exports3.string().describe("TestCase ID (cuid)"),
     force: external_exports3.boolean().optional().describe('V\xE1lvula del Operador: fuerza la promoci\xF3n saltando "solo ENGINEERING". Exige reason.'),
-    reason: catalog.value("testCase.promotionReason").optional().describe(typedFieldDescription(["testCase.promotionReason"], "Obligatoria si force=true."))
+    reason: catalog.value("testCase.promotionReason").optional().describe(typedFieldDescription(["testCase.promotionReason"], "Obligatoria si force=true.")),
+    // SPEC-0238 P3 (ADR-007) — obligatoria en los dos caminos: el shape externo y el `.strict()` son
+    // el mismo objeto y el handler la manda en el cuerpo del POST.
+    justification: external_exports3.string().min(20).describe(
+      "REQUIRED \u2014 por qu\xE9 el caso pasa a ser vinculante, 20+ caracteres despu\xE9s de recortar y colapsar espacios (promoci\xF3n normal y forzada). Se guarda en bindingJustification. Sin ella el Hub responde 422 BINDING_JUSTIFICATION_REQUIRED."
+    )
   };
 }
 function makeSpecTestCasePromoteHandler(client, catalog) {
@@ -34478,20 +34496,25 @@ var taskAddDependencySchema = {
   taskId: external_exports3.string().describe("Task ID (cuid) de la task que DEPENDE"),
   dependsOnTaskId: external_exports3.string().describe("Task ID (cuid) de la task de la que esta depende"),
   type: external_exports3.enum(["BLOCKS", "RELATES_TO"]).optional().describe("BLOCKS (default) frena el despacho automatico; RELATES_TO declara parentesco y no bloquea."),
-  note: external_exports3.string().optional().describe("Nota libre sobre por que existe la dependencia.")
+  note: external_exports3.string().optional().describe("Nota libre sobre por que existe la dependencia."),
+  // SPEC-0238 P2 (ADR-006) — obligatoria: el shape externo y el `.strict()` son el mismo objeto.
+  justification: external_exports3.string().min(20).describe(
+    "OBLIGATORIA \u2014 por que existe la dependencia, 20 o mas caracteres despues de recortar y colapsar espacios. Sin ella el Hub responde 422 DEPENDENCY_JUSTIFICATION_REQUIRED."
+  )
 };
 var AddDependencyParams = external_exports3.object(taskAddDependencySchema).strict();
 function makeTaskAddDependencyHandler(client) {
   return async (params) => {
     const parsed = strictOrError(AddDependencyParams, params);
     if (!parsed.ok) return parsed.result;
-    const { specId, phaseId, taskId, dependsOnTaskId, type, note } = parsed.data;
+    const { specId, phaseId, taskId, dependsOnTaskId, type, note, justification } = parsed.data;
     const result = await client.post(
       `/specs/${specId}/phases/${phaseId}/tasks/${taskId}/dependencies`,
       {
         dependsOnTaskId,
         ...type !== void 0 ? { type } : {},
-        ...note !== void 0 ? { note } : {}
+        ...note !== void 0 ? { note } : {},
+        justification
       }
     );
     return ok(result);
@@ -35443,6 +35466,228 @@ function makeRiskAcceptanceReasonDeleteHandler(client) {
   };
 }
 
+// src/tools/corpus-tools.ts
+var CORPUS_SCOPES = ["TENANT", "PROJECT"];
+var CORPUS_TRANSITION_NAMES = [
+  "APPROVE",
+  "ACTIVATE",
+  "REJECT",
+  "SUSPEND",
+  "SUPERSEDE",
+  "ARCHIVE"
+];
+var CORPUS_RELATION_KINDS = ["SUPERSEDES", "DEPENDS_ON", "DERIVED_FROM"];
+var CORPUS_EXCEPTION_KINDS = ["REPLACES", "LIMITS"];
+var SCOPE = external_exports3.enum(CORPUS_SCOPES).describe("Alcance del documento: TENANT (todo el tenant) o PROJECT (un Project).");
+var REQUIRED_TOKENS = tokensSchema.refine((tokens) => Object.values(tokens).some((t) => t !== void 0), {
+  message: "verification_tokens exige al menos un token (presence, absence, absence_at, external, operator_decision o gate_required)"
+});
+var TOKENS_VALIDATED_ONLY = REQUIRED_TOKENS.describe(
+  "OBLIGATORIO (requires_tokens): al menos un token (presence, absence, absence_at, external, operator_decision o gate_required). Sin el la tool rechaza antes de llamar al backend y no cambia nada. Se valida su FORMA; no se registra en ninguna parte (no hay campo del DTO donde ponerlo) y el Hub no verifica su evidencia."
+);
+var PROJECT_ID_FOR_SCOPE = external_exports3.string().nullable().optional().describe(
+  "Project del tenant del llamador. Obligatorio si scope es PROJECT y prohibido si es TENANT (400 en cualquiera de los dos casos incoherentes); un Project inexistente o de otro tenant responde 404 sin escribir filas."
+);
+var corpusDocumentCreateSchema = {
+  title: external_exports3.string().describe("Titulo del documento (no vacio)."),
+  content: external_exports3.string().describe("Texto del documento en markdown."),
+  summary: external_exports3.string().optional().describe("Resumen breve."),
+  scope: SCOPE,
+  projectId: PROJECT_ID_FOR_SCOPE,
+  tags: external_exports3.array(external_exports3.string()).optional().describe("Tags del KbArticle que respalda al documento."),
+  verification_tokens: TOKENS_VALIDATED_ONLY
+};
+var corpusDocumentUpdateSchema = {
+  id: external_exports3.string().describe("CorpusDocument.id (cuid) del documento cuyo TEXTO se edita. NO es el id del KbArticle."),
+  title: external_exports3.string().optional().describe("Titulo nuevo (no vacio). Cambiarlo crea una revision de texto."),
+  content: external_exports3.string().optional().describe("Texto nuevo en markdown. Cambiarlo crea una revision de texto."),
+  summary: external_exports3.string().optional().describe("Resumen nuevo."),
+  changeLog: external_exports3.string().optional().describe("Nota de la revision de texto.")
+};
+var corpusDocumentSetScopeSchema = {
+  id: external_exports3.string().describe("CorpusDocument.id (cuid) del documento."),
+  scope: SCOPE,
+  projectId: PROJECT_ID_FOR_SCOPE,
+  effectiveFrom: external_exports3.string().optional().describe("Inicio de vigencia (ISO 8601). Omitido no se toca; no admite null."),
+  effectiveTo: external_exports3.string().nullable().optional().describe("Fin de vigencia (ISO 8601), o null para reabrir la ventana (sin fin). Omitido no se toca."),
+  verification_tokens: TOKENS_VALIDATED_ONLY
+};
+var corpusDocumentTransitionSchema = {
+  id: external_exports3.string().describe("CorpusDocument.id (cuid) del documento."),
+  transition: external_exports3.enum(CORPUS_TRANSITION_NAMES).describe(
+    "Acto del ciclo de vida (ADR-008). El destino lo fija la tabla del backend, no el llamador: APPROVE (PROPOSED a APPROVED), REJECT (PROPOSED a REJECTED), ACTIVATE (APPROVED o SUSPENDED a ACTIVE; exige effectiveFrom), SUSPEND (ACTIVE a SUSPENDED), SUPERSEDE (ACTIVE o SUSPENDED a SUPERSEDED; exige supersededByDocumentId), ARCHIVE (a ARCHIVED, terminal). Aprobar y poner en vigencia son DOS llamadas: APPROVE no abre la ventana, ACTIVATE si."
+  ),
+  effectiveFrom: external_exports3.string().optional().describe("Inicio de vigencia (ISO 8601; puede ser futuro). Obligatorio en ACTIVATE."),
+  supersededByDocumentId: external_exports3.string().optional().describe(
+    "CorpusDocument.id que reemplaza a este. Obligatorio en SUPERSEDE: del mismo tenant, distinto de este y en APPROVED o ACTIVE (ADR-009)."
+  ),
+  note: external_exports3.string().optional().describe("Nota libre del acto; queda en el snapshot de la revision, despues de la tabla de verificacion."),
+  verification_tokens: REQUIRED_TOKENS.describe(
+    "OBLIGATORIO en toda transicion (requires_tokens): al menos un token (presence, absence, absence_at, external, operator_decision o gate_required). Sin el la tool rechaza antes de llamar al backend y el documento no cambia. Se valida su FORMA y se REGISTRA al frente de note (queda en el snapshot de la revision); el Hub no verifica su evidencia."
+  )
+};
+var corpusRelationAddSchema = {
+  id: external_exports3.string().describe("CorpusDocument.id (cuid) de ORIGEN de la relacion."),
+  toDocumentId: external_exports3.string().describe("CorpusDocument.id de destino: del tenant del llamador y distinto del de origen."),
+  kind: external_exports3.enum(CORPUS_RELATION_KINDS).describe("Tipo de relacion. La misma relacion (mismo destino y kind) no se repite."),
+  verification_tokens: TOKENS_VALIDATED_ONLY
+};
+var corpusRelationRemoveSchema = {
+  id: external_exports3.string().describe("CorpusDocument.id (cuid) que es extremo de la relacion."),
+  relationId: external_exports3.string().describe("CorpusRelation.id (cuid), tal como lo devuelve corpus_relation_list.")
+};
+var corpusRelationListSchema = {
+  id: external_exports3.string().describe("CorpusDocument.id (cuid) del documento.")
+};
+var corpusDocumentHistorySchema = {
+  id: external_exports3.string().describe("CorpusDocument.id (cuid) del documento."),
+  at: external_exports3.string().optional().describe("ISO 8601: acota la serie a las entradas con fecha menor o igual. Omitido devuelve toda la historia.")
+};
+var corpusExceptionRegisterSchema = {
+  projectId: external_exports3.string().describe("Project del tenant del llamador que declara la excepcion."),
+  tenantDocumentId: external_exports3.string().describe("CorpusDocument.id de scope TENANT que queda exceptuado para ese Project."),
+  exceptionDocumentId: external_exports3.string().describe("CorpusDocument.id de scope PROJECT, del mismo Project, que reemplaza o limita la regla."),
+  kind: external_exports3.enum(CORPUS_EXCEPTION_KINDS).describe("REPLACES sustituye la regla del Tenant; LIMITS la acota. Sin default: hay que decidirlo."),
+  rationale: external_exports3.string().describe("Motivo de la excepcion (no vacio)."),
+  verification_tokens: TOKENS_VALIDATED_ONLY
+};
+var corpusExceptionRemoveSchema = {
+  id: external_exports3.string().describe("CorpusException.id (cuid), tal como lo devuelve corpus_exception_list.")
+};
+var corpusExceptionListSchema = {
+  projectId: external_exports3.string().describe("Project cuyas excepciones se listan. Obligatorio: sin el la ruta responde 400 en vez de devolver las de todo el tenant.")
+};
+var corpusCurrentGetSchema = {
+  projectId: external_exports3.string().describe("Project del tenant del llamador cuyo corpus vigente se recupera."),
+  at: external_exports3.string().optional().describe("Momento (ISO 8601) contra el que se evalua la ventana de vigencia. Omitido vale el instante de la consulta."),
+  limit: external_exports3.number().optional().describe("Tamano de pagina (default 20, maximo 100)."),
+  offset: external_exports3.number().optional().describe("Offset de la pagina (default 0).")
+};
+var CorpusDocumentCreateParamsSchema = external_exports3.object(corpusDocumentCreateSchema).strict();
+var CorpusDocumentUpdateParamsSchema = external_exports3.object(corpusDocumentUpdateSchema).strict();
+var CorpusDocumentSetScopeParamsSchema = external_exports3.object(corpusDocumentSetScopeSchema).strict();
+var CorpusDocumentTransitionParamsSchema = external_exports3.object(corpusDocumentTransitionSchema).strict();
+var CorpusRelationAddParamsSchema = external_exports3.object(corpusRelationAddSchema).strict();
+var CorpusRelationRemoveParamsSchema = external_exports3.object(corpusRelationRemoveSchema).strict();
+var CorpusRelationListParamsSchema = external_exports3.object(corpusRelationListSchema).strict();
+var CorpusDocumentHistoryParamsSchema = external_exports3.object(corpusDocumentHistorySchema).strict();
+var CorpusExceptionRegisterParamsSchema = external_exports3.object(corpusExceptionRegisterSchema).strict();
+var CorpusExceptionRemoveParamsSchema = external_exports3.object(corpusExceptionRemoveSchema).strict();
+var CorpusExceptionListParamsSchema = external_exports3.object(corpusExceptionListSchema).strict();
+var CorpusCurrentGetParamsSchema = external_exports3.object(corpusCurrentGetSchema).strict();
+function schemaError4(issues) {
+  const detail = issues.map((e) => `${e.path?.join(".") || "(root)"}: ${e.message}`).join("; ");
+  return { isError: true, content: [{ type: "text", text: `Schema validation failed: ${detail}` }] };
+}
+function asResult(result) {
+  return { content: [{ type: "text", text: JSON.stringify(result ?? { ok: true }, null, 2) }] };
+}
+var seg = encodeURIComponent;
+function queryString(params) {
+  const qs = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== void 0) qs.set(key, String(value));
+  }
+  const text = qs.toString();
+  return text ? `?${text}` : "";
+}
+function makeCorpusDocumentCreateHandler(client) {
+  return async (params) => {
+    const parsed = CorpusDocumentCreateParamsSchema.safeParse(params);
+    if (!parsed.success) return schemaError4(parsed.error.issues);
+    const { verification_tokens: _verification_tokens, ...body } = parsed.data;
+    return asResult(await client.post("/corpus/documents", body));
+  };
+}
+function makeCorpusDocumentUpdateHandler(client) {
+  return async (params) => {
+    const parsed = CorpusDocumentUpdateParamsSchema.safeParse(params);
+    if (!parsed.success) return schemaError4(parsed.error.issues);
+    const { id, ...body } = parsed.data;
+    return asResult(await client.patch(`/corpus/documents/${seg(id)}`, body));
+  };
+}
+function makeCorpusDocumentSetScopeHandler(client) {
+  return async (params) => {
+    const parsed = CorpusDocumentSetScopeParamsSchema.safeParse(params);
+    if (!parsed.success) return schemaError4(parsed.error.issues);
+    const { id, verification_tokens: _verification_tokens, ...body } = parsed.data;
+    return asResult(await client.patch(`/corpus/documents/${seg(id)}/scope`, body));
+  };
+}
+function makeCorpusDocumentTransitionHandler(client) {
+  return async (params) => {
+    const parsed = CorpusDocumentTransitionParamsSchema.safeParse(params);
+    if (!parsed.success) return schemaError4(parsed.error.issues);
+    const { id, verification_tokens, note, ...rest } = parsed.data;
+    const body = { ...rest, note: prependTokensHeader(note ?? "", verification_tokens).trimEnd() };
+    return asResult(await client.post(`/corpus/documents/${seg(id)}/transitions`, body));
+  };
+}
+function makeCorpusRelationAddHandler(client) {
+  return async (params) => {
+    const parsed = CorpusRelationAddParamsSchema.safeParse(params);
+    if (!parsed.success) return schemaError4(parsed.error.issues);
+    const { id, verification_tokens: _verification_tokens, ...body } = parsed.data;
+    return asResult(await client.post(`/corpus/documents/${seg(id)}/relations`, body));
+  };
+}
+function makeCorpusRelationRemoveHandler(client) {
+  return async (params) => {
+    const parsed = CorpusRelationRemoveParamsSchema.safeParse(params);
+    if (!parsed.success) return schemaError4(parsed.error.issues);
+    const { id, relationId } = parsed.data;
+    return asResult(await client.del(`/corpus/documents/${seg(id)}/relations/${seg(relationId)}`));
+  };
+}
+function makeCorpusRelationListHandler(client) {
+  return async (params) => {
+    const parsed = CorpusRelationListParamsSchema.safeParse(params);
+    if (!parsed.success) return schemaError4(parsed.error.issues);
+    return asResult(await client.get(`/corpus/documents/${seg(parsed.data.id)}/relations`));
+  };
+}
+function makeCorpusDocumentHistoryHandler(client) {
+  return async (params) => {
+    const parsed = CorpusDocumentHistoryParamsSchema.safeParse(params);
+    if (!parsed.success) return schemaError4(parsed.error.issues);
+    const { id, at } = parsed.data;
+    return asResult(await client.get(`/corpus/documents/${seg(id)}/history${queryString({ at })}`));
+  };
+}
+function makeCorpusExceptionRegisterHandler(client) {
+  return async (params) => {
+    const parsed = CorpusExceptionRegisterParamsSchema.safeParse(params);
+    if (!parsed.success) return schemaError4(parsed.error.issues);
+    const { verification_tokens: _verification_tokens, ...body } = parsed.data;
+    return asResult(await client.post("/corpus/exceptions", body));
+  };
+}
+function makeCorpusExceptionRemoveHandler(client) {
+  return async (params) => {
+    const parsed = CorpusExceptionRemoveParamsSchema.safeParse(params);
+    if (!parsed.success) return schemaError4(parsed.error.issues);
+    return asResult(await client.del(`/corpus/exceptions/${seg(parsed.data.id)}`));
+  };
+}
+function makeCorpusExceptionListHandler(client) {
+  return async (params) => {
+    const parsed = CorpusExceptionListParamsSchema.safeParse(params);
+    if (!parsed.success) return schemaError4(parsed.error.issues);
+    return asResult(await client.get(`/corpus/exceptions${queryString({ projectId: parsed.data.projectId })}`));
+  };
+}
+function makeCorpusCurrentGetHandler(client) {
+  return async (params) => {
+    const parsed = CorpusCurrentGetParamsSchema.safeParse(params);
+    if (!parsed.success) return schemaError4(parsed.error.issues);
+    const { projectId, at, limit, offset } = parsed.data;
+    return asResult(
+      await client.get(`/corpus/projects/${seg(projectId)}/current${queryString({ at, limit, offset })}`)
+    );
+  };
+}
+
 // src/tools/operator-input.ts
 var specRequestOperatorInputSchema = {
   specId: external_exports3.string().describe("Spec ID (cuid)"),
@@ -35461,7 +35706,7 @@ var specOperatorInputListSchema = {
 };
 var RequestParamsSchema = external_exports3.object(specRequestOperatorInputSchema).strict();
 var ListParamsSchema3 = external_exports3.object(specOperatorInputListSchema).strict();
-function schemaError4(issues) {
+function schemaError5(issues) {
   return {
     isError: true,
     content: [
@@ -35475,7 +35720,7 @@ function schemaError4(issues) {
 function makeSpecRequestOperatorInputHandler(client) {
   return async (params) => {
     const parsed = RequestParamsSchema.safeParse(params);
-    if (!parsed.success) return schemaError4(parsed.error.issues);
+    if (!parsed.success) return schemaError5(parsed.error.issues);
     const { specId, questions, artifactKind } = parsed.data;
     const result = await client.post(
       `/specs/${encodeURIComponent(specId)}/operator-input`,
@@ -35487,7 +35732,7 @@ function makeSpecRequestOperatorInputHandler(client) {
 function makeSpecOperatorInputListHandler(client) {
   return async (params) => {
     const parsed = ListParamsSchema3.safeParse(params);
-    if (!parsed.success) return schemaError4(parsed.error.issues);
+    if (!parsed.success) return schemaError5(parsed.error.issues);
     const { specId, status } = parsed.data;
     const base = `/specs/${encodeURIComponent(specId)}/operator-input`;
     const path3 = status === void 0 ? base : `${base}?status=${status}`;
@@ -36857,7 +37102,7 @@ server.tool(
 );
 server.tool(
   "task_add_dependency",
-  "SPEC-0223 P3 \u2014 declara que una task de fase depende de OTRA task de la MISMA fase. Solo las aristas BLOCKS (default) frenan el despacho automatico: mientras la task destino no este DONE, el motor de elegibilidad no entrega la origen. RELATES_TO declara parentesco y no bloquea. Las dos tasks tienen que estar linkeadas a la misma fase y al mismo tenant \u2014 cualquier otra cosa devuelve 404 sin crear fila. Requiere task.dependency.write (ENGINEERING, OPERATOR o TESTER).",
+  "SPEC-0223 P3 \u2014 declara que una task de fase depende de OTRA task de la MISMA fase. Solo las aristas BLOCKS (default) frenan el despacho automatico: mientras la task destino no este DONE, el motor de elegibilidad no entrega la origen. RELATES_TO declara parentesco y no bloquea. Las dos tasks tienen que estar linkeadas a la misma fase y al mismo tenant \u2014 cualquier otra cosa devuelve 404 sin crear fila. Requiere task.dependency.write (ENGINEERING, OPERATOR o TESTER). SPEC-0238 P2: justification obligatoria (20+ caracteres normalizados) o 422 DEPENDENCY_JUSTIFICATION_REQUIRED.",
   taskAddDependencySchema,
   makeTaskAddDependencyHandler(apiClient)
 );
@@ -37003,7 +37248,7 @@ server.tool(
 );
 server.tool(
   "spec_findings_read",
-  "Read the structured findings of a SPEC ADVERSARIAL_VERDICT (SPEC-0172 P6). Returns severity, finding class, resolution status and the full acceptance state (signer, effective role, date, justification and revert marker) WITHOUT deserializing the artifact markdown. By default only the CURRENT verdict \u2014 the only one the severity threshold evaluates; includeSuperseded=true adds previous rounds, each with its artifact `round` and `isCurrentVerdict: false`. Optional severity/status filters. Requires spec.findings_read (TKT-0271 \u2014 the six SDD roles carry this key; it used to be spec.read, which no SDD role holds, so every SDD session got 403). 404 if the SPEC does not belong to the caller tenant. Double-schema (external shape + .strict() internal) \u2014 each field must be in BOTH or the SDK strips it.",
+  "Read the structured findings of a SPEC ADVERSARIAL_VERDICT (SPEC-0172 P6). Returns severity, finding class, resolution status and the full acceptance state (signer, effective role, date, justification and revert marker) WITHOUT deserializing the artifact markdown. By default only the CURRENT verdict \u2014 the only one the severity threshold evaluates; includeSuperseded=true adds previous rounds, each with its artifact `round` and `isCurrentVerdict: false`. Optional severity/status filters. Each finding also carries unitKeys, isLate (computed by the Hub) and lateOrigin (SPEC-0238 P5). Requires spec.findings_read (TKT-0271 \u2014 the six SDD roles carry this key; it used to be spec.read, which no SDD role holds, so every SDD session got 403). 404 if the SPEC does not belong to the caller tenant. Double-schema (external shape + .strict() internal) \u2014 each field must be in BOTH or the SDK strips it.",
   {
     specId: external_exports3.string().describe("Spec ID (cuid)"),
     severity: external_exports3.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"]).optional().describe("Optional filter by finding severity."),
@@ -37034,7 +37279,7 @@ server.tool(
 );
 server.tool(
   "spec_finding_get",
-  "Read ONE finding of a SPEC ADVERSARIAL_VERDICT by its cuid OR by its findingKey \u2014 the key the verdict names it with (SPEC-0172 P6, literal verification of O2: querying the resolution state of an individual finding without deserializing the artifact blob). If the key only exists in a superseded round, that one is returned with `isCurrentVerdict: false` and its `round`. Requires spec.findings_read (TKT-0271 \u2014 the six SDD roles carry this key; it used to be spec.read, which no SDD role holds, so every SDD session got 403). 404 FINDING_NOT_FOUND if neither the id nor the key match inside the SPEC. Double-schema (external shape + .strict() internal).",
+  "Read ONE finding of a SPEC ADVERSARIAL_VERDICT by its cuid OR by its findingKey \u2014 the key the verdict names it with (SPEC-0172 P6, literal verification of O2: querying the resolution state of an individual finding without deserializing the artifact blob). If the key only exists in a superseded round, that one is returned with `isCurrentVerdict: false` and its `round`. Carries unitKeys, isLate and lateOrigin (SPEC-0238 P5). Requires spec.findings_read (TKT-0271 \u2014 the six SDD roles carry this key; it used to be spec.read, which no SDD role holds, so every SDD session got 403). 404 FINDING_NOT_FOUND if neither the id nor the key match inside the SPEC. Double-schema (external shape + .strict() internal).",
   {
     specId: external_exports3.string().describe("Spec ID (cuid)"),
     findingId: external_exports3.string().describe('AdversarialFinding cuid OR findingKey (e.g. "F3") of the finding to read')
@@ -37043,6 +37288,32 @@ server.tool(
     external_exports3.object({ specId: external_exports3.string(), findingId: external_exports3.string() }).strict(),
     params,
     ({ specId, findingId }) => apiClient.get(`/specs/${specId}/verdict-findings/${findingId}`)
+  )
+);
+server.tool(
+  "spec_artifact_changes_read",
+  "Read which coverage units of the CURRENT DISCOVERY_REPORT or ENGINEERING_PLAN changed against the photo of the last ADVERSARIAL_VERDICT with a photo on that artifact (SPEC-0238 P5, ADR-004). Returns previousVerdictId (null if no earlier verdict has a photo: then every unit is changed), units [{unitKey, family, changed}], removedUnitKeys and counts. The server computes the change \u2014 an edited report item shows as changed and its old content as removed; a reordered one does not change. A focused round reviews the changed units and may declare UNCHANGED on the rest. Requires the same read access as spec_get_documentation. 400 for another kind, 404 if the SPEC or the artifact does not exist. Double-schema (external shape + .strict() internal).",
+  {
+    specId: external_exports3.string().describe("Spec ID (cuid)"),
+    kind: external_exports3.enum(["DISCOVERY_REPORT", "ENGINEERING_PLAN"]).describe("Artifact to compare: DISCOVERY_REPORT or ENGINEERING_PLAN.")
+  },
+  async (params) => strictApply(
+    external_exports3.object({ specId: external_exports3.string(), kind: external_exports3.enum(["DISCOVERY_REPORT", "ENGINEERING_PLAN"]) }).strict(),
+    params,
+    ({ specId, kind }) => apiClient.get(`/specs/${specId}/documentation/${kind}/changes`)
+  )
+);
+server.tool(
+  "spec_verdict_round_coverage_read",
+  "Read what ONE round of the ADVERSARIAL_VERDICT reviewed (SPEC-0238 P5, ADR-004): round, artifactReviewed, previousVerdictId, units [{unitKey, family, changed, disposition}] \u2014 changed against the previous verdict with a photo, disposition as declared (per unit, else the family one) \u2014, removedUnitKeys and counts {total, changed, changedReviewed, unchanged}. A verdict registered before P5 has no photo: hasPhoto false and empty units. Requires the same read access as spec_get_documentation. 404 if the verdict does not belong to the SPEC. Double-schema (external shape + .strict() internal).",
+  {
+    specId: external_exports3.string().describe("Spec ID (cuid)"),
+    verdictId: external_exports3.string().describe("SpecDocumentation cuid of the ADVERSARIAL_VERDICT row (one per round)")
+  },
+  async (params) => strictApply(
+    external_exports3.object({ specId: external_exports3.string(), verdictId: external_exports3.string() }).strict(),
+    params,
+    ({ specId, verdictId }) => apiClient.get(`/specs/${specId}/documentation/verdicts/${verdictId}/round-coverage`)
   )
 );
 server.tool(
@@ -37212,6 +37483,78 @@ server.tool(
   makeRiskAcceptanceReasonDeleteHandler(apiClient)
 );
 server.tool(
+  "corpus_document_create",
+  "Alta de un documento del Corpus: crea el KbArticle con su texto y el CorpusDocument con su alcance, en una sola transaccion, y lo deja en PROPOSED (POST /corpus/documents). scope TENANT rige para todo el tenant; scope PROJECT exige projectId de un Project del tenant (sin el, o con projectId en TENANT, 400; un Project inexistente o ajeno, 404 sin escribir filas). El estado inicial no se elige: PROPOSED. Para aprobarlo y ponerlo en vigencia usar corpus_document_transition. verification_tokens es OBLIGATORIO (requires_tokens: creacion de una entidad de negocio con intencion): sin el la tool rechaza ANTES de llamar al backend y no crea nada; se valida su forma y NO se registra en ninguna parte; el Hub no verifica su evidencia. Requiere la key corpus.create (identidad ARQUITECTO firmada en la sesion) \u2014 cualquier otro actor recibe 403 PERMISSION_DENIED.",
+  corpusDocumentCreateSchema,
+  makeCorpusDocumentCreateHandler(apiClient)
+);
+server.tool(
+  "corpus_document_update",
+  "Edita el TEXTO de un documento del Corpus (title, content, summary, changeLog) y deja una revision de texto (PATCH /corpus/documents/:id). Es la via MCP para editar un documento del Corpus: update_kb_article invoca PATCH /kb/:id, que el backend cierra con 403 CORPUS_DOCUMENT_KB_DIRECT_EDIT_FORBIDDEN sobre los articulos que son documento del Corpus. No toca alcance ni vigencia (para eso corpus_document_set_scope) ni estado (corpus_document_transition). La historia queda legible por corpus_document_history. Requiere la key corpus.edit (identidad ARQUITECTO).",
+  corpusDocumentUpdateSchema,
+  makeCorpusDocumentUpdateHandler(apiClient)
+);
+server.tool(
+  "corpus_document_set_scope",
+  "Cambia el alcance (scope + projectId) y la ventana de vigencia (effectiveFrom, effectiveTo) de un documento del Corpus (PATCH /corpus/documents/:id/scope). Cada dimension que cambia deja su revision de metadatos; repetir los valores vigentes no deja ninguna. projectId es obligatorio con scope PROJECT y prohibido con TENANT. effectiveTo: null reabre la ventana; omitido no se toca; effectiveFrom no admite null. verification_tokens es OBLIGATORIO (requires_tokens: scope y ventana definen la vigencia y el backend los deja cambiar en cualquier estado, ACTIVE incluido): sin el la tool rechaza ANTES de llamar al backend y el documento no cambia; se valida su forma y NO se registra en ninguna parte; el Hub no verifica su evidencia. Requiere la key corpus.edit (identidad ARQUITECTO).",
+  corpusDocumentSetScopeSchema,
+  makeCorpusDocumentSetScopeHandler(apiClient)
+);
+server.tool(
+  "corpus_document_transition",
+  "Transicion del ciclo de vida de un documento del Corpus (POST /corpus/documents/:id/transitions, ADR-008): APPROVE, ACTIVATE, REJECT, SUSPEND, SUPERSEDE o ARCHIVE. El estado destino lo fija la tabla del backend, no el llamador; un par no admitido responde 409 sin cambiar el documento. Aprobar y poner en vigencia son DOS actos: APPROVE deja APPROVED sin abrir la ventana, ACTIVATE (exige effectiveFrom) deja ACTIVE. SUPERSEDE exige supersededByDocumentId (APPROVED o ACTIVE, mismo tenant, distinto de este). ARCHIVED es terminal. verification_tokens es OBLIGATORIO en toda transicion (requires_tokens: lifecycle/state transition): al menos un token; sin el la tool rechaza ANTES de llamar al backend y el documento no cambia. Se valida su forma y se REGISTRA al frente de note, que queda en el snapshot de la revision; el Hub no verifica su evidencia. Requiere la key corpus.approve (identidad ARQUITECTO).",
+  corpusDocumentTransitionSchema,
+  makeCorpusDocumentTransitionHandler(apiClient)
+);
+server.tool(
+  "corpus_relation_add",
+  "Alta de una relacion desde un documento del Corpus hacia otro (POST /corpus/documents/:id/relations): SUPERSEDES, DEPENDS_ON o DERIVED_FROM. El destino tiene que ser un documento del Corpus del tenant y distinto del de origen; la misma relacion (mismo destino y kind) no se repite. Deja su revision de metadatos. verification_tokens es OBLIGATORIO (requires_tokens: arista del grafo de dependencias): sin el la tool rechaza ANTES de llamar al backend y no crea la relacion; se valida su forma y NO se registra en ninguna parte; el Hub no verifica su evidencia. Requiere la key corpus.edit (identidad ARQUITECTO).",
+  corpusRelationAddSchema,
+  makeCorpusRelationAddHandler(apiClient)
+);
+server.tool(
+  "corpus_relation_remove",
+  "Baja de una relacion que tiene al documento como extremo (DELETE /corpus/documents/:id/relations/:relationId). El relationId sale de corpus_relation_list. Deja su revision de metadatos. Requiere la key corpus.edit (identidad ARQUITECTO).",
+  corpusRelationRemoveSchema,
+  makeCorpusRelationRemoveHandler(apiClient)
+);
+server.tool(
+  "corpus_relation_list",
+  "Relaciones de un documento del Corpus en los dos sentidos (GET /corpus/documents/:id/relations), sin leer el texto de ninguno. Lectura: no requiere key del Corpus; acotada al tenant del firmante.",
+  corpusRelationListSchema,
+  makeCorpusRelationListHandler(apiClient)
+);
+server.tool(
+  "corpus_document_history",
+  "Historia unificada de un documento del Corpus (GET /corpus/documents/:id/history): las revisiones de TEXTO (KbRevision) y las de METADATOS (estado, alcance, ventana, relaciones, excepciones) en una sola serie. `at` (ISO 8601) acota a las entradas con fecha menor o igual. Lectura: no requiere key del Corpus; acotada al tenant del firmante.",
+  corpusDocumentHistorySchema,
+  makeCorpusDocumentHistoryHandler(apiClient)
+);
+server.tool(
+  "corpus_exception_register",
+  "Registra la excepcion de un Project sobre una regla de scope TENANT (POST /corpus/exceptions): tenantDocumentId es el documento del Tenant que queda exceptuado, exceptionDocumentId el documento PROJECT del mismo Project que lo reemplaza (REPLACES) o lo acota (LIMITS). kind es obligatorio y no tiene default. Las invariantes de alcance y la pertenencia al tenant las valida el backend contra la base. Deja su revision sobre el documento del Tenant. verification_tokens es OBLIGATORIO (requires_tokens: creacion de una entidad que es una decision, con kind y rationale): sin el la tool rechaza ANTES de llamar al backend y no registra nada; se valida su forma y NO se registra en ninguna parte; el Hub no verifica su evidencia. Requiere la key corpus.except (identidad ARQUITECTO).",
+  corpusExceptionRegisterSchema,
+  makeCorpusExceptionRegisterHandler(apiClient)
+);
+server.tool(
+  "corpus_exception_remove",
+  "Da de baja una excepcion de Project (DELETE /corpus/exceptions/:id); deja su revision sobre el documento del Tenant. El id sale de corpus_exception_list. Requiere la key corpus.except (identidad ARQUITECTO).",
+  corpusExceptionRemoveSchema,
+  makeCorpusExceptionRemoveHandler(apiClient)
+);
+server.tool(
+  "corpus_exception_list",
+  "Excepciones de un Project (GET /corpus/exceptions?projectId=...). projectId es obligatorio: sin el responde 400 en vez de devolver las de todo el tenant. Lectura: no requiere key del Corpus; acotada al tenant del firmante.",
+  corpusExceptionListSchema,
+  makeCorpusExceptionListHandler(apiClient)
+);
+server.tool(
+  "corpus_current_get",
+  "Corpus vigente de un Project a un momento (GET /corpus/projects/:projectId/current): los documentos de scope TENANT y los PROJECT de ese Project que rigen, cada uno con su alcance de origen y, si un Project los exceptua, la regla del Tenant marcada como exceptuada con su excepcion al lado. `at` (ISO 8601) evalua la ventana de vigencia en ese momento; omitido vale el instante de la consulta. Paginado (limit/offset). Lectura: no requiere key del Corpus; acotada al tenant del firmante.",
+  corpusCurrentGetSchema,
+  makeCorpusCurrentGetHandler(apiClient)
+);
+server.tool(
   "spec_request_operator_input",
   "Pide input al Operador sobre una SPEC y la deja EN ESPERA, SIN castigo: el estado y el contexto de la SPEC NO cambian (mismo stateId, mismo inProgressContext) y tu turno cierra igual. Con la consulta abierta, el gate del dispatcher bloquea TODA transicion de la SPEC salvo BLOCKED y CANCELLED \u2014 el rechazo nombra el cuid de la consulta pendiente. Agrupar varias preguntas en un pedido es eficiencia, no evasion: el tope cuenta REQUESTS. Devuelve requestsUsed/requestsMax. 422 OPERATOR_INPUT_CAP_REACHED si la SPEC agoto el tope del tenant (sin retroceso de estado; el tope se sube por PATCH /admin/sdd/tenants/:id/operator-input-cap), OPERATOR_INPUT_ALREADY_OPEN si ya hay una abierta. 422 OPERATOR_INPUT_CHANNEL_CLOSED si Adversarial ya aprobo el artefacto en cuestion (el ENGINEERING_PLAN aprobado cierra el canal entero; el DISCOVERY_REPORT aprobado cierra solo los pedidos sobre ese artefacto) \u2014 despues de la aprobacion las salidas son la interfaz del agente o una task pendiente por falta de input. Requiere el permiso spec.request_operator_input (DISCOVERY, ENGINEERING, OPERATOR). La respuesta NO se da por MCP: es acto humano por UI.",
   specRequestOperatorInputSchema,
@@ -37298,6 +37641,8 @@ server.tool(
     dependsOnId: external_exports3.string().describe("Target Spec ID \u2014 the spec that must be completed first"),
     type: external_exports3.enum(["BLOCKS", "RELATES_TO"]).optional().default("BLOCKS").describe("BLOCKS = hard gate on transitions, RELATES_TO = informational only"),
     note: external_exports3.string().optional().describe("Optional note explaining the dependency"),
+    // SPEC-0238 P2 (ADR-006) — obligatoria en los dos schemas y en el body.
+    justification: external_exports3.string().min(20).describe("REQUIRED \u2014 why this dependency exists, 20+ characters after trimming and collapsing spaces. Without it the Hub answers 422 DEPENDENCY_JUSTIFICATION_REQUIRED."),
     verification_tokens: verificationTokensField
   },
   async (params) => {
@@ -37306,6 +37651,7 @@ server.tool(
       dependsOnId: external_exports3.string(),
       type: external_exports3.enum(["BLOCKS", "RELATES_TO"]).optional(),
       note: external_exports3.string().optional(),
+      justification: external_exports3.string().min(20),
       verification_tokens: verificationTokensField
     }).strict();
     try {
@@ -37313,7 +37659,8 @@ server.tool(
       const dep = await apiClient.post(`/specs/${validated.specId}/dependencies`, {
         dependsOnId: validated.dependsOnId,
         type: validated.type,
-        note: validated.note
+        note: validated.note,
+        justification: validated.justification
       });
       return { content: [{ type: "text", text: JSON.stringify(dep, null, 2) }] };
     } catch (e) {
@@ -37384,6 +37731,8 @@ server.tool(
     dependsOnPhaseId: external_exports3.string().describe("Target Phase ID \u2014 the phase that must be completed first"),
     type: external_exports3.enum(["BLOCKS", "RELATES_TO"]).optional().default("BLOCKS"),
     note: external_exports3.string().optional(),
+    // SPEC-0238 P2 (ADR-006) — obligatoria en los dos schemas y en el body.
+    justification: external_exports3.string().min(20).describe("REQUIRED \u2014 why this dependency exists, 20+ characters after trimming and collapsing spaces. Without it the Hub answers 422 DEPENDENCY_JUSTIFICATION_REQUIRED."),
     verification_tokens: verificationTokensField
   },
   async (params) => {
@@ -37393,6 +37742,7 @@ server.tool(
       dependsOnPhaseId: external_exports3.string(),
       type: external_exports3.enum(["BLOCKS", "RELATES_TO"]).optional(),
       note: external_exports3.string().optional(),
+      justification: external_exports3.string().min(20),
       verification_tokens: verificationTokensField
     }).strict();
     try {
@@ -37402,7 +37752,8 @@ server.tool(
         {
           dependsOnId: validated.dependsOnPhaseId,
           type: validated.type,
-          note: validated.note
+          note: validated.note,
+          justification: validated.justification
         }
       );
       return { content: [{ type: "text", text: JSON.stringify(dep, null, 2) }] };

@@ -2,6 +2,10 @@
 
 All notable changes to this project. Automatic — regenerado por `./scripts/changelog.sh`.
 
+## 0.2.38 - 2026-10-05 (re-vendoriza el MCP del Hub con las tools de SPEC-0238)
+
+Re-vendoriza el bundle del MCP del Hub (`vendor/integra-hub-mcp.mjs`) desde `31fad87c`, el master de integra-hub con SPEC-0238 P2 a P7. El Hub ya exige justificación al crear dependencias y casos vinculantes y trae las lecturas de ronda del verdict; con el bundle viejo esos pedidos rebotan 422 desde los rooms SpecOE. Build reproducible: dos corridas dieron el mismo sha256 (`5b6fa7a2`). La versión del paquete sigue en 0.1.2.
+
 ## 0.2.37 - 2026-10-01 (el MCP `specoe` renueva su JWT y reconecta sin reiniciar Claude Code)
 
 El MCP `specoe` dejaba de responder a la hora de abierta la sesión (SPEC-0237). Su entrada del
