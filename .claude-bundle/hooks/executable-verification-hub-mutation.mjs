@@ -669,16 +669,35 @@ function validateConfirmedByCommand(cmdString) {
 // =====================================================================
 // executeConfirmedBy — spawnSync con timeout/cwd restricted/no shell
 // =====================================================================
+// TKT-0476 — `unshare -n` exige CAP_SYS_ADMIN. Donde el proceso no la tiene (el runner de CI, un
+// usuario común, un contenedor con seccomp por defecto) sale con "Operation not permitted" sin correr
+// el comando: el stdout queda vacío y TODO `absence` fallaba con `expected "0" got ""`, aunque el
+// comando de la whitelist (grep/cat/head/tail/wc/ls/test/find) no abre ningún socket. Se sondea una
+// vez por proceso: si `unshare -n` no funciona, el comando corre sin aislar la red — la misma
+// limitación best-effort que Windows (D4).
+let unshareDisponible;
+function sandboxDeRedDisponible() {
+  if (unshareDisponible === undefined) {
+    const r = spawnSync('unshare', ['-n', 'true'], {
+      timeout: SANDBOX_TIMEOUT_MS,
+      shell: false,
+      encoding: 'utf8',
+    });
+    unshareDisponible = r.status === 0;
+  }
+  return unshareDisponible;
+}
+
 function executeConfirmedBy(binary, args, cwd) {
   let cmdToRun = binary;
   let argsToRun = args;
 
-  // Linux: unshare -n para network deny
-  if (platform() === 'linux') {
+  // Linux: unshare -n para network deny (sólo si el sandbox funciona en este proceso)
+  if (platform() === 'linux' && sandboxDeRedDisponible()) {
     cmdToRun = 'unshare';
     argsToRun = ['-n', binary, ...args];
   }
-  // Windows: best-effort whitelist (D4 limitation declarada)
+  // Windows y Linux sin unshare: best-effort whitelist (D4 limitation declarada)
 
   try {
     const r = spawnSync(cmdToRun, argsToRun, {

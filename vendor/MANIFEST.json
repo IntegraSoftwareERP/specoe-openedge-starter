@@ -1,7 +1,7 @@
 {
   "starterVersion": "0.2.34",
   "schemaVersion": 2,
-  "generatedAt": "2026-10-05",
+  "generatedAt": "2026-10-06",
   "hashPolicy": {
     "note": "TKT-0252 — dos hashes con dos propositos distintos. Ninguno reemplaza al otro: el que verifica procedencia mira contentSha256, el que verifica la copia mira packageSha256.",
     "packageSha256": "sha256 del archivo tal cual quedo en vendor/. CHECKSUM DE COPIA: detecta corrupcion en el canal de publicacion (clon, normalizacion de fin de linea, transferencia). NO prueba procedencia cuando el artefacto es un contenedor: vsce escribe timestamps dentro del .vsix, asi que empaquetar el MISMO commit dos veces da dos valores distintos.",
@@ -19,10 +19,10 @@
       "version": "0.1.2",
       "sourceRepo": "IntegraSoftwareERP/integra-hub",
       "sourcePath": "mcp-server",
-      "sourceSha": "31fad87c83905d909322d824dac249ea5149a4ec",
-      "packageSha256": "5b6fa7a2e2c94f52f5b24da3498f0bc8080027b52008af792cdf10e8d072c104",
+      "sourceSha": "b474940bc91f11b727bf26a196a48d3e68a30949",
+      "packageSha256": "3cd4e9c013a61e733623699814889f3e045cb962630ed1d982885656d0abf3e8",
       "versionCommand": "node vendor/integra-hub-mcp.mjs --version",
-      "reproducibility": "esbuild sobre el mismo input produce el mismo output: VERIFICADO 2026-08-10 reconstruyendo el bundle desde 974c8b9, RE-VERIFICADO 2026-09-02 desde f92cec5 y RE-VERIFICADO 2026-09-03 desde 08dfddb y RE-VERIFICADO 2026-09-22 desde 42fe929f y RE-VERIFICADO 2026-10-05 desde 31fad87c — las dos corridas de cada fecha dieron el mismo sha byte a byte. Por eso este componente NO necesita contentSha256: su packageSha256 ya identifica el contenido.",
+      "reproducibility": "esbuild sobre el mismo input produce el mismo output: VERIFICADO 2026-08-10 reconstruyendo el bundle desde 974c8b9, RE-VERIFICADO 2026-09-02 desde f92cec5 y RE-VERIFICADO 2026-09-03 desde 08dfddb y RE-VERIFICADO 2026-09-22 desde 42fe929f y RE-VERIFICADO 2026-10-05 desde 31fad87c y RE-VERIFICADO 2026-10-06 desde b474940b — las dos corridas de cada fecha dieron el mismo sha byte a byte. Por eso este componente NO necesita contentSha256: su packageSha256 ya identifica el contenido.",
       "versionNote": "TKT-0362 / TKT-0368 — la version del paquete sigue en 0.1.2 y NO se bumpea al re-vendorizar: mcp-server no la movio entre 9d62731, f92cec5 y 08dfddb. `--version` devuelve 0.1.2 para el bundle viejo y el nuevo, asi que NO sirve para distinguirlos desde la VM. Lo que los distingue es el sourceSha declarado aca y su packageSha256."
     },
     {
@@ -91,9 +91,9 @@
       "artifactKind": "file",
       "sourceRepo": "IntegraSoftwareERP/integra-hub",
       "sourcePath": "hooks/executable-verification-hub-mutation.mjs",
-      "sourceSha": "9b307079bc3672d460628797b9f60672457bda7a",
-      "packageSha256": "6e790bfa357da3617933eaef5f2c43167a5f0d2f9d9642cce358041965d8ef2d",
-      "note": "TKT-0321 — hook PreToolUse que verifica los claims de las mutaciones al Hub. Es el unico de los cuatro cuyo sourcePath NO esta en .claude-bundle/: en integra-hub vive en hooks/, con su propia suite y su propio instalador. La union de los dos canales de ese repo no entra en este ticket; lo que si entra es que el artefacto llegue. TKT-0453 lo re-vendoriza desde 9b30707: la copia de 9d62731 no leia el contenido tipado de SPEC-0220, asi que desde el cutover toda mutacion tipada al Hub pasaba SIN evaluar en la maquina del dev."
+      "sourceSha": "b474940bc91f11b727bf26a196a48d3e68a30949",
+      "packageSha256": "6af5bea4036832ea79737a8e313b84aa6b6826b8d875c1e7920e268b92ff8f8b",
+      "note": "TKT-0321 — hook PreToolUse que verifica los claims de las mutaciones al Hub. Es el unico de los cuatro cuyo sourcePath NO esta en .claude-bundle/: en integra-hub vive en hooks/, con su propia suite y su propio instalador. La union de los dos canales de ese repo no entra en este ticket; lo que si entra es que el artefacto llegue. TKT-0453 lo re-vendoriza desde 9b30707: la copia de 9d62731 no leia el contenido tipado de SPEC-0220, asi que desde el cutover toda mutacion tipada al Hub pasaba SIN evaluar en la maquina del dev. TKT-0480 lo re-vendoriza desde b474940: trae ace76029 (el token absence ya no falla donde unshare -n no esta permitido), que el chequeo de paridad marco atrasado al re-vendorizar el bundle del MCP."
     },
     {
       "name": "block-no-verify",
@@ -135,9 +135,9 @@
       "artifactKind": "file",
       "sourceRepo": "IntegraSoftwareERP/integra-hub",
       "sourcePath": "hooks/block-merge-and-default-branch-push.mjs",
-      "sourceSha": "9b307079bc3672d460628797b9f60672457bda7a",
-      "packageSha256": "8b2f0231de14d8083c320e840c40cd488f926247a0e3a38289c37e23850d343b",
-      "note": "TKT-0453 — hook PreToolUse (matcher Bash) que aborta el merge de un PR (gh pr merge y su equivalente por API) y el push cuyo destino resuelve a la rama por defecto (SPEC-0223 P7). Hasta este ticket vivia solo en la maquina del Operador: el agente de un dev podia mergear PRs y pushear a main/master. Contencion LOCAL, no garantia: detecta por token literal."
+      "sourceSha": "b474940bc91f11b727bf26a196a48d3e68a30949",
+      "packageSha256": "281eeb7904bb50c6aadcf8e4e3353a85f5d9bea026180f409b95d0c2d1951806",
+      "note": "TKT-0453 — hook PreToolUse (matcher Bash) que aborta el merge de un PR (gh pr merge y su equivalente por API) y el push cuyo destino resuelve a la rama por defecto (SPEC-0223 P7). Hasta este ticket vivia solo en la maquina del Operador: el agente de un dev podia mergear PRs y pushear a main/master. Contencion LOCAL, no garantia: detecta por token literal. TKT-0480 lo re-vendoriza desde b474940: trae 9d9d8dbb (--force-with-lease ya no consume el operando siguiente)."
     },
     {
       "name": "infra-context-session-init",

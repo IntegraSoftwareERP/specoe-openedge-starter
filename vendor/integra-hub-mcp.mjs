@@ -4235,8 +4235,8 @@ var require_core = __commonJS({
         for (const jsonPointer of keywordsJsonPointers) {
           const segments = jsonPointer.split("/").slice(1);
           let keywords = metaSchema;
-          for (const seg2 of segments)
-            keywords = keywords[seg2];
+          for (const seg3 of segments)
+            keywords = keywords[seg3];
           for (const key in rules) {
             const rule = rules[key];
             if (typeof rule != "object")
@@ -14333,18 +14333,18 @@ function treeifyError(error48, mapper = (issue2) => issue2.message) {
 }
 function toDotPath(_path) {
   const segs = [];
-  const path3 = _path.map((seg2) => typeof seg2 === "object" ? seg2.key : seg2);
-  for (const seg2 of path3) {
-    if (typeof seg2 === "number")
-      segs.push(`[${seg2}]`);
-    else if (typeof seg2 === "symbol")
-      segs.push(`[${JSON.stringify(String(seg2))}]`);
-    else if (/[^\w$]/.test(seg2))
-      segs.push(`[${JSON.stringify(seg2)}]`);
+  const path3 = _path.map((seg3) => typeof seg3 === "object" ? seg3.key : seg3);
+  for (const seg3 of path3) {
+    if (typeof seg3 === "number")
+      segs.push(`[${seg3}]`);
+    else if (typeof seg3 === "symbol")
+      segs.push(`[${JSON.stringify(String(seg3))}]`);
+    else if (/[^\w$]/.test(seg3))
+      segs.push(`[${JSON.stringify(seg3)}]`);
     else {
       if (segs.length)
         segs.push(".");
-      segs.push(seg2);
+      segs.push(seg3);
     }
   }
   return segs.join("");
@@ -33485,8 +33485,8 @@ function specCommentShape(catalog) {
   };
 }
 function makeSpecCommentHandler(client, catalog) {
-  const ParamsSchema17 = external_exports3.object(specCommentShape(catalog)).strict();
-  return async (params) => runTypedTool(ParamsSchema17, params, async (validated) => {
+  const ParamsSchema18 = external_exports3.object(specCommentShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema18, params, async (validated) => {
     const category = validated.category ?? "comment";
     if (isStrictPeriod && (category === "decision" || category === "bugfix") && !validated.verification_tokens) {
       return typedToolError(
@@ -33522,8 +33522,8 @@ function specLogBugfixShape(catalog) {
   };
 }
 function makeSpecLogDecisionHandler(client, catalog) {
-  const ParamsSchema17 = external_exports3.object(specLogDecisionShape(catalog)).strict();
-  return async (params) => runTypedTool(ParamsSchema17, params, async (validated) => {
+  const ParamsSchema18 = external_exports3.object(specLogDecisionShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema18, params, async (validated) => {
     const content = validated.content;
     requireTypeIn(content, COMMENT_CATEGORY_TYPE_KEYS.decision, "content", "spec_log_decision");
     const tokens = attachVerification(catalog, [content], validated.verification_tokens);
@@ -33536,8 +33536,8 @@ function makeSpecLogDecisionHandler(client, catalog) {
   });
 }
 function makeSpecLogBugfixHandler(client, catalog) {
-  const ParamsSchema17 = external_exports3.object(specLogBugfixShape(catalog)).strict();
-  return async (params) => runTypedTool(ParamsSchema17, params, async (validated) => {
+  const ParamsSchema18 = external_exports3.object(specLogBugfixShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema18, params, async (validated) => {
     const content = validated.content;
     requireTypeIn(content, COMMENT_CATEGORY_TYPE_KEYS.bugfix, "content", "spec_log_bugfix");
     const tokens = attachVerification(catalog, [content], validated.verification_tokens);
@@ -33569,8 +33569,8 @@ function specCloseoutShape(catalog) {
   };
 }
 function makePhaseCloseoutHandler(client, catalog) {
-  const ParamsSchema17 = external_exports3.object(phaseCloseoutShape(catalog)).strict();
-  return async (params) => runTypedTool(ParamsSchema17, params, async (validated) => {
+  const ParamsSchema18 = external_exports3.object(phaseCloseoutShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema18, params, async (validated) => {
     const content = validated.content;
     requireTypeIn(content, ["comment.closeout"], "content", "phase_closeout");
     const tokens = attachVerification(catalog, [content], validated.verification_tokens);
@@ -33582,8 +33582,8 @@ function makePhaseCloseoutHandler(client, catalog) {
   });
 }
 function makeSpecCloseoutHandler(client, catalog) {
-  const ParamsSchema17 = external_exports3.object(specCloseoutShape(catalog)).strict();
-  return async (params) => runTypedTool(ParamsSchema17, params, async (validated) => {
+  const ParamsSchema18 = external_exports3.object(specCloseoutShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema18, params, async (validated) => {
     const content = validated.content;
     requireTypeIn(content, ["comment.closeout"], "content", "spec_closeout");
     const tokens = attachVerification(catalog, [content], validated.verification_tokens);
@@ -33623,8 +33623,8 @@ function specCreateShape(catalog) {
   };
 }
 function makeSpecCreateHandler(client, catalog) {
-  const ParamsSchema17 = external_exports3.object(specCreateShape(catalog)).strict();
-  return async (params) => runTypedTool(ParamsSchema17, params, async ({ verification_tokens, ...body }) => {
+  const ParamsSchema18 = external_exports3.object(specCreateShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema18, params, async ({ verification_tokens, ...body }) => {
     const tokens = attachVerification(catalog, [body.description], verification_tokens);
     const spec = await client.post("/specs", body);
     return typedToolResult(spec, notices(tokens));
@@ -33644,8 +33644,8 @@ function specUpdateShape(catalog) {
   };
 }
 function makeSpecUpdateHandler(client, catalog) {
-  const ParamsSchema17 = external_exports3.object(specUpdateShape(catalog)).strict();
-  return async (params) => runTypedTool(ParamsSchema17, params, async ({ id, verification_tokens, ...body }) => {
+  const ParamsSchema18 = external_exports3.object(specUpdateShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema18, params, async ({ id, verification_tokens, ...body }) => {
     const tokens = attachVerification(catalog, [body.description], verification_tokens);
     const spec = await client.patch(`/specs/${id}`, body);
     return typedToolResult(spec, notices(tokens));
@@ -33659,9 +33659,9 @@ function specAdversarialRejectShape(catalog) {
   };
 }
 function makeSpecAdversarialRejectHandler(client, catalog) {
-  const ParamsSchema17 = external_exports3.object(specAdversarialRejectShape(catalog)).strict();
+  const ParamsSchema18 = external_exports3.object(specAdversarialRejectShape(catalog)).strict();
   return async (params) => runTypedTool(
-    ParamsSchema17,
+    ParamsSchema18,
     params,
     async ({ specId, reason }) => typedToolResult(await client.patch(`/specs/${specId}/reject`, { reason }))
   );
@@ -33678,9 +33678,9 @@ function specSetTaxonomyShape(catalog) {
   };
 }
 function makeSpecSetTaxonomyHandler(client, catalog) {
-  const ParamsSchema17 = external_exports3.object(specSetTaxonomyShape(catalog)).strict();
+  const ParamsSchema18 = external_exports3.object(specSetTaxonomyShape(catalog)).strict();
   return async (params) => runTypedTool(
-    ParamsSchema17,
+    ParamsSchema18,
     params,
     async ({ id, ...body }) => typedToolResult(await client.post(`/specs/${id}/taxonomy`, body))
   );
@@ -33698,8 +33698,8 @@ function specAddPhaseShape(catalog) {
   };
 }
 function makeSpecAddPhaseHandler(client, catalog) {
-  const ParamsSchema17 = external_exports3.object(specAddPhaseShape(catalog)).strict();
-  return async (params) => runTypedTool(ParamsSchema17, params, async ({ specId, verification_tokens, ...body }) => {
+  const ParamsSchema18 = external_exports3.object(specAddPhaseShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema18, params, async ({ specId, verification_tokens, ...body }) => {
     const tokens = attachVerification(
       catalog,
       [body.content, body.description],
@@ -33732,8 +33732,8 @@ function specUpdatePhaseShape(catalog) {
   };
 }
 function makeSpecUpdatePhaseHandler(client, catalog) {
-  const ParamsSchema17 = external_exports3.object(specUpdatePhaseShape(catalog)).strict();
-  return async (params) => runTypedTool(ParamsSchema17, params, async (validated) => {
+  const ParamsSchema18 = external_exports3.object(specUpdatePhaseShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema18, params, async (validated) => {
     if (isStrictPeriod && validated.status && !validated.verification_tokens) {
       return typedToolError(
         "Schema validation failed: verification_tokens object required when status is set (phase transition is a structural verdict) post MCP_SERVER_RELEASE>=0.2.0 (skill staff-verification-protocol)."
@@ -33764,12 +33764,54 @@ function specPhaseSetCanonicalContractShape(catalog) {
   };
 }
 function makeSpecPhaseSetCanonicalContractHandler(client, catalog) {
-  const ParamsSchema17 = external_exports3.object(specPhaseSetCanonicalContractShape(catalog)).strict();
+  const ParamsSchema18 = external_exports3.object(specPhaseSetCanonicalContractShape(catalog)).strict();
   return async (params) => runTypedTool(
-    ParamsSchema17,
+    ParamsSchema18,
     params,
     async ({ specId, phaseId, canonicalContract }) => typedToolResult(await client.put(`/specs/${specId}/phases/${phaseId}/canonical-contract`, { canonicalContract }))
   );
+}
+var PHASE_BATCH_KEY = /^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/;
+var PHASE_BATCH_MAX = 40;
+var SPEC_INSTANTIATE_PHASES_DESCRIPTION = "TKT-0472 \u2014 Instancia en UNA transacci\xF3n un lote de fases de un plan: cada fase nace con su contrato can\xF3nico (OBLIGATORIO) y con sus dependencias. Falla cualquier \xEDtem \u2192 no queda NADA (ni fases, ni aristas, ni contratos, ni audit de alta). Las fases nacen ALINEADAS: contractAlignment.misaligned=false sin realign (el contrato de nacimiento no es una reescritura); una reescritura posterior por spec_phase_set_canonical_contract sigue encendiendo PHASE_CONTRACT_MISALIGNED como siempre. Reemplaza la secuencia spec_add_phase \xD7 N \u2192 phase_add_dependency \xD7 N \u2192 spec_phase_set_canonical_contract \xD7 N \u2192 spec_phase_realign_contract \xD7 N, que sigue disponible. Cada \xEDtem: `key` (clave local \xFAnica del lote, p.ej. el id P<N> del plan), `name`, `canonicalContract` (valor tipado specPhase.canonicalContract), `description`/`content` opcionales (specPhase.description / specPhase.content), `dependsOn[]` con EXACTAMENTE uno de `dependsOnKey` (otra fase del lote) o `dependsOnPhaseId` (cuid de una fase existente), `type` (BLOCKS por defecto), `note` y `justification` (20+ caracteres). Las reglas son las del alta suelta, con sus c\xF3digos: PHASE_NAME_P_LETTER_AMBIGUOUS, PHASE_SLUG_COLLISION (tambi\xE9n entre \xEDtems del lote), TYPED_CONTENT_*, DEPENDENCY_JUSTIFICATION_REQUIRED, PHASE_DEPENDENCY_CYCLE, PHASE_CONTRACT_POSTCONDITION_UNSATISFIABLE (postconditionDeliverables.phase = nombre exacto o cuid de la fase due\xF1a); cada rechazo de \xEDtem lleva `phaseKey`. Rol: ENGINEERING con la SPEC en {IN_PROGRESS, ENGINEERING}; exige phase.create, phase.write_contract y phase.update. verification_tokens viajan como `verification` del primer valor tipado de la primera fase que lo declare.";
+function specInstantiatePhasesShape(catalog) {
+  return {
+    specId: external_exports3.string().describe("Spec ID (cuid)."),
+    phases: external_exports3.array(
+      external_exports3.object({
+        key: external_exports3.string().regex(PHASE_BATCH_KEY).describe('Clave local \xFAnica dentro del lote (p.ej. "P1"); la usa dependsOnKey. No se persiste.'),
+        name: external_exports3.string().min(1).describe('Nombre de la fase ("P<N> \u2014 ...").'),
+        description: catalog.value("specPhase.description").optional().describe(typedFieldDescription(["specPhase.description"])),
+        content: catalog.value("specPhase.content").optional().describe(typedFieldDescription(["specPhase.content"])),
+        canonicalContract: catalog.value("specPhase.canonicalContract").describe(typedFieldDescription(["specPhase.canonicalContract"], "OBLIGATORIO: la fase nace con su contrato.")),
+        assigneeId: external_exports3.string().optional(),
+        dueDate: external_exports3.string().optional(),
+        dependsOn: external_exports3.array(
+          external_exports3.object({
+            dependsOnKey: external_exports3.string().regex(PHASE_BATCH_KEY).optional().describe("`key` de otra fase del MISMO lote."),
+            dependsOnPhaseId: external_exports3.string().optional().describe("cuid de una fase que YA existe."),
+            type: external_exports3.enum(["BLOCKS", "RELATES_TO"]).optional(),
+            note: external_exports3.string().optional(),
+            justification: external_exports3.string().min(20).describe("REQUIRED \u2014 por qu\xE9 existe la dependencia, 20+ caracteres tras recortar y colapsar espacios.")
+          }).strict()
+        ).optional().describe("Dependencias de ESTA fase: exactamente uno de dependsOnKey / dependsOnPhaseId por item.")
+      }).strict()
+    ).min(1).max(PHASE_BATCH_MAX).describe("Las fases del lote, en el orden en que se numeran (sortOrder sigue al de las fases existentes)."),
+    verification_tokens: verificationTokensField
+  };
+}
+function makeSpecInstantiatePhasesHandler(client, catalog) {
+  const ParamsSchema18 = external_exports3.object(specInstantiatePhasesShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema18, params, async ({ specId, verification_tokens, ...body }) => {
+    const first = body.phases[0];
+    const tokens = attachVerification(
+      catalog,
+      [first?.content, first?.canonicalContract, first?.description],
+      verification_tokens
+    );
+    const result = await client.post(`/specs/${specId}/phases/instantiate`, body);
+    return typedToolResult(result, notices(tokens));
+  });
 }
 var SPEC_CREATE_TASK_DESCRIPTION = "Create a task from a Spec phase (auto-linked). Leave assigneeId empty to create an unassigned task that anyone can take. SPEC-0220: `description` is a typed task.description value, not markdown; a plain string gets 422 TYPED_CONTENT_LEGACY_SHAPE. task.description does not declare `verification`: verification_tokens are validated for the verification hook and not persisted (the response says so). Strict-enforced post MCP_SERVER_RELEASE >= 0.2.0. SPEC-0223 P3: `automatable` opcional (default false) \u2014 marca la task como elegible para la corrida automatica de su fase.";
 function specCreateTaskShape(catalog) {
@@ -33790,8 +33832,8 @@ function specCreateTaskShape(catalog) {
   };
 }
 function makeSpecCreateTaskHandler(client, catalog) {
-  const ParamsSchema17 = external_exports3.object(specCreateTaskShape(catalog)).strict();
-  return async (params) => runTypedTool(ParamsSchema17, params, async ({ specId, phaseId, verification_tokens, ...body }) => {
+  const ParamsSchema18 = external_exports3.object(specCreateTaskShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema18, params, async ({ specId, phaseId, verification_tokens, ...body }) => {
     const tokens = attachVerification(catalog, [body.description], verification_tokens);
     const task = await client.post(`/specs/${specId}/phases/${phaseId}/tasks`, body);
     return typedToolResult(task, notices(tokens));
@@ -33868,7 +33910,7 @@ var DOCUMENTATION_KINDS = [
   "SDD_TASKS"
 ];
 var DOCUMENTATION_TYPE_KEYS = DOCUMENTATION_KINDS.map((k) => `doc.${k}`);
-var SPEC_SET_DOCUMENTATION_DESCRIPTION = 'Upsert a structured documentation section on a Spec. Creates a KbArticle the first time (auto-slug, auto-tagged with spec:<number> and doc:<kind>) and records subsequent edits as KbRevisions. Each (spec, kind) pair has at most one section. SPEC-0220: the section body is a TYPED value { type: "doc.<KIND>", ... } whose type matches `kind` \u2014 markdown or a JSON string gets 422 TYPED_CONTENT_LEGACY_SHAPE. Pass it inline in `content`, or by reference with `contentPath` (a local file holding the JSON of the typed value) + `expectedSha256` over its raw bytes (TKT-0274).';
+var SPEC_SET_DOCUMENTATION_DESCRIPTION = 'Upsert a structured documentation section on a Spec. Creates a KbArticle the first time (auto-slug, auto-tagged with spec:<number> and doc:<kind>) and records subsequent edits as KbRevisions. Each (spec, kind) pair has at most one section. SPEC-0220: the section body is a TYPED value { type: "doc.<KIND>", ... } whose type matches `kind` \u2014 markdown or a JSON string gets 422 TYPED_CONTENT_LEGACY_SHAPE. Pass it inline in `content`, or by reference with `contentPath` (a local file holding the JSON of the typed value) + `expectedSha256` over its raw bytes (TKT-0274). TKT-0470 \u2014 the echo of an ADVERSARIAL_VERDICT carries findingsSummary (ALL rows, by severity and status), blockingSummary (only what blocks \u2014 same predicate as the close gate), reviewMode (INTEGRAL|FOCUSED, derived only from the reviewed artifact units) and reviewCoverage (artifact units and input sources counted separately). rejectionSummary is LEGACY/deprecated: it counts every row, ADDRESSED included \u2014 never read it as open findings.';
 function specSetDocumentationShape(catalog) {
   return {
     specId: external_exports3.string().describe("Spec ID (cuid) or SPEC-XXXX number"),
@@ -33902,8 +33944,8 @@ function specSetDocumentationShape(catalog) {
     round: external_exports3.number().int().optional().describe("n\xFAmero de ronda del trail (kinds APPEND)."),
     artifactReviewed: external_exports3.enum(DOCUMENTATION_KINDS).optional().describe("kind del artefacto revisado (kinds APPEND)."),
     // SPEC-0123 F1 / SPEC-0139 P2 — signal estructurado y alcance del veredicto.
-    verdictStatus: external_exports3.enum(["APPROVED", "REJECTED"]).optional().describe("status estructurado del ADVERSARIAL_VERDICT (APPROVED|REJECTED)."),
-    verdictScope: external_exports3.enum(["FULL", "PARTIAL"]).optional().describe("alcance del ADVERSARIAL_VERDICT (FULL|PARTIAL)."),
+    verdictStatus: external_exports3.enum(["APPROVED", "REJECTED"]).optional().describe("status estructurado del ADVERSARIAL_VERDICT (APPROVED|REJECTED). TKT-0470 \u2014 APPROVED exige blockingSummary.total = 0: un finding OPEN que gatea (HIGH/CRITICAL, o CONTRADICTION con resolutionRequired) rebota 422 VERDICT_APPROVED_WITH_BLOCKING_FINDINGS. Con uno abierto el verdict es REJECTED: se decide por el estado real de sus findings, as\xED que la aceptaci\xF3n firmada del riesgo lo destraba sin ronda nueva."),
+    verdictScope: external_exports3.enum(["FULL", "PARTIAL"]).optional().describe("alcance del ADVERSARIAL_VERDICT: FULL = ninguna cobertura excluida (admite UNCHANGED heredado); PARTIAL = hay cobertura OUT_OF_SCOPE. La modalidad de la ronda no se declara: el Hub la deriva como reviewMode (INTEGRAL|FOCUSED, TKT-0470)."),
     // SPEC-0172 P3 — findings estructurados del verdict + marcador de schema.
     findingsSchemaVersion: external_exports3.string().optional().describe("SPEC-0172 P3 \u2014 marcador de schema de findings ('v1' activa el umbral de severidad sobre este verdict)."),
     findings: external_exports3.array(
@@ -33957,8 +33999,8 @@ function resolveDocumentationContent(catalog, kind, input) {
   return catalog.value(`doc.${kind}`).parse(parsed);
 }
 function makeSpecSetDocumentationHandler(client, catalog) {
-  const ParamsSchema17 = external_exports3.object(specSetDocumentationShape(catalog)).strict();
-  return async (params) => runTypedTool(ParamsSchema17, params, async ({ specId, kind, content, contentPath, expectedSha256, ...body }) => {
+  const ParamsSchema18 = external_exports3.object(specSetDocumentationShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema18, params, async ({ specId, kind, content, contentPath, expectedSha256, ...body }) => {
     const resolved = resolveDocumentationContent(catalog, kind, { content, contentPath, expectedSha256 });
     requireTypeIn(resolved, [`doc.${kind}`], "content", `kind='${kind}'`);
     return typedToolResult(await client.put(`/specs/${specId}/documentation/${kind}`, { ...body, content: resolved }));
@@ -33979,9 +34021,9 @@ function specEmitResolutionShape(catalog) {
   };
 }
 function makeSpecEmitResolutionHandler(client, catalog) {
-  const ParamsSchema17 = external_exports3.object(specEmitResolutionShape(catalog)).strict();
+  const ParamsSchema18 = external_exports3.object(specEmitResolutionShape(catalog)).strict();
   return async (params) => runTypedTool(
-    ParamsSchema17,
+    ParamsSchema18,
     params,
     async ({ specId, caseId, ...body }) => typedToolResult(await client.post(`/specs/${specId}/test-cases/${caseId}/resolution`, body))
   );
@@ -33993,7 +34035,7 @@ var evidenceRefShape = external_exports3.object({
   path: external_exports3.string().describe("Path relativo a la raiz de ese repo."),
   line: external_exports3.number().int().optional().describe("Linea dentro del path (opcional).")
 });
-var SPEC_TEST_CASE_ADD_DESCRIPTION = "Crea un TestCase sobre una SPEC. SPEC-0220: successCriterion es un valor tipado testCase.successCriterion (no texto libre; un string rebota 422 TYPED_CONTENT_LEGACY_SHAPE) y es obligatorio (sin \xE9l \u2192 422). No puede arrancar con un marker [gen:...] (\u2192 422 MARKER_NOT_ALLOWED_IN_MANUAL_ADD, TKT-0229). binding se deriva server-side: scope SPEC u originRole ENGINEERING (rol actuante) fuerzan binding=true; el resto nace no vinculante. originRole se toma del rol actuante (x-act-as-role) o del rol del user; originUserId del JWT; originSource default MANUAL. Un caso scope GROUP/PHASE referencia sus fases en phaseIds. SPEC-0238 P3: si el alta resulta vinculante, bindingJustification es obligatoria (20+ caracteres normalizados) o 422 BINDING_JUSTIFICATION_REQUIRED; en un alta no vinculante se ignora.";
+var SPEC_TEST_CASE_ADD_DESCRIPTION = "Crea un TestCase sobre una SPEC. SPEC-0220: successCriterion es un valor tipado testCase.successCriterion (no texto libre; un string rebota 422 TYPED_CONTENT_LEGACY_SHAPE) y es obligatorio (sin \xE9l \u2192 422). No puede arrancar con un marker [gen:...] (\u2192 422 MARKER_NOT_ALLOWED_IN_MANUAL_ADD, TKT-0229). binding se deriva server-side: scope SPEC u originRole ENGINEERING (rol actuante) fuerzan binding=true; el resto nace no vinculante. originRole se toma del rol actuante (x-act-as-role) o del rol del user; originUserId del JWT; originSource default MANUAL. Un caso scope GROUP/PHASE referencia sus fases en phaseIds. SPEC-0238 P3: si el alta resulta vinculante, bindingJustification es obligatoria (20+ caracteres normalizados) o 422 BINDING_JUSTIFICATION_REQUIRED; en un alta no vinculante se ignora. TKT-0473: validationOwner es obligatorio (sin \xE9l \u2192 422 VALIDATION_OWNER_REQUIRED): AGENT si el caso lo verifica un agente (CC-Dev, la verificaci\xF3n), OPERATOR si requiere juicio o acci\xF3n humana; es independiente de binding y de la aprobaci\xF3n vinculante. Para un caso OPERATOR, successCriterion lleva el procedimiento (suggestedTest), las precondiciones (preconditions) y el resultado esperado (criterion).";
 function specTestCaseAddShape(catalog) {
   return {
     specId: external_exports3.string().describe("Spec ID (cuid)"),
@@ -34001,6 +34043,11 @@ function specTestCaseAddShape(catalog) {
     successCriterion: catalog.value("testCase.successCriterion").describe(typedFieldDescription(["testCase.successCriterion"], "Obligatorio.")),
     phaseIds: external_exports3.array(external_exports3.string()).optional().describe("cuids de las SpecPhase referenciadas (scope GROUP/PHASE). Default []."),
     originSource: external_exports3.enum(["MANUAL", "EXPECTED_OUTCOME", "RISK_FLAG"]).optional().describe("Procedencia del caso. Default MANUAL."),
+    // TKT-0473 — obligatorio acá también: un caso sin dueño de validación no se crea (el Hub lo rebota con
+    // 422 VALIDATION_OWNER_REQUIRED). Pedirlo en el schema evita el viaje de ida y vuelta.
+    validationOwner: external_exports3.enum(["AGENT", "OPERATOR"]).describe(
+      "Qui\xE9n valida el caso. AGENT: lo verifica un agente (CC-Dev, la verificaci\xF3n). OPERATOR: requiere juicio o acci\xF3n humana. Independiente de binding y de la aprobaci\xF3n vinculante."
+    ),
     proposedAlertLevel: external_exports3.enum(["BLOCANTE", "INFORMATIVO"]).optional().describe("Nivel de alerta propuesto (opcional)."),
     // SPEC-0238 P3 (ADR-007) — opcional en el schema: si es obligatoria depende de si el alta RESULTA
     // vinculante (scope SPEC o rol ENGINEERING), y eso lo decide el Hub, que también cuenta el largo
@@ -34011,9 +34058,9 @@ function specTestCaseAddShape(catalog) {
   };
 }
 function makeSpecTestCaseAddHandler(client, catalog) {
-  const ParamsSchema17 = external_exports3.object(specTestCaseAddShape(catalog)).strict();
+  const ParamsSchema18 = external_exports3.object(specTestCaseAddShape(catalog)).strict();
   return async (params) => runTypedTool(
-    ParamsSchema17,
+    ParamsSchema18,
     params,
     async ({ specId, ...body }) => typedToolResult(await client.post(`/specs/${specId}/test-cases`, body))
   );
@@ -34032,9 +34079,9 @@ function specTestCaseSetResultShape(catalog) {
   };
 }
 function makeSpecTestCaseSetResultHandler(client, catalog) {
-  const ParamsSchema17 = external_exports3.object(specTestCaseSetResultShape(catalog)).strict();
+  const ParamsSchema18 = external_exports3.object(specTestCaseSetResultShape(catalog)).strict();
   return async (params) => runTypedTool(
-    ParamsSchema17,
+    ParamsSchema18,
     params,
     async ({ specId, id, ...body }) => typedToolResult(await client.post(`/specs/${specId}/test-cases/${id}/result`, body))
   );
@@ -34054,9 +34101,9 @@ function specTestCasePromoteShape(catalog) {
   };
 }
 function makeSpecTestCasePromoteHandler(client, catalog) {
-  const ParamsSchema17 = external_exports3.object(specTestCasePromoteShape(catalog)).strict();
+  const ParamsSchema18 = external_exports3.object(specTestCasePromoteShape(catalog)).strict();
   return async (params) => runTypedTool(
-    ParamsSchema17,
+    ParamsSchema18,
     params,
     async ({ specId, id, ...body }) => typedToolResult(await client.post(`/specs/${specId}/test-cases/${id}/promote`, body))
   );
@@ -34071,9 +34118,9 @@ function specTestCaseVerifyShape(catalog) {
   };
 }
 function makeSpecTestCaseVerifyHandler(client, catalog) {
-  const ParamsSchema17 = external_exports3.object(specTestCaseVerifyShape(catalog)).strict();
+  const ParamsSchema18 = external_exports3.object(specTestCaseVerifyShape(catalog)).strict();
   return async (params) => runTypedTool(
-    ParamsSchema17,
+    ParamsSchema18,
     params,
     async ({ specId, id, ...body }) => typedToolResult(await client.post(`/specs/${specId}/test-cases/${id}/verify`, body))
   );
@@ -34087,9 +34134,9 @@ function specTestCaseSupersedeShape(catalog) {
   };
 }
 function makeSpecTestCaseSupersedeHandler(client, catalog) {
-  const ParamsSchema17 = external_exports3.object(specTestCaseSupersedeShape(catalog)).strict();
+  const ParamsSchema18 = external_exports3.object(specTestCaseSupersedeShape(catalog)).strict();
   return async (params) => runTypedTool(
-    ParamsSchema17,
+    ParamsSchema18,
     params,
     async ({ specId, id, ...body }) => typedToolResult(await client.post(`/specs/${specId}/test-cases/${id}/supersede`, body))
   );
@@ -34125,8 +34172,8 @@ function decisionCreateShape(catalog) {
   };
 }
 function makeDecisionCreateHandler(client, catalog) {
-  const ParamsSchema17 = external_exports3.object(decisionCreateShape(catalog)).strict();
-  return async (params) => runTypedTool(ParamsSchema17, params, async ({ verification_tokens, ...data }) => {
+  const ParamsSchema18 = external_exports3.object(decisionCreateShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema18, params, async ({ verification_tokens, ...data }) => {
     requireTypeIn(data.body, [`decision.body.${data.kind}`], "body", `kind='${data.kind}'`);
     const tokens = attachVerification(catalog, [data.body], verification_tokens);
     return typedToolResult(await client.post("/decisions", data), notices2(tokens));
@@ -34148,8 +34195,8 @@ function decisionUpdateShape(catalog) {
   };
 }
 function makeDecisionUpdateHandler(client, catalog) {
-  const ParamsSchema17 = external_exports3.object(decisionUpdateShape(catalog)).strict();
-  return async (params) => runTypedTool(ParamsSchema17, params, async ({ id, verification_tokens, ...data }) => {
+  const ParamsSchema18 = external_exports3.object(decisionUpdateShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema18, params, async ({ id, verification_tokens, ...data }) => {
     if (isStrictPeriod && data.body !== void 0 && !verification_tokens) {
       return typedToolError(
         "Schema validation failed: verification_tokens object required when body is updated (body carries technical claim) post MCP_SERVER_RELEASE>=0.2.0 (skill staff-verification-protocol)."
@@ -34183,8 +34230,8 @@ function futurePromiseCreateShape(catalog) {
   };
 }
 function makeFuturePromiseCreateHandler(client, catalog) {
-  const ParamsSchema17 = external_exports3.object(futurePromiseCreateShape(catalog)).strict();
-  return async (params) => runTypedTool(ParamsSchema17, params, async ({ verification_tokens, ...body }) => {
+  const ParamsSchema18 = external_exports3.object(futurePromiseCreateShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema18, params, async ({ verification_tokens, ...body }) => {
     const tokens = attachVerification(
       catalog,
       [body.description, body.triggerCondition, body.origin],
@@ -34214,9 +34261,9 @@ function futurePromiseUpdateShape(catalog) {
   };
 }
 function makeFuturePromiseUpdateHandler(client, catalog) {
-  const ParamsSchema17 = external_exports3.object(futurePromiseUpdateShape(catalog)).strict();
+  const ParamsSchema18 = external_exports3.object(futurePromiseUpdateShape(catalog)).strict();
   return async (params) => runTypedTool(
-    ParamsSchema17,
+    ParamsSchema18,
     params,
     async ({ id, ...data }) => typedToolResult(await client.patch(`/future-promises/${id}`, data))
   );
@@ -34238,8 +34285,8 @@ function futurePromisePromoteShape(catalog) {
   };
 }
 function makeFuturePromisePromoteHandler(client, catalog) {
-  const ParamsSchema17 = external_exports3.object(futurePromisePromoteShape(catalog)).strict();
-  return async (params) => runTypedTool(ParamsSchema17, params, async ({ id, verification_tokens, ...body }) => {
+  const ParamsSchema18 = external_exports3.object(futurePromisePromoteShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema18, params, async ({ id, verification_tokens, ...body }) => {
     const tokens = attachVerification(catalog, [body.createNewSpec?.description], verification_tokens);
     return typedToolResult(await client.post(`/future-promises/${id}/promote`, body), notices2(tokens));
   });
@@ -34264,8 +34311,8 @@ function meetingCreateShape(catalog) {
   };
 }
 function makeMeetingCreateHandler(client, catalog) {
-  const ParamsSchema17 = external_exports3.object(meetingCreateShape(catalog)).strict();
-  return async (params) => runTypedTool(ParamsSchema17, params, async (data) => typedToolResult(await client.post("/meetings", data)));
+  const ParamsSchema18 = external_exports3.object(meetingCreateShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema18, params, async (data) => typedToolResult(await client.post("/meetings", data)));
 }
 var MEETING_UPDATE_DESCRIPTION = "Update a Meeting. Editable fields F1: title, summary, tags, taxonomy (workspaceId/projectId/moduleId/submoduleId). Taxonomy re-validated server-side si cambia. Status transitions intencionalmente NO expuestas en MCP. SPEC-0220: `summary` es un valor tipado meeting.summary, no texto libre; un string rebota 422 TYPED_CONTENT_LEGACY_SHAPE.";
 function meetingUpdateShape(catalog) {
@@ -34281,8 +34328,8 @@ function meetingUpdateShape(catalog) {
   };
 }
 function makeMeetingUpdateHandler(client, catalog) {
-  const ParamsSchema17 = external_exports3.object(meetingUpdateShape(catalog)).strict();
-  return async (params) => runTypedTool(ParamsSchema17, params, async ({ id, ...data }) => typedToolResult(await client.patch(`/meetings/${id}`, data)));
+  const ParamsSchema18 = external_exports3.object(meetingUpdateShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema18, params, async ({ id, ...data }) => typedToolResult(await client.patch(`/meetings/${id}`, data)));
 }
 var QA_SPEC_UPDATE_DESCRIPTION = "Update QaSpecification editable fields: title (\u226480 chars), content, validationSteps (length \u22651). Snapshot logic D-T2: si content/validationSteps cambian Y originalContent IS NULL, el service hace snapshot ANTES del UPDATE. Status NO settable ac\xE1 \u2014 usar qa_spec_open_review/approve/reject. System users (workers) rechazados 403. SPEC-0220: `content` es un valor tipado qaSpecification.content y `validationSteps` la parte `steps` de qaSpecification.validationSteps ([{ kind, description, expectedResult }] con topes de hoja) \u2014 un string rebota 422 TYPED_CONTENT_LEGACY_SHAPE. verification_tokens required when content or validationSteps is updated post MCP_SERVER_RELEASE >= 0.2.0; qaSpecification.content does not declare `verification`, so they are validated for the verification hook and not persisted (the response says so).";
 function qaSpecUpdateShape(catalog) {
@@ -34295,8 +34342,8 @@ function qaSpecUpdateShape(catalog) {
   };
 }
 function makeQaSpecUpdateHandler(client, catalog) {
-  const ParamsSchema17 = external_exports3.object(qaSpecUpdateShape(catalog)).strict();
-  return async (params) => runTypedTool(ParamsSchema17, params, async ({ id, verification_tokens, ...data }) => {
+  const ParamsSchema18 = external_exports3.object(qaSpecUpdateShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema18, params, async ({ id, verification_tokens, ...data }) => {
     const isVerdictUpdate = data.content !== void 0 || data.validationSteps !== void 0;
     if (isStrictPeriod && isVerdictUpdate && !verification_tokens) {
       return typedToolError(
@@ -34316,8 +34363,8 @@ function qaSpecRejectShape(catalog) {
   };
 }
 function makeQaSpecRejectHandler(client, catalog) {
-  const ParamsSchema17 = external_exports3.object(qaSpecRejectShape(catalog)).strict();
-  return async (params) => runTypedTool(ParamsSchema17, params, async ({ id, rejectReason, verification_tokens }) => {
+  const ParamsSchema18 = external_exports3.object(qaSpecRejectShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema18, params, async ({ id, rejectReason, verification_tokens }) => {
     const tokens = attachVerification(catalog, [rejectReason], verification_tokens);
     const qaSpec = await client.post(`/qa-specs/${id}/transitions`, { to: "FAILED", rejectReason });
     return typedToolResult(qaSpec, notices2(tokens));
@@ -34333,8 +34380,8 @@ function qaRunCompleteShape(catalog) {
   };
 }
 function makeQaRunCompleteHandler(client, catalog) {
-  const ParamsSchema17 = external_exports3.object(qaRunCompleteShape(catalog)).strict();
-  return async (params) => runTypedTool(ParamsSchema17, params, async ({ id, verification_tokens, ...body }) => {
+  const ParamsSchema18 = external_exports3.object(qaRunCompleteShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema18, params, async ({ id, verification_tokens, ...body }) => {
     const tokens = attachVerification(catalog, [body.summary], verification_tokens);
     return typedToolResult(await client.post(`/qa-runs/${id}/complete`, body), notices2(tokens));
   });
@@ -34355,8 +34402,8 @@ function updateTaskShape(catalog) {
   };
 }
 function makeUpdateTaskHandler(client, catalog) {
-  const ParamsSchema17 = external_exports3.object(updateTaskShape(catalog)).strict();
-  return async (params) => runTypedTool(ParamsSchema17, params, async ({ id, ...data }) => typedToolResult(await client.patch(`/tasks/${id}`, data)));
+  const ParamsSchema18 = external_exports3.object(updateTaskShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema18, params, async ({ id, ...data }) => typedToolResult(await client.patch(`/tasks/${id}`, data)));
 }
 
 // src/tools/create-task.deprecated.ts
@@ -35126,15 +35173,39 @@ function makeSpecBlockHandler(client) {
   };
 }
 
+// src/tools/spec-request-engineering-review.ts
+var specRequestEngineeringReviewSchema = {
+  specId: external_exports3.string().describe("Spec ID (cuid) or SPEC-XXXX number")
+};
+var ParamsSchema13 = external_exports3.object(specRequestEngineeringReviewSchema).strict();
+function makeSpecRequestEngineeringReviewHandler(client) {
+  return async (params) => {
+    const parsed = ParamsSchema13.safeParse(params);
+    if (!parsed.success) {
+      return {
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: `Schema validation failed: ${parsed.error.issues.map((e) => e.message).join("; ")}`
+          }
+        ]
+      };
+    }
+    const result = await client.post(`/specs/${parsed.data.specId}/request-engineering-review`);
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  };
+}
+
 // src/tools/spec-unblock.ts
 var specUnblockSchema = {
   specId: external_exports3.string(),
   resolutionNotes: external_exports3.string().describe("Notas de la resoluci\xF3n del bloqueo (obligatorio; vac\xEDo \u2192 400).")
 };
-var ParamsSchema13 = external_exports3.object(specUnblockSchema).strict();
+var ParamsSchema14 = external_exports3.object(specUnblockSchema).strict();
 function makeSpecUnblockHandler(client) {
   return async (params) => {
-    const parsed = ParamsSchema13.safeParse(params);
+    const parsed = ParamsSchema14.safeParse(params);
     if (!parsed.success) {
       return {
         isError: true,
@@ -35164,10 +35235,10 @@ var signBindingSupersedeSchema = {
   )
 };
 var bindingSupersedeSignParamsSchema = external_exports3.object(signBindingSupersedeSchema).strict();
-var ParamsSchema14 = bindingSupersedeSignParamsSchema;
+var ParamsSchema15 = bindingSupersedeSignParamsSchema;
 function makeSignBindingSupersedeHandler(client) {
   return async (params) => {
-    const parsed = ParamsSchema14.safeParse(params);
+    const parsed = ParamsSchema15.safeParse(params);
     if (!parsed.success) {
       return {
         isError: true,
@@ -35218,10 +35289,10 @@ var discardTestCaseParamsSchema = external_exports3.object({
   explanation: external_exports3.string(),
   duplicatesTestCaseId: external_exports3.string().optional()
 }).strict();
-var ParamsSchema15 = discardTestCaseParamsSchema;
+var ParamsSchema16 = discardTestCaseParamsSchema;
 function makeDiscardTestCaseHandler(client) {
   return async (params) => {
-    const parsed = ParamsSchema15.safeParse(params);
+    const parsed = ParamsSchema16.safeParse(params);
     if (!parsed.success) {
       return {
         isError: true,
@@ -35252,10 +35323,10 @@ var testCaseFlagIntegrityParamsSchema = external_exports3.object({
   id: external_exports3.string(),
   detail: external_exports3.string()
 }).strict();
-var ParamsSchema16 = testCaseFlagIntegrityParamsSchema;
+var ParamsSchema17 = testCaseFlagIntegrityParamsSchema;
 function makeTestCaseFlagIntegrityHandler(client) {
   return async (params) => {
-    const parsed = ParamsSchema16.safeParse(params);
+    const parsed = ParamsSchema17.safeParse(params);
     if (!parsed.success) {
       return {
         isError: true,
@@ -35689,22 +35760,27 @@ function makeCorpusCurrentGetHandler(client) {
 }
 
 // src/tools/operator-input.ts
-var specRequestOperatorInputSchema = {
-  specId: external_exports3.string().describe("Spec ID (cuid)"),
-  questions: external_exports3.string().min(1).describe(
-    "Las preguntas al Operador, CON CONTENIDO. Agrupar varias preguntas en un mismo pedido es lo esperado: el tope cuenta REQUESTS, no preguntas. Escribirlas de forma que la respuesta pueda citarse despues como fuente OPERATOR_INPUT."
-  ),
-  artifactKind: external_exports3.enum(["DISCOVERY_REPORT", "ENGINEERING_PLAN"]).describe(
-    "Artefacto EN PRODUCCION cuando se pide el input: DISCOVERY_REPORT (Discovery) o ENGINEERING_PLAN (Engineering)."
-  )
-};
+var SPEC_REQUEST_OPERATOR_INPUT_DESCRIPTION = "Pide input al Operador sobre una SPEC y la deja EN ESPERA, SIN castigo: el estado y el contexto de la SPEC NO cambian (mismo stateId, mismo inProgressContext) y tu turno cierra igual. Con la consulta abierta, el gate del dispatcher bloquea TODA transicion de la SPEC salvo BLOCKED y CANCELLED \u2014 el rechazo nombra el cuid de la consulta pendiente. UNA consulta = UNA decision (TKT-0475): `questions` es el valor tipado operatorInput.questions \u2014 `question` (una sola pregunta de decision), `contextSummary` (hasta 500 caracteres), `options` (2 a 4, cada una con id A-D distinto y `text` de hasta 250), `recommendation` { optionId, rationale de hasta 250 } y `evidenceRefs` (hasta 10 Ref). No pegues codigo, resultados de busquedas, inventarios ni respuestas anteriores: una decision previa se cita por Ref OPERATOR_INPUT (el id de una consulta de ESTA SPEC), nunca copiando su contenido. Un string plano rebota 422 TYPED_CONTENT_LEGACY_SHAPE; una recomendacion que no esta entre las opciones o ids de opcion repetidos, 422 TYPED_CONTENT_INVALID; un campo sobre su tope, 422 TYPED_CONTENT_OVER_LIMIT; un Ref OPERATOR_INPUT que no es de esta SPEC, 422 OPERATOR_INPUT_REF_UNKNOWN. El tope cuenta REQUESTS. Devuelve requestsUsed/requestsMax. 422 OPERATOR_INPUT_CAP_REACHED si la SPEC agoto el tope del tenant (sin retroceso de estado; el tope se sube por PATCH /admin/sdd/tenants/:id/operator-input-cap), OPERATOR_INPUT_ALREADY_OPEN si ya hay una abierta. 422 OPERATOR_INPUT_CHANNEL_CLOSED si Adversarial ya aprobo el artefacto en cuestion (el ENGINEERING_PLAN aprobado cierra el canal entero; el DISCOVERY_REPORT aprobado cierra solo los pedidos sobre ese artefacto) \u2014 despues de la aprobacion las salidas son la interfaz del agente o una task pendiente por falta de input. Requiere el permiso spec.request_operator_input (DISCOVERY, ENGINEERING, OPERATOR). La respuesta NO se da por MCP: es acto humano por UI (el Operador elige una opcion).";
+function specRequestOperatorInputShape(catalog) {
+  return {
+    specId: external_exports3.string().describe("Spec ID (cuid)"),
+    questions: catalog.oneOf(["operatorInput.questions"]).describe(
+      typedFieldDescription(
+        ["operatorInput.questions"],
+        "UNA decision: { question, contextSummary <=500, options 2-4 (id A-D unico, text <=250), recommendation { optionId (una de las opciones), rationale <=250 }, evidenceRefs <=10 Ref }. Una decision previa se cita por Ref OPERATOR_INPUT (id de una consulta de esta SPEC), sin copiar su contenido."
+      )
+    ),
+    artifactKind: external_exports3.enum(["DISCOVERY_REPORT", "ENGINEERING_PLAN"]).describe(
+      "Artefacto EN PRODUCCION cuando se pide el input: DISCOVERY_REPORT (Discovery) o ENGINEERING_PLAN (Engineering)."
+    )
+  };
+}
 var specOperatorInputListSchema = {
   specId: external_exports3.string().describe("Spec ID (cuid)"),
   status: external_exports3.enum(["OPEN", "ANSWERED"]).optional().describe(
     "Filtro opcional. Omitido devuelve el historial COMPLETO: una consulta ya respondida sigue siendo fuente citable y no puede desaparecer del listado por default."
   )
 };
-var RequestParamsSchema = external_exports3.object(specRequestOperatorInputSchema).strict();
 var ListParamsSchema3 = external_exports3.object(specOperatorInputListSchema).strict();
 function schemaError5(issues) {
   return {
@@ -35717,17 +35793,17 @@ function schemaError5(issues) {
     ]
   };
 }
-function makeSpecRequestOperatorInputHandler(client) {
-  return async (params) => {
-    const parsed = RequestParamsSchema.safeParse(params);
-    if (!parsed.success) return schemaError5(parsed.error.issues);
-    const { specId, questions, artifactKind } = parsed.data;
-    const result = await client.post(
-      `/specs/${encodeURIComponent(specId)}/operator-input`,
-      { questions, artifactKind }
-    );
-    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-  };
+function makeSpecRequestOperatorInputHandler(client, catalog) {
+  const ParamsSchema18 = external_exports3.object(specRequestOperatorInputShape(catalog)).strict();
+  return async (params) => (
+    // Re-validacion strict (defensa vs schema drift, SPEC-0089 v0.3.1): un string plano en `questions`
+    // (la forma anterior a TKT-0475), una clave ajena o un campo sobre su tope rebotan aca y no llegan al backend.
+    runTypedTool(
+      ParamsSchema18,
+      params,
+      async ({ specId, questions, artifactKind }) => typedToolResult(await client.post(`/specs/${encodeURIComponent(specId)}/operator-input`, { questions, artifactKind }))
+    )
+  );
 }
 function makeSpecOperatorInputListHandler(client) {
   return async (params) => {
@@ -35738,6 +35814,118 @@ function makeSpecOperatorInputListHandler(client) {
     const path3 = status === void 0 ? base : `${base}?status=${status}`;
     const result = await client.get(path3);
     return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  };
+}
+
+// src/tools/work-item-tools.ts
+var WORK_ITEM_TARGET_ROLES = ["DISCOVERY", "ENGINEERING", "ADVERSARIAL", "CC_DEV", "TESTER"];
+var WORK_ITEM_SUBJECT_TYPES = ["SPEC", "PHASE", "TASK"];
+var WORK_ITEM_STATUSES = ["PENDING", "IN_PROGRESS", "BLOCKED", "FAILED", "DONE", "CANCELLED"];
+var WORK_ITEM_EXECUTION_RESULTS = ["SUCCEEDED", "BLOCKED", "FAILED"];
+var WORK_ITEM_ID = external_exports3.string().describe("WorkItem.id (cuid) del trabajo.");
+var workItemCreateSchema = {
+  title: external_exports3.string().describe("Que se pide. El backend lo recorta; de 1 a 200 caracteres."),
+  targetRole: external_exports3.enum(WORK_ITEM_TARGET_ROLES).describe("Rol SDD al que se dirige el trabajo: DISCOVERY, ENGINEERING, ADVERSARIAL, CC_DEV o TESTER."),
+  subjectType: external_exports3.enum(WORK_ITEM_SUBJECT_TYPES).describe("Tipo del objeto del Hub sobre el que trata el trabajo: SPEC, PHASE o TASK."),
+  subjectId: external_exports3.string().describe(
+    "cuid del objeto. Tiene que resolver a un objeto del tipo indicado en el tenant de quien opera; si no, 422 WORK_ITEM_SUBJECT_NOT_FOUND."
+  ),
+  requirements: external_exports3.array(external_exports3.string()).optional().describe(
+    "Capacidades requeridas: hasta 20 claves unicas, cada una ^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$ (por ejemplo SENIOR_ARQ). Omitido vale []."
+  )
+};
+var workItemListSchema = {
+  status: external_exports3.enum(WORK_ITEM_STATUSES).optional().describe("Filtro por estado del trabajo."),
+  targetRole: external_exports3.enum(WORK_ITEM_TARGET_ROLES).optional().describe("Filtro por rol destinatario."),
+  subjectType: external_exports3.enum(WORK_ITEM_SUBJECT_TYPES).optional().describe("Filtro por tipo de objeto."),
+  subjectId: external_exports3.string().optional().describe("Filtro por cuid del objeto."),
+  limit: external_exports3.number().optional().describe("Tamano de pagina: entero de 1 a 100, default 50."),
+  cursor: external_exports3.string().optional().describe(
+    "nextCursor de la pagina anterior (id de su ultimo item). Si no resuelve en el tenant de quien opera, 400 WORK_ITEM_CURSOR_INVALID."
+  )
+};
+var workItemGetSchema = {
+  workItemId: WORK_ITEM_ID
+};
+var workItemExecutionStartSchema = {
+  workItemId: WORK_ITEM_ID
+};
+var workItemExecutionFinishSchema = {
+  workItemId: WORK_ITEM_ID,
+  executionId: external_exports3.string().describe("WorkItemExecution.id (cuid) de la ejecucion abierta del trabajo."),
+  result: external_exports3.enum(WORK_ITEM_EXECUTION_RESULTS).describe("Como termino la ejecucion: SUCCEEDED lleva el trabajo a DONE, BLOCKED a BLOCKED y FAILED a FAILED.")
+};
+var workItemCancelSchema = {
+  workItemId: WORK_ITEM_ID
+};
+var WorkItemCreateParamsSchema = external_exports3.object(workItemCreateSchema).strict();
+var WorkItemListParamsSchema = external_exports3.object(workItemListSchema).strict();
+var WorkItemGetParamsSchema = external_exports3.object(workItemGetSchema).strict();
+var WorkItemExecutionStartParamsSchema = external_exports3.object(workItemExecutionStartSchema).strict();
+var WorkItemExecutionFinishParamsSchema = external_exports3.object(workItemExecutionFinishSchema).strict();
+var WorkItemCancelParamsSchema = external_exports3.object(workItemCancelSchema).strict();
+function schemaError6(issues) {
+  const detail = issues.map((e) => `${e.path?.join(".") || "(root)"}: ${e.message}`).join("; ");
+  return { isError: true, content: [{ type: "text", text: `Schema validation failed: ${detail}` }] };
+}
+function asResult2(result) {
+  return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+}
+var seg2 = encodeURIComponent;
+function queryString2(params) {
+  const qs = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== void 0) qs.set(key, String(value));
+  }
+  const text = qs.toString();
+  return text ? `?${text}` : "";
+}
+function makeWorkItemCreateHandler(client) {
+  return async (params) => {
+    const parsed = WorkItemCreateParamsSchema.safeParse(params);
+    if (!parsed.success) return schemaError6(parsed.error.issues);
+    return asResult2(await client.post("/work-items", parsed.data));
+  };
+}
+function makeWorkItemListHandler(client) {
+  return async (params) => {
+    const parsed = WorkItemListParamsSchema.safeParse(params);
+    if (!parsed.success) return schemaError6(parsed.error.issues);
+    const { status, targetRole, subjectType, subjectId, limit, cursor } = parsed.data;
+    return asResult2(
+      await client.get(`/work-items${queryString2({ status, targetRole, subjectType, subjectId, limit, cursor })}`)
+    );
+  };
+}
+function makeWorkItemGetHandler(client) {
+  return async (params) => {
+    const parsed = WorkItemGetParamsSchema.safeParse(params);
+    if (!parsed.success) return schemaError6(parsed.error.issues);
+    return asResult2(await client.get(`/work-items/${seg2(parsed.data.workItemId)}`));
+  };
+}
+function makeWorkItemExecutionStartHandler(client) {
+  return async (params) => {
+    const parsed = WorkItemExecutionStartParamsSchema.safeParse(params);
+    if (!parsed.success) return schemaError6(parsed.error.issues);
+    return asResult2(await client.post(`/work-items/${seg2(parsed.data.workItemId)}/executions`, {}));
+  };
+}
+function makeWorkItemExecutionFinishHandler(client) {
+  return async (params) => {
+    const parsed = WorkItemExecutionFinishParamsSchema.safeParse(params);
+    if (!parsed.success) return schemaError6(parsed.error.issues);
+    const { workItemId, executionId, result } = parsed.data;
+    return asResult2(
+      await client.post(`/work-items/${seg2(workItemId)}/executions/${seg2(executionId)}/finish`, { result })
+    );
+  };
+}
+function makeWorkItemCancelHandler(client) {
+  return async (params) => {
+    const parsed = WorkItemCancelParamsSchema.safeParse(params);
+    if (!parsed.success) return schemaError6(parsed.error.issues);
+    return asResult2(await client.post(`/work-items/${seg2(parsed.data.workItemId)}/cancel`, {}));
   };
 }
 
@@ -35774,50 +35962,64 @@ var server = new McpServer({
   name: "integra-hub",
   version: MCP_SERVER_VERSION
 });
-server.tool(
+server.registerTool(
   "spec_resolve_by_number",
-  "Resolve a canonical SPEC-XXXX number to its cuid. Returns {id, number} (number normalized uppercase). Fails with 400 (invalid format) / 404 (not found in tenant).",
-  { number: external_exports3.string().describe("Canonical Spec number, e.g. SPEC-0102 (case-insensitive)") },
+  {
+    description: "Resolve a canonical SPEC-XXXX number to its cuid. Returns {id, number} (number normalized uppercase). Fails with 400 (invalid format) / 404 (not found in tenant).",
+    inputSchema: external_exports3.object({ number: external_exports3.string().describe("Canonical Spec number, e.g. SPEC-0102 (case-insensitive)") }).strict()
+  },
   makeResolveByNumberHandler("spec", apiClient)
 );
-server.tool(
+server.registerTool(
   "task_resolve_by_number",
-  "Resolve a canonical TSK-XXXX number to its cuid. Returns {id, number}. Fails with 400 (invalid format) / 404 (not found in tenant).",
-  { number: external_exports3.string().describe("Canonical Task number, e.g. TSK-0042 (case-insensitive)") },
+  {
+    description: "Resolve a canonical TSK-XXXX number to its cuid. Returns {id, number}. Fails with 400 (invalid format) / 404 (not found in tenant).",
+    inputSchema: external_exports3.object({ number: external_exports3.string().describe("Canonical Task number, e.g. TSK-0042 (case-insensitive)") }).strict()
+  },
   makeResolveByNumberHandler("task", apiClient)
 );
-server.tool(
+server.registerTool(
   "ticket_resolve_by_number",
-  "Resolve a canonical TKT-XXXX (or sub-ticket TKT-XXXX-N) number to its cuid. Returns {id, number}. Fails with 400 (invalid format) / 404 (not found in tenant).",
-  { number: external_exports3.string().describe("Canonical Ticket number, e.g. TKT-0042 or TKT-0042-3 (case-insensitive)") },
+  {
+    description: "Resolve a canonical TKT-XXXX (or sub-ticket TKT-XXXX-N) number to its cuid. Returns {id, number}. Fails with 400 (invalid format) / 404 (not found in tenant).",
+    inputSchema: external_exports3.object({ number: external_exports3.string().describe("Canonical Ticket number, e.g. TKT-0042 or TKT-0042-3 (case-insensitive)") }).strict()
+  },
   makeResolveByNumberHandler("ticket", apiClient)
 );
-server.tool(
+server.registerTool(
   "quote_resolve_by_number",
-  "Resolve a canonical QUO-XXXX number to its cuid. Returns {id, number}. Fails with 400 (invalid format) / 404 (not found in tenant).",
-  { number: external_exports3.string().describe("Canonical Quote number, e.g. QUO-0001 (case-insensitive)") },
+  {
+    description: "Resolve a canonical QUO-XXXX number to its cuid. Returns {id, number}. Fails with 400 (invalid format) / 404 (not found in tenant).",
+    inputSchema: external_exports3.object({ number: external_exports3.string().describe("Canonical Quote number, e.g. QUO-0001 (case-insensitive)") }).strict()
+  },
   makeResolveByNumberHandler("quote", apiClient)
 );
-server.tool(
+server.registerTool(
   "initiative_resolve_by_number",
-  "Resolve a canonical INI-NNNN number to its cuid. Returns {id, number} (number normalized uppercase). Fails with 400 (invalid format) / 404 (not found in tenant).",
-  { number: external_exports3.string().describe("Canonical Initiative number, e.g. INI-0001 (case-insensitive)") },
+  {
+    description: "Resolve a canonical INI-NNNN number to its cuid. Returns {id, number} (number normalized uppercase). Fails with 400 (invalid format) / 404 (not found in tenant).",
+    inputSchema: external_exports3.object({ number: external_exports3.string().describe("Canonical Initiative number, e.g. INI-0001 (case-insensitive)") }).strict()
+  },
   makeResolveByNumberHandler("initiative", apiClient)
 );
-server.tool(
+server.registerTool(
   "create_task",
-  "DEPRECATED per TKT-0014. Use spec_create_task for SPEC-linked tasks. Use ihub_create_ticket for minor bugs/work without SPEC.",
-  {},
+  {
+    description: "DEPRECATED per TKT-0014. Use spec_create_task for SPEC-linked tasks. Use ihub_create_ticket for minor bugs/work without SPEC.",
+    inputSchema: external_exports3.object({}).strict()
+  },
   createTaskDeprecatedHandler
 );
-server.tool(
+server.registerTool(
   "list_tasks",
-  "List tasks with optional filters",
   {
-    status: external_exports3.enum(["INBOX", "BACKLOG", "IN_PROGRESS", "DONE", "ARCHIVED"]).optional(),
-    priority: external_exports3.enum(["NOW", "NEXT", "LATER"]).optional(),
-    q: external_exports3.string().optional().describe("Search text in title/description"),
-    limit: external_exports3.number().optional().describe("Max results (default 20)")
+    description: "List tasks with optional filters",
+    inputSchema: external_exports3.object({
+      status: external_exports3.enum(["INBOX", "BACKLOG", "IN_PROGRESS", "DONE", "ARCHIVED"]).optional(),
+      priority: external_exports3.enum(["NOW", "NEXT", "LATER"]).optional(),
+      q: external_exports3.string().optional().describe("Search text in title/description"),
+      limit: external_exports3.number().optional().describe("Max results (default 20)")
+    }).strict()
   },
   async (params) => {
     const qs = new URLSearchParams();
@@ -35829,23 +36031,25 @@ server.tool(
     return formatRead(tasks);
   }
 );
-server.tool(
+server.registerTool(
   "create_interaction",
-  "Log an interaction (meeting, email, call, decision, note) in Integra Hub.",
   {
-    type: external_exports3.enum(["MEETING", "EMAIL", "CALL", "DECISION", "NOTE"]).describe("Interaction type"),
-    subject: external_exports3.string().describe("Short subject line"),
-    content: external_exports3.string().describe("Full content (markdown supported)"),
-    happenedAt: external_exports3.string().optional().describe("When it happened (ISO datetime, default: now)"),
-    clientId: external_exports3.string().optional().describe("Associated client ID"),
-    leadId: external_exports3.string().optional().describe("Associated lead ID"),
-    internal: external_exports3.boolean().optional().describe("true if related to own company"),
-    tags: external_exports3.array(external_exports3.string()).optional().describe("Tags for categorization"),
-    links: external_exports3.array(external_exports3.object({
-      url: external_exports3.string(),
-      title: external_exports3.string(),
-      description: external_exports3.string().optional()
-    })).optional().describe("Web links to attach")
+    description: "Log an interaction (meeting, email, call, decision, note) in Integra Hub.",
+    inputSchema: external_exports3.object({
+      type: external_exports3.enum(["MEETING", "EMAIL", "CALL", "DECISION", "NOTE"]).describe("Interaction type"),
+      subject: external_exports3.string().describe("Short subject line"),
+      content: external_exports3.string().describe("Full content (markdown supported)"),
+      happenedAt: external_exports3.string().optional().describe("When it happened (ISO datetime, default: now)"),
+      clientId: external_exports3.string().optional().describe("Associated client ID"),
+      leadId: external_exports3.string().optional().describe("Associated lead ID"),
+      internal: external_exports3.boolean().optional().describe("true if related to own company"),
+      tags: external_exports3.array(external_exports3.string()).optional().describe("Tags for categorization"),
+      links: external_exports3.array(external_exports3.object({
+        url: external_exports3.string(),
+        title: external_exports3.string(),
+        description: external_exports3.string().optional()
+      })).optional().describe("Web links to attach")
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -35872,15 +36076,17 @@ server.tool(
     })
   )
 );
-server.tool(
+server.registerTool(
   "list_interactions",
-  "List recent interactions with optional filters",
   {
-    type: external_exports3.enum(["MEETING", "EMAIL", "CALL", "DECISION", "NOTE"]).optional(),
-    clientId: external_exports3.string().optional(),
-    leadId: external_exports3.string().optional(),
-    q: external_exports3.string().optional().describe("Search in subject/content"),
-    limit: external_exports3.number().optional()
+    description: "List recent interactions with optional filters",
+    inputSchema: external_exports3.object({
+      type: external_exports3.enum(["MEETING", "EMAIL", "CALL", "DECISION", "NOTE"]).optional(),
+      clientId: external_exports3.string().optional(),
+      leadId: external_exports3.string().optional(),
+      q: external_exports3.string().optional().describe("Search in subject/content"),
+      limit: external_exports3.number().optional()
+    }).strict()
   },
   async (params) => {
     const qs = new URLSearchParams();
@@ -35936,54 +36142,56 @@ var createKbArticleInputSchema = external_exports3.object({
   appliesToVersion: external_exports3.string().optional(),
   supersedesId: external_exports3.string().optional()
 }).strict();
-server.tool(
+server.registerTool(
   "create_kb_article",
-  "Create a Knowledge Base article. soporta estructura formal \u2014 kind, statement, rationale, sourceRefs, affectedAreas, confidence (default INFERRED). Ver plan padre \xA75.1 para contrato.",
   {
-    title: external_exports3.string().describe("Article title \u2014 5-10 palabras, sin jerga del c\xF3digo"),
-    content: external_exports3.string().describe("Article content (markdown)"),
-    summary: external_exports3.string().optional().describe("Brief summary"),
-    tags: external_exports3.array(external_exports3.string()).optional().describe(
-      "Tags namespaced: module:*, era:*, risk:*, pattern:*, source:*. Ver plan padre \xA76.1."
-    ),
-    // SPEC-0044 F1 — campos estructurados opcionales (todos pueden omitirse).
-    kind: external_exports3.enum([
-      "BUSINESS_RULE",
-      "POLICY",
-      "GLOSSARY",
-      "DISCOVERY",
-      "PATTERN",
-      "ANTI_PATTERN",
-      "GOTCHA",
-      "DECISION",
-      "TRADE_OFF",
-      "HOW_TO",
-      "RUNBOOK",
-      "REFERENCE",
-      "MANUAL",
-      "POST_MORTEM",
-      "ARTICLE"
-    ]).optional().describe("Tipo del conocimiento. Default: ARTICLE. Plan padre \xA73.1 + \xA75.1 paso 1."),
-    statement: external_exports3.string().optional().describe(
-      "Una oraci\xF3n destilada en lenguaje de negocio. Obligatorio si kind in {BUSINESS_RULE, POLICY, DISCOVERY, PATTERN, DECISION, HOW_TO, RUNBOOK, GLOSSARY}."
-    ),
-    rationale: external_exports3.string().optional().describe(
-      "Por qu\xE9 existe. NO inventar \u2014 si no se sabe dejarlo null y abrir pregunta en body."
-    ),
-    sourceRefs: external_exports3.array(external_exports3.object({
-      repo: external_exports3.string(),
-      file: external_exports3.string(),
-      lines: external_exports3.string(),
-      symbol: external_exports3.string().optional(),
-      commit: external_exports3.string().optional()
-    })).optional().describe("Referencias a c\xF3digo fuente. Obligatorio si kind=DISCOVERY."),
-    affectedAreas: external_exports3.array(external_exports3.object({
-      kind: external_exports3.enum(["table", "module", "endpoint", "process", "role", "document"]),
-      name: external_exports3.string()
-    })).optional().describe("\xC1reas funcionales/t\xE9cnicas afectadas. Plan padre \xA76.3."),
-    confidence: external_exports3.enum(["CONFIRMED", "INFERRED", "UNCERTAIN"]).optional().describe("Default: INFERRED. CONFIRMED requiere validaci\xF3n humana posterior \u2014 no asumir."),
-    appliesToVersion: external_exports3.string().optional().describe('Ej: "IntegraERP 2.0+"'),
-    supersedesId: external_exports3.string().optional().describe("ID del KbArticle reemplazado por esta nueva versi\xF3n.")
+    description: "Create a Knowledge Base article. soporta estructura formal \u2014 kind, statement, rationale, sourceRefs, affectedAreas, confidence (default INFERRED). Ver plan padre \xA75.1 para contrato.",
+    inputSchema: external_exports3.object({
+      title: external_exports3.string().describe("Article title \u2014 5-10 palabras, sin jerga del c\xF3digo"),
+      content: external_exports3.string().describe("Article content (markdown)"),
+      summary: external_exports3.string().optional().describe("Brief summary"),
+      tags: external_exports3.array(external_exports3.string()).optional().describe(
+        "Tags namespaced: module:*, era:*, risk:*, pattern:*, source:*. Ver plan padre \xA76.1."
+      ),
+      // SPEC-0044 F1 — campos estructurados opcionales (todos pueden omitirse).
+      kind: external_exports3.enum([
+        "BUSINESS_RULE",
+        "POLICY",
+        "GLOSSARY",
+        "DISCOVERY",
+        "PATTERN",
+        "ANTI_PATTERN",
+        "GOTCHA",
+        "DECISION",
+        "TRADE_OFF",
+        "HOW_TO",
+        "RUNBOOK",
+        "REFERENCE",
+        "MANUAL",
+        "POST_MORTEM",
+        "ARTICLE"
+      ]).optional().describe("Tipo del conocimiento. Default: ARTICLE. Plan padre \xA73.1 + \xA75.1 paso 1."),
+      statement: external_exports3.string().optional().describe(
+        "Una oraci\xF3n destilada en lenguaje de negocio. Obligatorio si kind in {BUSINESS_RULE, POLICY, DISCOVERY, PATTERN, DECISION, HOW_TO, RUNBOOK, GLOSSARY}."
+      ),
+      rationale: external_exports3.string().optional().describe(
+        "Por qu\xE9 existe. NO inventar \u2014 si no se sabe dejarlo null y abrir pregunta en body."
+      ),
+      sourceRefs: external_exports3.array(external_exports3.object({
+        repo: external_exports3.string(),
+        file: external_exports3.string(),
+        lines: external_exports3.string(),
+        symbol: external_exports3.string().optional(),
+        commit: external_exports3.string().optional()
+      })).optional().describe("Referencias a c\xF3digo fuente. Obligatorio si kind=DISCOVERY."),
+      affectedAreas: external_exports3.array(external_exports3.object({
+        kind: external_exports3.enum(["table", "module", "endpoint", "process", "role", "document"]),
+        name: external_exports3.string()
+      })).optional().describe("\xC1reas funcionales/t\xE9cnicas afectadas. Plan padre \xA76.3."),
+      confidence: external_exports3.enum(["CONFIRMED", "INFERRED", "UNCERTAIN"]).optional().describe("Default: INFERRED. CONFIRMED requiere validaci\xF3n humana posterior \u2014 no asumir."),
+      appliesToVersion: external_exports3.string().optional().describe('Ej: "IntegraERP 2.0+"'),
+      supersedesId: external_exports3.string().optional().describe("ID del KbArticle reemplazado por esta nueva versi\xF3n.")
+    }).strict()
   },
   async (params) => strictApply(
     createKbArticleInputSchema,
@@ -36040,53 +36248,55 @@ var updateKbArticleInputSchema = external_exports3.object({
   supersedesId: external_exports3.string().optional(),
   verification_tokens: verificationTokensField
 }).strict();
-server.tool(
+server.registerTool(
   "update_kb_article",
-  "Update a KbArticle in place via PATCH /kb/:id. auto-crea KbRevision si cambia content/title y dispara staleness en sus KbView. Todos los campos del body son opcionales \u2014 solo los presentes se actualizan. NO se puede cambiar el slug (inmutable post-creaci\xF3n). Usar este tool en vez de create_kb_article+supersedesId para editar un art\xEDculo existente (supersede NO libera el slug @unique \u2192 409). TKT-0032.",
   {
-    articleId: external_exports3.string().describe("KbArticle.id (cuid) del art\xEDculo a actualizar. NO es el slug \u2014 el slug es inmutable post-creaci\xF3n."),
-    title: external_exports3.string().optional().describe("Nuevo t\xEDtulo. Cambiarlo crea una KbRevision."),
-    content: external_exports3.string().optional().describe("Nuevo contenido markdown. Cambiarlo crea una KbRevision."),
-    summary: external_exports3.string().optional().describe("Resumen breve."),
-    tags: external_exports3.array(external_exports3.string()).optional().describe("Tags namespaced: module:*, era:*, risk:*, pattern:*, source:*."),
-    changeLog: external_exports3.string().optional().describe("Nota de cambio para esta revisi\xF3n (solo se persiste si cambia content/title)."),
-    kind: external_exports3.enum([
-      "BUSINESS_RULE",
-      "POLICY",
-      "GLOSSARY",
-      "DISCOVERY",
-      "PATTERN",
-      "ANTI_PATTERN",
-      "GOTCHA",
-      "DECISION",
-      "TRADE_OFF",
-      "HOW_TO",
-      "RUNBOOK",
-      "REFERENCE",
-      "MANUAL",
-      "POST_MORTEM",
-      "ARTICLE"
-    ]).optional().describe("Tipo del conocimiento. Permite promoci\xF3n DISCOVERY \u2192 BUSINESS_RULE post-creaci\xF3n."),
-    statement: external_exports3.string().optional().describe("La regla/decisi\xF3n/observaci\xF3n en una oraci\xF3n."),
-    rationale: external_exports3.string().optional().describe("Por qu\xE9 existe esta regla/observaci\xF3n."),
-    sourceRefs: external_exports3.array(external_exports3.object({
-      repo: external_exports3.string(),
-      file: external_exports3.string(),
-      lines: external_exports3.string(),
-      symbol: external_exports3.string().optional(),
-      commit: external_exports3.string().optional()
-    })).optional().describe("Referencias a c\xF3digo fuente."),
-    affectedAreas: external_exports3.array(external_exports3.object({
-      kind: external_exports3.enum(["table", "module", "endpoint", "process", "role", "document"]),
-      name: external_exports3.string()
-    })).optional().describe("\xC1reas funcionales/t\xE9cnicas afectadas."),
-    confidence: external_exports3.enum(["CONFIRMED", "INFERRED", "UNCERTAIN"]).optional().describe("Nivel de confianza. CONFIRMED requiere confirmedById + confirmedAt."),
-    status: external_exports3.enum(["DRAFT", "ACTIVE", "DEPRECATED", "OBSOLETE", "DISPUTED"]).optional().describe("Estado del workflow. Preferir /publish (ACTIVE) o /archive (OBSOLETE) cuando aplique."),
-    confirmedById: external_exports3.string().optional().describe("ID del usuario SME que valid\xF3 el contenido (CONFIRMED). Requiere confirmedAt."),
-    confirmedAt: external_exports3.string().optional().describe("Fecha de validaci\xF3n SME. ISO 8601. Para CONFIRMED retroactivo usar la fecha original, no la del update."),
-    appliesToVersion: external_exports3.string().optional().describe('Ej: "IntegraERP 2.0+"'),
-    supersedesId: external_exports3.string().optional().describe("ID del KbArticle al que reemplaza (self-relation; NO libera el slug del superseded)."),
-    verification_tokens: verificationTokensField
+    description: "Update a KbArticle in place via PATCH /kb/:id. auto-crea KbRevision si cambia content/title y dispara staleness en sus KbView. Todos los campos del body son opcionales \u2014 solo los presentes se actualizan. NO se puede cambiar el slug (inmutable post-creaci\xF3n). Usar este tool en vez de create_kb_article+supersedesId para editar un art\xEDculo existente (supersede NO libera el slug @unique \u2192 409). TKT-0032.",
+    inputSchema: external_exports3.object({
+      articleId: external_exports3.string().describe("KbArticle.id (cuid) del art\xEDculo a actualizar. NO es el slug \u2014 el slug es inmutable post-creaci\xF3n."),
+      title: external_exports3.string().optional().describe("Nuevo t\xEDtulo. Cambiarlo crea una KbRevision."),
+      content: external_exports3.string().optional().describe("Nuevo contenido markdown. Cambiarlo crea una KbRevision."),
+      summary: external_exports3.string().optional().describe("Resumen breve."),
+      tags: external_exports3.array(external_exports3.string()).optional().describe("Tags namespaced: module:*, era:*, risk:*, pattern:*, source:*."),
+      changeLog: external_exports3.string().optional().describe("Nota de cambio para esta revisi\xF3n (solo se persiste si cambia content/title)."),
+      kind: external_exports3.enum([
+        "BUSINESS_RULE",
+        "POLICY",
+        "GLOSSARY",
+        "DISCOVERY",
+        "PATTERN",
+        "ANTI_PATTERN",
+        "GOTCHA",
+        "DECISION",
+        "TRADE_OFF",
+        "HOW_TO",
+        "RUNBOOK",
+        "REFERENCE",
+        "MANUAL",
+        "POST_MORTEM",
+        "ARTICLE"
+      ]).optional().describe("Tipo del conocimiento. Permite promoci\xF3n DISCOVERY \u2192 BUSINESS_RULE post-creaci\xF3n."),
+      statement: external_exports3.string().optional().describe("La regla/decisi\xF3n/observaci\xF3n en una oraci\xF3n."),
+      rationale: external_exports3.string().optional().describe("Por qu\xE9 existe esta regla/observaci\xF3n."),
+      sourceRefs: external_exports3.array(external_exports3.object({
+        repo: external_exports3.string(),
+        file: external_exports3.string(),
+        lines: external_exports3.string(),
+        symbol: external_exports3.string().optional(),
+        commit: external_exports3.string().optional()
+      })).optional().describe("Referencias a c\xF3digo fuente."),
+      affectedAreas: external_exports3.array(external_exports3.object({
+        kind: external_exports3.enum(["table", "module", "endpoint", "process", "role", "document"]),
+        name: external_exports3.string()
+      })).optional().describe("\xC1reas funcionales/t\xE9cnicas afectadas."),
+      confidence: external_exports3.enum(["CONFIRMED", "INFERRED", "UNCERTAIN"]).optional().describe("Nivel de confianza. CONFIRMED requiere confirmedById + confirmedAt."),
+      status: external_exports3.enum(["DRAFT", "ACTIVE", "DEPRECATED", "OBSOLETE", "DISPUTED"]).optional().describe("Estado del workflow. Preferir /publish (ACTIVE) o /archive (OBSOLETE) cuando aplique."),
+      confirmedById: external_exports3.string().optional().describe("ID del usuario SME que valid\xF3 el contenido (CONFIRMED). Requiere confirmedAt."),
+      confirmedAt: external_exports3.string().optional().describe("Fecha de validaci\xF3n SME. ISO 8601. Para CONFIRMED retroactivo usar la fecha original, no la del update."),
+      appliesToVersion: external_exports3.string().optional().describe('Ej: "IntegraERP 2.0+"'),
+      supersedesId: external_exports3.string().optional().describe("ID del KbArticle al que reemplaza (self-relation; NO libera el slug del superseded)."),
+      verification_tokens: verificationTokensField
+    }).strict()
   },
   async (params) => strictApply(
     updateKbArticleInputSchema,
@@ -36094,32 +36304,34 @@ server.tool(
     ({ articleId, verification_tokens: _verification_tokens, ...rest }) => apiClient.patch(`/kb/${articleId}`, rest)
   )
 );
-server.tool(
+server.registerTool(
   "search_kb",
-  "Search Knowledge Base articles. filtros adicionales por kind y confidence.",
   {
-    q: external_exports3.string().describe("Search query"),
-    // SPEC-0044 F1 — KbStatus reemplaza ArticleStatus (PUBLISHED→ACTIVE, ARCHIVED→OBSOLETE + nuevos DEPRECATED/DISPUTED).
-    status: external_exports3.enum(["DRAFT", "ACTIVE", "DEPRECATED", "OBSOLETE", "DISPUTED"]).optional(),
-    kind: external_exports3.enum([
-      "BUSINESS_RULE",
-      "POLICY",
-      "GLOSSARY",
-      "DISCOVERY",
-      "PATTERN",
-      "ANTI_PATTERN",
-      "GOTCHA",
-      "DECISION",
-      "TRADE_OFF",
-      "HOW_TO",
-      "RUNBOOK",
-      "REFERENCE",
-      "MANUAL",
-      "POST_MORTEM",
-      "ARTICLE"
-    ]).optional(),
-    confidence: external_exports3.enum(["CONFIRMED", "INFERRED", "UNCERTAIN"]).optional(),
-    limit: external_exports3.number().optional()
+    description: "Search Knowledge Base articles. filtros adicionales por kind y confidence.",
+    inputSchema: external_exports3.object({
+      q: external_exports3.string().describe("Search query"),
+      // SPEC-0044 F1 — KbStatus reemplaza ArticleStatus (PUBLISHED→ACTIVE, ARCHIVED→OBSOLETE + nuevos DEPRECATED/DISPUTED).
+      status: external_exports3.enum(["DRAFT", "ACTIVE", "DEPRECATED", "OBSOLETE", "DISPUTED"]).optional(),
+      kind: external_exports3.enum([
+        "BUSINESS_RULE",
+        "POLICY",
+        "GLOSSARY",
+        "DISCOVERY",
+        "PATTERN",
+        "ANTI_PATTERN",
+        "GOTCHA",
+        "DECISION",
+        "TRADE_OFF",
+        "HOW_TO",
+        "RUNBOOK",
+        "REFERENCE",
+        "MANUAL",
+        "POST_MORTEM",
+        "ARTICLE"
+      ]).optional(),
+      confidence: external_exports3.enum(["CONFIRMED", "INFERRED", "UNCERTAIN"]).optional(),
+      limit: external_exports3.number().optional()
+    }).strict()
   },
   async (params) => {
     const qs = new URLSearchParams();
@@ -36132,54 +36344,64 @@ server.tool(
     return formatRead(result);
   }
 );
-server.tool(
+server.registerTool(
   "get_kb_article",
-  "Get a specific KB article by slug",
   {
-    slug: external_exports3.string().describe("Article slug (URL-friendly identifier)")
+    description: "Get a specific KB article by slug",
+    inputSchema: external_exports3.object({
+      slug: external_exports3.string().describe("Article slug (URL-friendly identifier)")
+    }).strict()
   },
   async (params) => {
     const article = await apiClient.get(`/kb/${params.slug}`);
     return formatRead(article);
   }
 );
-server.tool(
+server.registerTool(
   "list_kb_revisions",
-  "\xCDndice del historial de edici\xF3n de un KbArticle: una entrada por re-emisi\xF3n que cambi\xF3 el cuerpo. Direccionable por `slug`, o por `specId`+`kind` (la tool resuelve el slug del artefacto SDD vigente de ese kind, sin devolverle su contenido al caller). Es la \xDANICA v\xEDa por MCP al historial de los kinds SINGLE \u2014 DISCOVERY_REPORT, PROBLEM_STATEMENT, los manuales\u2014, cuyo historial NO vive en SpecDocumentation (no dejan filas superseded, as\xED que `spec_get_documentation(includeHistory=true)` devuelve `history: []`) sino en KbRevision. Ordenado por createdAt desc: `revisions[0]` es la m\xE1s reciente. Por default NO trae los cuerpos \u2014 cada entrada lleva `contentLength`, `changeLog` y `createdAt`; con `includeContent: true` trae tambi\xE9n el `content` de cada revisi\xF3n y entonces `outputPath` es OBLIGATORIO. OJO al contar: la unidad es la RE-EMISI\xD3N, no la ronda \u2014 una ronda que se re-emiti\xF3 dos veces deja dos revisiones (medido en SPEC-0228: 10 revisiones para 8 rondas). El `changeLog` suele rotular la ronda.",
-  listKbRevisionsSchema,
+  {
+    description: "\xCDndice del historial de edici\xF3n de un KbArticle: una entrada por re-emisi\xF3n que cambi\xF3 el cuerpo. Direccionable por `slug`, o por `specId`+`kind` (la tool resuelve el slug del artefacto SDD vigente de ese kind, sin devolverle su contenido al caller). Es la \xDANICA v\xEDa por MCP al historial de los kinds SINGLE \u2014 DISCOVERY_REPORT, PROBLEM_STATEMENT, los manuales\u2014, cuyo historial NO vive en SpecDocumentation (no dejan filas superseded, as\xED que `spec_get_documentation(includeHistory=true)` devuelve `history: []`) sino en KbRevision. Ordenado por createdAt desc: `revisions[0]` es la m\xE1s reciente. Por default NO trae los cuerpos \u2014 cada entrada lleva `contentLength`, `changeLog` y `createdAt`; con `includeContent: true` trae tambi\xE9n el `content` de cada revisi\xF3n y entonces `outputPath` es OBLIGATORIO. OJO al contar: la unidad es la RE-EMISI\xD3N, no la ronda \u2014 una ronda que se re-emiti\xF3 dos veces deja dos revisiones (medido en SPEC-0228: 10 revisiones para 8 rondas). El `changeLog` suele rotular la ronda.",
+    inputSchema: external_exports3.object(listKbRevisionsSchema).strict()
+  },
   makeListKbRevisionsHandler(apiClient)
 );
-server.tool(
+server.registerTool(
   "get_kb_revision",
-  "Una revisi\xF3n puntual de un KbArticle, con su `content` completo. `revisionId` sale de list_kb_revisions; el art\xEDculo se direcciona igual que ah\xED (`slug`, o `specId`+`kind`). Para artefactos grandes us\xE1 `outputPath` \u2014 el contenido llega en UNA sola l\xEDnea y no se puede paginar.",
-  getKbRevisionSchema,
+  {
+    description: "Una revisi\xF3n puntual de un KbArticle, con su `content` completo. `revisionId` sale de list_kb_revisions; el art\xEDculo se direcciona igual que ah\xED (`slug`, o `specId`+`kind`). Para artefactos grandes us\xE1 `outputPath` \u2014 el contenido llega en UNA sola l\xEDnea y no se puede paginar.",
+    inputSchema: external_exports3.object(getKbRevisionSchema).strict()
+  },
   makeGetKbRevisionHandler(apiClient)
 );
 var KB_AUDIENCE = ["END_USER", "OPERATOR", "BUSINESS_ANALYST", "DEVELOPER", "ARCHITECT", "AUDITOR", "EXECUTIVE"];
 var KB_DEPTH = ["SUMMARY", "STANDARD", "DETAILED", "REFERENCE"];
 var KB_REGISTER = ["COLLOQUIAL", "PROFESSIONAL", "TECHNICAL"];
-server.tool(
+server.registerTool(
   "list_kb_views",
-  "Listar todas las KbView de un KbArticle (SPEC-0044 F2)",
   {
-    articleId: external_exports3.string().describe("KbArticle.id (cuid)")
+    description: "Listar todas las KbView de un KbArticle (SPEC-0044 F2)",
+    inputSchema: external_exports3.object({
+      articleId: external_exports3.string().describe("KbArticle.id (cuid)")
+    }).strict()
   },
   async (params) => {
     const views = await apiClient.get(`/kb/articles/${params.articleId}/views`);
     return formatRead(views);
   }
 );
-server.tool(
+server.registerTool(
   "upsert_kb_view",
-  "Crear o actualizar KbView para un (articleId, audience, depth) \u2014 operaci\xF3n clave del plan padre \xA74 Fase 2. Si ya existe, actualiza body/title/register y resetea isStale. Si no, crea.",
   {
-    articleId: external_exports3.string().describe("KbArticle.id (cuid)"),
-    audience: external_exports3.enum(KB_AUDIENCE).describe("Para qui\xE9n est\xE1 escrita esta vista. Plan padre \xA7A: pedido coloquial/manual de usuario \u2192 END_USER; manual t\xE9cnico \u2192 DEVELOPER; auditor\xEDa \u2192 AUDITOR."),
-    depth: external_exports3.enum(KB_DEPTH).optional().describe("Nivel de detalle. Default: STANDARD."),
-    register: external_exports3.enum(KB_REGISTER).optional().describe("Registro ling\xFC\xEDstico. Default: PROFESSIONAL."),
-    title: external_exports3.string().describe("T\xEDtulo de la vista (puede diferir del article.title)."),
-    body: external_exports3.string().describe("Cuerpo markdown de la vista."),
-    generatedFrom: external_exports3.record(external_exports3.string(), external_exports3.unknown()).optional().describe('Provenance JSON (ej: { source: "manual" | "spec" | "ticket", refs: [...] })')
+    description: "Crear o actualizar KbView para un (articleId, audience, depth) \u2014 operaci\xF3n clave del plan padre \xA74 Fase 2. Si ya existe, actualiza body/title/register y resetea isStale. Si no, crea.",
+    inputSchema: external_exports3.object({
+      articleId: external_exports3.string().describe("KbArticle.id (cuid)"),
+      audience: external_exports3.enum(KB_AUDIENCE).describe("Para qui\xE9n est\xE1 escrita esta vista. Plan padre \xA7A: pedido coloquial/manual de usuario \u2192 END_USER; manual t\xE9cnico \u2192 DEVELOPER; auditor\xEDa \u2192 AUDITOR."),
+      depth: external_exports3.enum(KB_DEPTH).optional().describe("Nivel de detalle. Default: STANDARD."),
+      register: external_exports3.enum(KB_REGISTER).optional().describe("Registro ling\xFC\xEDstico. Default: PROFESSIONAL."),
+      title: external_exports3.string().describe("T\xEDtulo de la vista (puede diferir del article.title)."),
+      body: external_exports3.string().describe("Cuerpo markdown de la vista."),
+      generatedFrom: external_exports3.record(external_exports3.string(), external_exports3.unknown()).optional().describe('Provenance JSON (ej: { source: "manual" | "spec" | "ticket", refs: [...] })')
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -36195,17 +36417,19 @@ server.tool(
     ({ articleId, ...body }) => apiClient.put(`/kb/articles/${articleId}/views/upsert`, body)
   )
 );
-server.tool(
+server.registerTool(
   "create_kb_view",
-  "Crear KbView nueva (falla con 409 si la combinaci\xF3n articleId+audience+depth ya existe \u2014 usar upsert_kb_view en ese caso).",
   {
-    articleId: external_exports3.string().describe("KbArticle.id (cuid)"),
-    audience: external_exports3.enum(KB_AUDIENCE),
-    depth: external_exports3.enum(KB_DEPTH).optional(),
-    register: external_exports3.enum(KB_REGISTER).optional(),
-    title: external_exports3.string(),
-    body: external_exports3.string(),
-    generatedFrom: external_exports3.record(external_exports3.string(), external_exports3.unknown()).optional()
+    description: "Crear KbView nueva (falla con 409 si la combinaci\xF3n articleId+audience+depth ya existe \u2014 usar upsert_kb_view en ese caso).",
+    inputSchema: external_exports3.object({
+      articleId: external_exports3.string().describe("KbArticle.id (cuid)"),
+      audience: external_exports3.enum(KB_AUDIENCE),
+      depth: external_exports3.enum(KB_DEPTH).optional(),
+      register: external_exports3.enum(KB_REGISTER).optional(),
+      title: external_exports3.string(),
+      body: external_exports3.string(),
+      generatedFrom: external_exports3.record(external_exports3.string(), external_exports3.unknown()).optional()
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -36221,22 +36445,24 @@ server.tool(
     ({ articleId, ...body }) => apiClient.post(`/kb/articles/${articleId}/views`, body)
   )
 );
-server.tool(
+server.registerTool(
   "create_client",
-  "Create a new CRM client.",
   {
-    name: external_exports3.string().describe("Client company name"),
-    tradeName: external_exports3.string().optional().describe("Trade name / raz\xF3n social"),
-    taxId: external_exports3.string().optional().describe("Tax ID (CUIT, RUT, NIF)"),
-    email: external_exports3.string().optional().describe("Primary email"),
-    phone: external_exports3.string().optional(),
-    website: external_exports3.string().optional(),
-    street: external_exports3.string().optional(),
-    city: external_exports3.string().optional(),
-    state: external_exports3.string().optional(),
-    country: external_exports3.string().optional(),
-    industry: external_exports3.string().optional(),
-    notes: external_exports3.string().optional()
+    description: "Create a new CRM client.",
+    inputSchema: external_exports3.object({
+      name: external_exports3.string().describe("Client company name"),
+      tradeName: external_exports3.string().optional().describe("Trade name / raz\xF3n social"),
+      taxId: external_exports3.string().optional().describe("Tax ID (CUIT, RUT, NIF)"),
+      email: external_exports3.string().optional().describe("Primary email"),
+      phone: external_exports3.string().optional(),
+      website: external_exports3.string().optional(),
+      street: external_exports3.string().optional(),
+      city: external_exports3.string().optional(),
+      state: external_exports3.string().optional(),
+      country: external_exports3.string().optional(),
+      industry: external_exports3.string().optional(),
+      notes: external_exports3.string().optional()
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -36257,12 +36483,14 @@ server.tool(
     (data) => apiClient.post("/clients", data)
   )
 );
-server.tool(
+server.registerTool(
   "search_clients",
-  "Search clients by name or industry",
   {
-    q: external_exports3.string().describe("Search query"),
-    limit: external_exports3.number().optional()
+    description: "Search clients by name or industry",
+    inputSchema: external_exports3.object({
+      q: external_exports3.string().describe("Search query"),
+      limit: external_exports3.number().optional()
+    }).strict()
   },
   async (params) => {
     const qs = new URLSearchParams({ q: params.q });
@@ -36271,30 +36499,34 @@ server.tool(
     return formatRead(result);
   }
 );
-server.tool(
+server.registerTool(
   "get_client",
-  "Get client details including contacts, leads, interactions",
   {
-    id: external_exports3.string().describe("Client ID")
+    description: "Get client details including contacts, leads, interactions",
+    inputSchema: external_exports3.object({
+      id: external_exports3.string().describe("Client ID")
+    }).strict()
   },
   async (params) => {
     const client = await apiClient.get(`/clients/${params.id}`);
     return formatRead(client);
   }
 );
-server.tool(
+server.registerTool(
   "create_lead",
-  "Create a new sales lead.",
   {
-    title: external_exports3.string().describe("Lead title/description"),
-    clientId: external_exports3.string().optional().describe("Associated client ID"),
-    value: external_exports3.number().optional().describe("Estimated deal value"),
-    currency: external_exports3.string().optional().describe("Currency (default: ARS)"),
-    probability: external_exports3.number().optional().describe("Win probability 0-100"),
-    source: external_exports3.string().optional().describe("Lead source (referido, web, evento)"),
-    contactName: external_exports3.string().optional().describe("Contact person name"),
-    contactEmail: external_exports3.string().optional().describe("Contact email"),
-    notes: external_exports3.string().optional()
+    description: "Create a new sales lead.",
+    inputSchema: external_exports3.object({
+      title: external_exports3.string().describe("Lead title/description"),
+      clientId: external_exports3.string().optional().describe("Associated client ID"),
+      value: external_exports3.number().optional().describe("Estimated deal value"),
+      currency: external_exports3.string().optional().describe("Currency (default: ARS)"),
+      probability: external_exports3.number().optional().describe("Win probability 0-100"),
+      source: external_exports3.string().optional().describe("Lead source (referido, web, evento)"),
+      contactName: external_exports3.string().optional().describe("Contact person name"),
+      contactEmail: external_exports3.string().optional().describe("Contact email"),
+      notes: external_exports3.string().optional()
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -36312,31 +36544,35 @@ server.tool(
     (data) => apiClient.post("/leads", data)
   )
 );
-server.tool(
+server.registerTool(
   "get_pipeline",
-  "Get the leads pipeline grouped by stage with value sums",
-  {},
+  {
+    description: "Get the leads pipeline grouped by stage with value sums",
+    inputSchema: external_exports3.object({}).strict()
+  },
   async () => {
     const pipeline = await apiClient.get("/leads/pipeline");
     return formatRead(pipeline);
   }
 );
-server.tool(
+server.registerTool(
   "change_lead_stage",
-  'Move a lead to a different pipeline stage. SPEC-0089 v0.3.1: verification_tokens validated (no markdown target \u2014 Option A: drop after validation). Strict-enforced post MCP_SERVER_RELEASE >= 0.2.0. Stage transition is a structural verdict \u2014 validation gate makes the agent think "why" even though tokens are not persisted in audit trail (deferred to v0.4 per operator decision).',
   {
-    id: external_exports3.string().describe("Lead ID"),
-    stage: external_exports3.enum(["NEW", "QUALIFIED", "PROPOSAL", "NEGOTIATION", "WON", "LOST"]).describe("New stage"),
-    verification_tokens: verificationTokensField
+    description: 'Move a lead to a different pipeline stage. SPEC-0089 v0.3.1: verification_tokens validated (no markdown target \u2014 Option A: drop after validation). Strict-enforced post MCP_SERVER_RELEASE >= 0.2.0. Stage transition is a structural verdict \u2014 validation gate makes the agent think "why" even though tokens are not persisted in audit trail (deferred to v0.4 per operator decision).',
+    inputSchema: external_exports3.object({
+      id: external_exports3.string().describe("Lead ID"),
+      stage: external_exports3.enum(["NEW", "QUALIFIED", "PROPOSAL", "NEGOTIATION", "WON", "LOST"]).describe("New stage"),
+      verification_tokens: verificationTokensField
+    }).strict()
   },
   async (params) => {
-    const ParamsSchema17 = external_exports3.object({
+    const ParamsSchema18 = external_exports3.object({
       id: external_exports3.string(),
       stage: external_exports3.enum(["NEW", "QUALIFIED", "PROPOSAL", "NEGOTIATION", "WON", "LOST"]),
       verification_tokens: verificationTokensField
     }).strict();
     try {
-      const validated = ParamsSchema17.parse(params);
+      const validated = ParamsSchema18.parse(params);
       const result = await apiClient.post(`/leads/${validated.id}/stage`, {
         stage: validated.stage
       });
@@ -36354,28 +36590,34 @@ server.tool(
     }
   }
 );
-server.tool(
+server.registerTool(
   "ihub_create_ticket",
-  "Create a new support ticket. Returns the created ticket with its number (TKT-XXXX). For sub-tickets, provide parentId and the number will follow parent convention (TKT-0001-1). workspaceId+projectId+moduleId are REQUIRED in NEW Tickets once the tenant has Workspaces defined (post-F4) \u2014 backend rejects with 400 BadRequest otherwise. SPEC-0201 P6: verification_tokens ya NO se anteponen a description \u2014 la tabla renderizada viaja en el campo `verificationTable` del body y el Hub la persiste como comment del ticket, en la misma transaccion. `description` llega al Hub tal cual la escribio el autor.",
-  ihubCreateTicketSchema,
+  {
+    description: "Create a new support ticket. Returns the created ticket with its number (TKT-XXXX). For sub-tickets, provide parentId and the number will follow parent convention (TKT-0001-1). workspaceId+projectId+moduleId are REQUIRED in NEW Tickets once the tenant has Workspaces defined (post-F4) \u2014 backend rejects with 400 BadRequest otherwise. SPEC-0201 P6: verification_tokens ya NO se anteponen a description \u2014 la tabla renderizada viaja en el campo `verificationTable` del body y el Hub la persiste como comment del ticket, en la misma transaccion. `description` llega al Hub tal cual la escribio el autor.",
+    inputSchema: external_exports3.object(ihubCreateTicketSchema).strict()
+  },
   makeIhubCreateTicketHandler(apiClient)
 );
-server.tool(
+server.registerTool(
   "ihub_get_ticket",
-  "Get a ticket by ID. Returns subject, description, priority, state, assignee, client, comments, interactions, attachments, and links. comments (default recent) acota comments/interactions(+replies)/children a los \xFAltimos 10 + commentCount/interactionCount; comments=all trae el shape completo.",
-  ihubGetTicketSchema,
+  {
+    description: "Get a ticket by ID. Returns subject, description, priority, state, assignee, client, comments, interactions, attachments, and links. comments (default recent) acota comments/interactions(+replies)/children a los \xFAltimos 10 + commentCount/interactionCount; comments=all trae el shape completo.",
+    inputSchema: external_exports3.object(ihubGetTicketSchema).strict()
+  },
   makeIhubGetTicketHandler(apiClient)
 );
-server.tool(
+server.registerTool(
   "ihub_set_ticket_taxonomy",
-  "Asignar/reasignar taxonomy (workspace+project+module+submodule?) a un Ticket EXISTENTE. Validation cross-field: workspace/project/module/submodule deben pertenecer al tenant del JWT y a la cadena correcta (TaxonomyValidatorService propaga 400). Side-effect: TicketComment audit autom\xE1tico describiendo first-assignment vs reassignment + reason.",
   {
-    id: external_exports3.string().describe("Ticket ID (cuid)."),
-    workspaceId: external_exports3.string().describe("Workspace ID. OBLIGATORIO. Debe pertenecer al tenant del JWT."),
-    projectId: external_exports3.string().describe("Project ID. OBLIGATORIO. Debe pertenecer al workspace."),
-    moduleId: external_exports3.string().describe("Module ID. OBLIGATORIO. Debe pertenecer al project."),
-    submoduleId: external_exports3.string().optional().describe("Submodule ID. Requerido s\xF3lo si el module elegido tiene submodules definidos."),
-    reason: external_exports3.string().max(500).optional().describe("Raz\xF3n opcional del assignment. Se incluye en el audit comment.")
+    description: "Asignar/reasignar taxonomy (workspace+project+module+submodule?) a un Ticket EXISTENTE. Validation cross-field: workspace/project/module/submodule deben pertenecer al tenant del JWT y a la cadena correcta (TaxonomyValidatorService propaga 400). Side-effect: TicketComment audit autom\xE1tico describiendo first-assignment vs reassignment + reason.",
+    inputSchema: external_exports3.object({
+      id: external_exports3.string().describe("Ticket ID (cuid)."),
+      workspaceId: external_exports3.string().describe("Workspace ID. OBLIGATORIO. Debe pertenecer al tenant del JWT."),
+      projectId: external_exports3.string().describe("Project ID. OBLIGATORIO. Debe pertenecer al workspace."),
+      moduleId: external_exports3.string().describe("Module ID. OBLIGATORIO. Debe pertenecer al project."),
+      submoduleId: external_exports3.string().optional().describe("Submodule ID. Requerido s\xF3lo si el module elegido tiene submodules definidos."),
+      reason: external_exports3.string().max(500).optional().describe("Raz\xF3n opcional del assignment. Se incluye en el audit comment.")
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -36390,18 +36632,20 @@ server.tool(
     ({ id, ...body }) => apiClient.post(`/tickets/${id}/taxonomy`, body)
   )
 );
-server.tool(
+server.registerTool(
   "ihub_list_tickets",
-  "List tickets with optional filters. Use assigneeId to get tickets assigned to a specific user.",
   {
-    stateId: external_exports3.string().optional().describe("Filter by state ID"),
-    stateName: external_exports3.string().optional().describe("Filter by state name (e.g. ABIERTO, EN_PROGRESO, ESPERANDO, RESUELTO, CERRADO)"),
-    priority: external_exports3.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).optional(),
-    assigneeId: external_exports3.string().optional().describe("Filter by assignee user ID"),
-    clientId: external_exports3.string().optional().describe("Filter by client ID"),
-    q: external_exports3.string().optional().describe("Search in subject/description"),
-    limit: external_exports3.number().optional().describe("Max results (default 20)"),
-    offset: external_exports3.number().optional().describe("Offset for pagination")
+    description: "List tickets with optional filters. Use assigneeId to get tickets assigned to a specific user.",
+    inputSchema: external_exports3.object({
+      stateId: external_exports3.string().optional().describe("Filter by state ID"),
+      stateName: external_exports3.string().optional().describe("Filter by state name (e.g. ABIERTO, EN_PROGRESO, ESPERANDO, RESUELTO, CERRADO)"),
+      priority: external_exports3.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).optional(),
+      assigneeId: external_exports3.string().optional().describe("Filter by assignee user ID"),
+      clientId: external_exports3.string().optional().describe("Filter by client ID"),
+      q: external_exports3.string().optional().describe("Search in subject/description"),
+      limit: external_exports3.number().optional().describe("Max results (default 20)"),
+      offset: external_exports3.number().optional().describe("Offset for pagination")
+    }).strict()
   },
   async (params) => {
     const qs = new URLSearchParams();
@@ -36423,34 +36667,38 @@ server.tool(
     return formatRead(tickets);
   }
 );
-server.tool(
+server.registerTool(
   "ihub_get_comments",
-  "Get comments for a ticket. Returns the full ticket detail which includes all comments.",
   {
-    id: external_exports3.string().describe("Ticket ID")
+    description: "Get comments for a ticket. Returns the full ticket detail which includes all comments.",
+    inputSchema: external_exports3.object({
+      id: external_exports3.string().describe("Ticket ID")
+    }).strict()
   },
   async (params) => {
     const ticket = await apiClient.get(`/tickets/${params.id}`);
     return formatRead(ticket.comments);
   }
 );
-server.tool(
+server.registerTool(
   "ihub_update_status",
-  "Change the status/state of a ticket. Accepts either stateId or stateName (e.g. ABIERTO, EN_PROGRESO, ESPERANDO, RESUELTO, CERRADO).",
   {
-    id: external_exports3.string().describe("Ticket ID"),
-    stateId: external_exports3.string().optional().describe("Target state ID (use this if you know the ID)"),
-    stateName: external_exports3.string().optional().describe("Target state name (e.g. EN_PROGRESO). Will be resolved to stateId automatically.")
+    description: "Change the status/state of a ticket. Accepts either stateId or stateName (e.g. ABIERTO, EN_PROGRESO, ESPERANDO, RESUELTO, CERRADO).",
+    inputSchema: external_exports3.object({
+      id: external_exports3.string().describe("Ticket ID"),
+      stateId: external_exports3.string().optional().describe("Target state ID (use this if you know the ID)"),
+      stateName: external_exports3.string().optional().describe("Target state name (e.g. EN_PROGRESO). Will be resolved to stateId automatically.")
+    }).strict()
   },
   async (params) => {
-    const ParamsSchema17 = external_exports3.object({
+    const ParamsSchema18 = external_exports3.object({
       id: external_exports3.string(),
       stateId: external_exports3.string().optional(),
       stateName: external_exports3.string().optional()
     }).strict();
     let validated;
     try {
-      validated = ParamsSchema17.parse(params);
+      validated = ParamsSchema18.parse(params);
     } catch (e) {
       if (e instanceof external_exports3.ZodError) {
         return {
@@ -36494,13 +36742,15 @@ server.tool(
     return { content: [{ type: "text", text: JSON.stringify(ticket, null, 2) }] };
   }
 );
-server.tool(
+server.registerTool(
   "ihub_add_comment",
-  "Add a comment to a ticket. Use this to post specs, plans, analysis results, or any text as a ticket comment.",
   {
-    id: external_exports3.string().describe("Ticket ID"),
-    content: external_exports3.string().describe("Comment text (markdown supported)"),
-    internal: external_exports3.boolean().optional().describe("true = internal/team-only comment (default: false)")
+    description: "Add a comment to a ticket. Use this to post specs, plans, analysis results, or any text as a ticket comment.",
+    inputSchema: external_exports3.object({
+      id: external_exports3.string().describe("Ticket ID"),
+      content: external_exports3.string().describe("Comment text (markdown supported)"),
+      internal: external_exports3.boolean().optional().describe("true = internal/team-only comment (default: false)")
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -36521,14 +36771,16 @@ var ihubLinkPrInputSchema = external_exports3.object({
   title: external_exports3.string(),
   description: external_exports3.string().optional()
 }).strict();
-server.tool(
+server.registerTool(
   "ihub_link_pr",
-  "Link a GitHub PR (or any URL) to a ticket.",
   {
-    id: external_exports3.string().describe("Ticket ID"),
-    url: external_exports3.string().describe("PR or link URL"),
-    title: external_exports3.string().describe('Link title (e.g. "PR #42 \u2014 Fix auth bug")'),
-    description: external_exports3.string().optional().describe("Optional description")
+    description: "Link a GitHub PR (or any URL) to a ticket.",
+    inputSchema: external_exports3.object({
+      id: external_exports3.string().describe("Ticket ID"),
+      url: external_exports3.string().describe("PR or link URL"),
+      title: external_exports3.string().describe('Link title (e.g. "PR #42 \u2014 Fix auth bug")'),
+      description: external_exports3.string().optional().describe("Optional description")
+    }).strict()
   },
   async (params) => strictApply(
     ihubLinkPrInputSchema,
@@ -36536,14 +36788,16 @@ server.tool(
     ({ id, url: url2, title, description }) => apiClient.post(`/tickets/${id}/links`, { url: url2, title, description })
   )
 );
-server.tool(
+server.registerTool(
   "ihub_link_pr_task",
-  "Link a GitHub PR (or any URL) to a task. Fallback manual independiente del auto-link: sirve incluso con el PR ya mergeado/cerrado.",
   {
-    taskId: external_exports3.string().describe("Task ID (cuid)"),
-    url: external_exports3.string().describe("PR or link URL"),
-    title: external_exports3.string().describe('Link title (e.g. "PR #42 \u2014 Fix auth bug")'),
-    description: external_exports3.string().optional().describe("Optional description")
+    description: "Link a GitHub PR (or any URL) to a task. Fallback manual independiente del auto-link: sirve incluso con el PR ya mergeado/cerrado.",
+    inputSchema: external_exports3.object({
+      taskId: external_exports3.string().describe("Task ID (cuid)"),
+      url: external_exports3.string().describe("PR or link URL"),
+      title: external_exports3.string().describe('Link title (e.g. "PR #42 \u2014 Fix auth bug")'),
+      description: external_exports3.string().optional().describe("Optional description")
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -36556,11 +36810,13 @@ server.tool(
     ({ taskId, url: url2, title, description }) => apiClient.post(`/tasks/${taskId}/links`, { url: url2, title, description })
   )
 );
-server.tool(
+server.registerTool(
   "ihub_list_task_links",
-  "List the links (PR URLs, docs) attached to a task, newest first. Devuelve el `id` de cada link \u2014 el que consume ihub_unlink_task_link.",
   {
-    taskId: external_exports3.string().describe("Task ID (cuid)")
+    description: "List the links (PR URLs, docs) attached to a task, newest first. Devuelve el `id` de cada link \u2014 el que consume ihub_unlink_task_link.",
+    inputSchema: external_exports3.object({
+      taskId: external_exports3.string().describe("Task ID (cuid)")
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({ taskId: external_exports3.string() }).strict(),
@@ -36568,12 +36824,14 @@ server.tool(
     ({ taskId }) => apiClient.get(`/tasks/${taskId}/links`)
   )
 );
-server.tool(
+server.registerTool(
   "ihub_unlink_task_link",
-  "Remove a link from a task by its link id. V\xEDa de correcci\xF3n de un TaskLink mal creado (PR equivocado / cerrado). Usar ihub_list_task_links para obtener el linkId.",
   {
-    taskId: external_exports3.string().describe("Task ID (cuid)"),
-    linkId: external_exports3.string().describe("TaskLink ID (cuid) \u2014 sale de ihub_list_task_links")
+    description: "Remove a link from a task by its link id. V\xEDa de correcci\xF3n de un TaskLink mal creado (PR equivocado / cerrado). Usar ihub_list_task_links para obtener el linkId.",
+    inputSchema: external_exports3.object({
+      taskId: external_exports3.string().describe("Task ID (cuid)"),
+      linkId: external_exports3.string().describe("TaskLink ID (cuid) \u2014 sale de ihub_list_task_links")
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({ taskId: external_exports3.string(), linkId: external_exports3.string() }).strict(),
@@ -36581,17 +36839,19 @@ server.tool(
     ({ taskId, linkId }) => apiClient.delete(`/tasks/${taskId}/links/${linkId}`)
   )
 );
-server.tool(
+server.registerTool(
   "ihub_upload_attachment",
-  "Upload a file to a ticket or interaction from a local file path or URL. Supports images, PDFs, and any file type.",
   {
-    ticketId: external_exports3.string().optional().describe("Ticket ID to attach the file to"),
-    interactionId: external_exports3.string().optional().describe("Interaction ID to attach the file to"),
-    source: external_exports3.string().describe("Local file path (e.g. /tmp/screenshot.png, C:/Users/me/doc.pdf) or URL (https://...)"),
-    filename: external_exports3.string().optional().describe("Override filename (default: extracted from source)")
+    description: "Upload a file to a ticket or interaction from a local file path or URL. Supports images, PDFs, and any file type.",
+    inputSchema: external_exports3.object({
+      ticketId: external_exports3.string().optional().describe("Ticket ID to attach the file to"),
+      interactionId: external_exports3.string().optional().describe("Interaction ID to attach the file to"),
+      source: external_exports3.string().describe("Local file path (e.g. /tmp/screenshot.png, C:/Users/me/doc.pdf) or URL (https://...)"),
+      filename: external_exports3.string().optional().describe("Override filename (default: extracted from source)")
+    }).strict()
   },
   async (params) => {
-    const ParamsSchema17 = external_exports3.object({
+    const ParamsSchema18 = external_exports3.object({
       ticketId: external_exports3.string().optional(),
       interactionId: external_exports3.string().optional(),
       source: external_exports3.string(),
@@ -36599,7 +36859,7 @@ server.tool(
     }).strict();
     let validated;
     try {
-      validated = ParamsSchema17.parse(params);
+      validated = ParamsSchema18.parse(params);
     } catch (e) {
       if (e instanceof external_exports3.ZodError) {
         return {
@@ -36687,13 +36947,15 @@ server.tool(
     }
   }
 );
-server.tool(
+server.registerTool(
   "ihub_link_kb_article",
-  "Link a Knowledge Base article to a ticket. Creates a bidirectional reference between a support ticket and a KB article.",
   {
-    ticketId: external_exports3.string().describe("Ticket ID"),
-    articleId: external_exports3.string().describe("KB Article ID"),
-    note: external_exports3.string().optional().describe("Optional note about why this article is relevant")
+    description: "Link a Knowledge Base article to a ticket. Creates a bidirectional reference between a support ticket and a KB article.",
+    inputSchema: external_exports3.object({
+      ticketId: external_exports3.string().describe("Ticket ID"),
+      articleId: external_exports3.string().describe("KB Article ID"),
+      note: external_exports3.string().optional().describe("Optional note about why this article is relevant")
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -36705,12 +36967,14 @@ server.tool(
     ({ ticketId, articleId, note }) => apiClient.post(`/tickets/${ticketId}/kb-links`, { articleId, note })
   )
 );
-server.tool(
+server.registerTool(
   "ihub_unlink_kb_article",
-  "Remove a KB article link from a ticket.",
   {
-    ticketId: external_exports3.string().describe("Ticket ID"),
-    linkId: external_exports3.string().describe("The TicketKbLink ID to remove")
+    description: "Remove a KB article link from a ticket.",
+    inputSchema: external_exports3.object({
+      ticketId: external_exports3.string().describe("Ticket ID"),
+      linkId: external_exports3.string().describe("The TicketKbLink ID to remove")
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -36721,14 +36985,16 @@ server.tool(
     ({ ticketId, linkId }) => apiClient.del(`/tickets/${ticketId}/kb-links/${linkId}`)
   )
 );
-server.tool(
+server.registerTool(
   "ihub_list_ticket_categories",
-  "Lista las categorias de tickets (TicketCategory) del tenant autenticado. Filtros opcionales: q (contains-insensitive en name/label), isActive. Tenant-scoped server-side via el JWT (no se pasa tenantId).",
   {
-    q: external_exports3.string().optional().describe("Busqueda contains-insensitive en name/label"),
-    isActive: external_exports3.boolean().optional().describe("Filtrar por activas (true) / inactivas (false)"),
-    limit: external_exports3.number().optional().describe("Max resultados (default 50)"),
-    offset: external_exports3.number().optional().describe("Offset para paginacion")
+    description: "Lista las categorias de tickets (TicketCategory) del tenant autenticado. Filtros opcionales: q (contains-insensitive en name/label), isActive. Tenant-scoped server-side via el JWT (no se pasa tenantId).",
+    inputSchema: external_exports3.object({
+      q: external_exports3.string().optional().describe("Busqueda contains-insensitive en name/label"),
+      isActive: external_exports3.boolean().optional().describe("Filtrar por activas (true) / inactivas (false)"),
+      limit: external_exports3.number().optional().describe("Max resultados (default 50)"),
+      offset: external_exports3.number().optional().describe("Offset para paginacion")
+    }).strict()
   },
   async (params) => {
     const qs = new URLSearchParams();
@@ -36741,15 +37007,17 @@ server.tool(
     return formatRead(result);
   }
 );
-server.tool(
+server.registerTool(
   "ihub_create_ticket_category",
-  'Crea una categoria de tickets en el tenant autenticado. Nace activa e isDefault:false (la default "Sin clasificar" la gestiona el sistema, no este tool). name es unico por tenant (409 si ya existe).',
   {
-    name: external_exports3.string().describe("Nombre, unico por tenant"),
-    label: external_exports3.string().describe("Etiqueta visible"),
-    color: external_exports3.string().optional().describe("Color hex (default #6b7280)"),
-    sortOrder: external_exports3.number().optional().describe("Orden de despliegue (default 0)"),
-    isActive: external_exports3.boolean().optional().describe("Activa (default true)")
+    description: 'Crea una categoria de tickets en el tenant autenticado. Nace activa e isDefault:false (la default "Sin clasificar" la gestiona el sistema, no este tool). name es unico por tenant (409 si ya existe).',
+    inputSchema: external_exports3.object({
+      name: external_exports3.string().describe("Nombre, unico por tenant"),
+      label: external_exports3.string().describe("Etiqueta visible"),
+      color: external_exports3.string().optional().describe("Color hex (default #6b7280)"),
+      sortOrder: external_exports3.number().optional().describe("Orden de despliegue (default 0)"),
+      isActive: external_exports3.boolean().optional().describe("Activa (default true)")
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -36763,16 +37031,18 @@ server.tool(
     (body) => apiClient.post("/ticket-categories", body)
   )
 );
-server.tool(
+server.registerTool(
   "ihub_update_ticket_category",
-  "Edita una categoria del tenant. isDefault es INMUTABLE via este tool (no se puede prender ni apagar la default). 404 si la categoria es de otro tenant; 409 si el nuevo name colisiona.",
   {
-    id: external_exports3.string().describe("ID de la categoria"),
-    name: external_exports3.string().optional().describe("Nuevo nombre (unico por tenant)"),
-    label: external_exports3.string().optional().describe("Nueva etiqueta"),
-    color: external_exports3.string().optional().describe("Nuevo color hex"),
-    sortOrder: external_exports3.number().optional().describe("Nuevo orden"),
-    isActive: external_exports3.boolean().optional().describe("Activar/desactivar")
+    description: "Edita una categoria del tenant. isDefault es INMUTABLE via este tool (no se puede prender ni apagar la default). 404 si la categoria es de otro tenant; 409 si el nuevo name colisiona.",
+    inputSchema: external_exports3.object({
+      id: external_exports3.string().describe("ID de la categoria"),
+      name: external_exports3.string().optional().describe("Nuevo nombre (unico por tenant)"),
+      label: external_exports3.string().optional().describe("Nueva etiqueta"),
+      color: external_exports3.string().optional().describe("Nuevo color hex"),
+      sortOrder: external_exports3.number().optional().describe("Nuevo orden"),
+      isActive: external_exports3.boolean().optional().describe("Activar/desactivar")
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -36787,12 +37057,14 @@ server.tool(
     ({ id, ...body }) => apiClient.patch(`/ticket-categories/${id}`, body)
   )
 );
-server.tool(
+server.registerTool(
   "ihub_delete_ticket_category",
-  'Borra una categoria del tenant. La default "Sin clasificar" NO se borra (409). Si la categoria tiene tickets: SIN confirmReassign -> 409 con { ticketsAfectados, requiresConfirmation } (no borra); CON confirmReassign=true -> reasigna esos tickets a "Sin clasificar" y borra (1 transaccion). Sin tickets -> borra directo.',
   {
-    id: external_exports3.string().describe("ID de la categoria"),
-    confirmReassign: external_exports3.boolean().optional().describe('Confirma reasignar los tickets afectados a "Sin clasificar" antes de borrar')
+    description: 'Borra una categoria del tenant. La default "Sin clasificar" NO se borra (409). Si la categoria tiene tickets: SIN confirmReassign -> 409 con { ticketsAfectados, requiresConfirmation } (no borra); CON confirmReassign=true -> reasigna esos tickets a "Sin clasificar" y borra (1 transaccion). Sin tickets -> borra directo.',
+    inputSchema: external_exports3.object({
+      id: external_exports3.string().describe("ID de la categoria"),
+      confirmReassign: external_exports3.boolean().optional().describe('Confirma reasignar los tickets afectados a "Sin clasificar" antes de borrar')
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -36805,30 +37077,38 @@ server.tool(
     )
   )
 );
-server.tool(
+server.registerTool(
   "spec_get",
-  "Get full Spec detail with phases, metrics, comments. comments (all|recent|none, tool default all \u2014 preserva byte-a-byte el shape que requiere el canal [ROUTE:]/inbox-check) + commentsLimit acotan comments[] de spec y de cada fase; recent agrega commentCount (total real), none lo omite. TKT-0272 \u2014 cuando la fase tiene `canonicalContract`, \xC9SE es el contrato vigente: la fase viene con `contentIsHistorical: true` y su `content` llega con un banner del servidor que avisa que NO es normativo. No implementes contra el `content` de una fase marcada as\xED.",
-  specGetSchema,
+  {
+    description: "Get full Spec detail with phases, metrics, comments. comments (all|recent|none, tool default all \u2014 preserva byte-a-byte el shape que requiere el canal [ROUTE:]/inbox-check) + commentsLimit acotan comments[] de spec y de cada fase; recent agrega commentCount (total real), none lo omite. TKT-0272 \u2014 cuando la fase tiene `canonicalContract`, \xC9SE es el contrato vigente: la fase viene con `contentIsHistorical: true` y su `content` llega con un banner del servidor que avisa que NO es normativo. No implementes contra el `content` de una fase marcada as\xED.",
+    inputSchema: external_exports3.object(specGetSchema).strict()
+  },
   makeSpecGetHandler(apiClient)
 );
-server.tool(
+server.registerTool(
   "spec_get_phase",
-  "Get lean detail of a single Spec Phase, wrapping the EXISTING endpoint GET /specs/:specId/phases/:id (PhasesService.findById). Returns only that phase's own tickets/tasks/comments/kbArticles/attachments \u2014 no comments/phases from other phases nor the parent Spec. Use instead of spec_get when you only need one phase (smaller payload). TKT-0272 \u2014 cuando la fase tiene `canonicalContract`, \xC9SE es el contrato vigente: la fase viene con `contentIsHistorical: true` y su `content` llega con un banner del servidor que avisa que NO es normativo. No implementes contra el `content` de una fase marcada as\xED.",
-  specGetPhaseSchema,
+  {
+    description: "Get lean detail of a single Spec Phase, wrapping the EXISTING endpoint GET /specs/:specId/phases/:id (PhasesService.findById). Returns only that phase's own tickets/tasks/comments/kbArticles/attachments \u2014 no comments/phases from other phases nor the parent Spec. Use instead of spec_get when you only need one phase (smaller payload). TKT-0272 \u2014 cuando la fase tiene `canonicalContract`, \xC9SE es el contrato vigente: la fase viene con `contentIsHistorical: true` y su `content` llega con un banner del servidor que avisa que NO es normativo. No implementes contra el `content` de una fase marcada as\xED.",
+    inputSchema: external_exports3.object(specGetPhaseSchema).strict()
+  },
   makeSpecGetPhaseHandler(apiClient)
 );
-server.tool(
+server.registerTool(
   "spec_get_handoffs",
-  "Get the handoff chain of a Spec: every CC_DEV\u2192ENGINEERING return (SpecBlockedDeclaration), with actor, reason and timestamp, chronological. Wraps the EXISTING endpoint GET /specs/:id/handoffs (SPEC-0093 P4) \u2014 only requires spec.read. The forward hop (ENGINEERING\u2192CC_DEV) leaves no row here by design (ADR-003): it never left an artifact, only AuditLog.",
-  specGetHandoffsSchema,
+  {
+    description: "Get the handoff chain of a Spec: every CC_DEV\u2192ENGINEERING return (SpecBlockedDeclaration), with actor, reason and timestamp, chronological. Wraps the EXISTING endpoint GET /specs/:id/handoffs (SPEC-0093 P4) \u2014 only requires spec.read. The forward hop (ENGINEERING\u2192CC_DEV) leaves no row here by design (ADR-003): it never left an artifact, only AuditLog.",
+    inputSchema: external_exports3.object(specGetHandoffsSchema).strict()
+  },
   makeSpecGetHandoffsHandler(apiClient)
 );
-server.tool(
+server.registerTool(
   "spec_check_staleness",
-  "Compute currentTruthWarnings for a Spec or a specific SpecPhase. A warning is emitted when a typed comment (category in decision/bugfix/operator_correction) was created after the description was last touched (max of descriptionUpdatedAt and descriptionLastReviewedAt). Returns N warnings ordered by blockingComment.createdAt DESC. SPEC-level comments do NOT propagate to phase warnings (operator should repost on the phase if granular drift detection is needed). Silence warnings via spec_update with dto.description (resets descriptionUpdatedAt) or POST /specs/:id/mark-description-reviewed (sets descriptionLastReviewedAt).",
   {
-    specId: external_exports3.string().describe("Spec ID (cuid) or number SPEC-XXXX. Always required."),
-    phaseId: external_exports3.string().optional().describe("Phase ID (cuid). When provided, returns only that phase's warnings; specWarnings is omitted. Phase must belong to specId.")
+    description: "Compute currentTruthWarnings for a Spec or a specific SpecPhase. A warning is emitted when a typed comment (category in decision/bugfix/operator_correction) was created after the description was last touched (max of descriptionUpdatedAt and descriptionLastReviewedAt). Returns N warnings ordered by blockingComment.createdAt DESC. SPEC-level comments do NOT propagate to phase warnings (operator should repost on the phase if granular drift detection is needed). Silence warnings via spec_update with dto.description (resets descriptionUpdatedAt) or POST /specs/:id/mark-description-reviewed (sets descriptionLastReviewedAt).",
+    inputSchema: external_exports3.object({
+      specId: external_exports3.string().describe("Spec ID (cuid) or number SPEC-XXXX. Always required."),
+      phaseId: external_exports3.string().optional().describe("Phase ID (cuid). When provided, returns only that phase's warnings; specWarnings is omitted. Phase must belong to specId.")
+    }).strict()
   },
   async (params) => {
     const spec = await apiClient.get(`/specs/${params.specId}`);
@@ -36851,22 +37131,24 @@ server.tool(
     });
   }
 );
-server.tool(
+server.registerTool(
   "spec_list",
-  "List Specs with filters.",
   {
-    stateName: external_exports3.string().optional().describe("Filter by state name (DRAFT, IN_PROGRESS, etc.)"),
-    priority: external_exports3.string().optional(),
-    ownerId: external_exports3.string().optional(),
-    clientId: external_exports3.string().optional(),
-    // TKT-0149 — projectId ya existía en el backend (QuerySpecsDto, TKT-0123) pero
-    // nunca se expuso acá: listar las SPECs de un proyecto obligaba a traer las
-    // ~130 del tenant y filtrar client-side. workspaceId es columna propia de Spec
-    // (independiente de projectId), mismo patrón que project_list.
-    projectId: external_exports3.string().optional().describe("Filter by project id"),
-    workspaceId: external_exports3.string().optional().describe("Filter by workspace id"),
-    q: external_exports3.string().optional().describe("Search in title, description, number"),
-    limit: external_exports3.number().optional()
+    description: "List Specs with filters.",
+    inputSchema: external_exports3.object({
+      stateName: external_exports3.string().optional().describe("Filter by state name (DRAFT, IN_PROGRESS, etc.)"),
+      priority: external_exports3.string().optional(),
+      ownerId: external_exports3.string().optional(),
+      clientId: external_exports3.string().optional(),
+      // TKT-0149 — projectId ya existía en el backend (QuerySpecsDto, TKT-0123) pero
+      // nunca se expuso acá: listar las SPECs de un proyecto obligaba a traer las
+      // ~130 del tenant y filtrar client-side. workspaceId es columna propia de Spec
+      // (independiente de projectId), mismo patrón que project_list.
+      projectId: external_exports3.string().optional().describe("Filter by project id"),
+      workspaceId: external_exports3.string().optional().describe("Filter by workspace id"),
+      q: external_exports3.string().optional().describe("Search in title, description, number"),
+      limit: external_exports3.number().optional()
+    }).strict()
   },
   async (params) => {
     const qs = new URLSearchParams();
@@ -36882,14 +37164,16 @@ server.tool(
     return formatRead(specs);
   }
 );
-server.tool(
+server.registerTool(
   "spec_log_correction",
-  "\u{1F6AB} GONE post-SPEC-0080 F3d LIVE (ADR-023 Retraction eliminated). Use decision_supersede tool (POST /api/v1/decisions/:id/supersede) instead. This handler intercepts proactively \u2014 no HTTP call performed.",
   {
-    specId: external_exports3.string(),
-    phaseId: external_exports3.string(),
-    content: external_exports3.string().describe("What the operator corrected and why"),
-    internal: external_exports3.boolean().optional().default(false)
+    description: "\u{1F6AB} GONE post-SPEC-0080 F3d LIVE (ADR-023 Retraction eliminated). Use decision_supersede tool (POST /api/v1/decisions/:id/supersede) instead. This handler intercepts proactively \u2014 no HTTP call performed.",
+    inputSchema: external_exports3.object({
+      specId: external_exports3.string(),
+      phaseId: external_exports3.string(),
+      content: external_exports3.string().describe("What the operator corrected and why"),
+      internal: external_exports3.boolean().optional().default(false)
+    }).strict()
   },
   async (_params) => {
     return {
@@ -36903,40 +37187,46 @@ server.tool(
     };
   }
 );
-server.tool(
+server.registerTool(
   "spec_states",
-  "List all available Spec states (id, name, label, color, sortOrder, isDefault, isFinal).",
-  {},
+  {
+    description: "List all available Spec states (id, name, label, color, sortOrder, isDefault, isFinal).",
+    inputSchema: external_exports3.object({}).strict()
+  },
   async () => {
     const states = await apiClient.get("/specs/states");
     return formatRead(states);
   }
 );
-server.tool(
+server.registerTool(
   "spec_progress",
-  "Get progress metrics, timing status (AHEAD/ON_TRACK/BEHIND/OVERDUE), phase durations, slowest tickets, and state timeline for a Spec.",
   {
-    id: external_exports3.string().describe("Spec ID or number (SPEC-XXXX)")
+    description: "Get progress metrics, timing status (AHEAD/ON_TRACK/BEHIND/OVERDUE), phase durations, slowest tickets, and state timeline for a Spec.",
+    inputSchema: external_exports3.object({
+      id: external_exports3.string().describe("Spec ID or number (SPEC-XXXX)")
+    }).strict()
   },
   async (params) => {
     const progress = await apiClient.get(`/specs/${params.id}/progress`);
     return formatRead(progress);
   }
 );
-server.tool(
+server.registerTool(
   "spec_approve",
-  'Approve a Spec (change state to APPROVED). SPEC-0089 v0.3.1: verification_tokens validated (no markdown target \u2014 Option A: drop after validation). Strict-enforced post MCP_SERVER_RELEASE >= 0.2.0. State transition is a structural verdict \u2014 validation gate makes the agent think "why" even though tokens are not persisted in audit trail (deferred to v0.4).',
   {
-    id: external_exports3.string(),
-    verification_tokens: verificationTokensField
+    description: 'Approve a Spec (change state to APPROVED). SPEC-0089 v0.3.1: verification_tokens validated (no markdown target \u2014 Option A: drop after validation). Strict-enforced post MCP_SERVER_RELEASE >= 0.2.0. State transition is a structural verdict \u2014 validation gate makes the agent think "why" even though tokens are not persisted in audit trail (deferred to v0.4).',
+    inputSchema: external_exports3.object({
+      id: external_exports3.string(),
+      verification_tokens: verificationTokensField
+    }).strict()
   },
   async (params) => {
-    const ParamsSchema17 = external_exports3.object({
+    const ParamsSchema18 = external_exports3.object({
       id: external_exports3.string(),
       verification_tokens: verificationTokensField
     }).strict();
     try {
-      const validated = ParamsSchema17.parse(params);
+      const validated = ParamsSchema18.parse(params);
       const spec = await apiClient.patch(`/specs/${validated.id}/approve`, {});
       return { content: [{ type: "text", text: JSON.stringify(spec, null, 2) }] };
     } catch (e) {
@@ -36952,18 +37242,20 @@ server.tool(
     }
   }
 );
-server.tool(
+server.registerTool(
   "spec_cancel",
-  "Cancela una SPEC con CIERRE HONESTO. Exige un motivo estructurado (cancellationReason: SUPERSEDED | REDISTRIBUTED | ABANDONED) y, para SUPERSEDED/REDISTRIBUTED, el destino a d\xF3nde se movi\xF3 el trabajo (supersededBySpecId: FK a otra SPEC del mismo tenant, sin auto-referencia). ABANDONED no admite destino. Transiciona SPEC\u2192CANCELLED (DRAFT/COMPLETED/BLOCKED\u2192CANCELLED). Errores: 422 CANCELLED_REASON_REQUIRED si falta el motivo; 422 SUPERSEDED_BY_REQUIRED / _SELF_REFERENCE / _NOT_FOUND / _NOT_ALLOWED seg\xFAn la validaci\xF3n condicional del destino. Espejo de c\xF3mo SKIPPED exige justificaci\xF3n. RBAC spec.transition (gobierno). La validaci\xF3n de reason es la \xDANICA puerta a CANCELLED (el vector gen\xE9rico+stateId ya no transiciona).",
   {
-    id: external_exports3.string(),
-    cancellationReason: external_exports3.enum(["SUPERSEDED", "REDISTRIBUTED", "ABANDONED"]).describe("Motivo estructurado del cierre honesto (obligatorio)."),
-    supersededBySpecId: external_exports3.string().nullable().optional().describe("SPEC destino. Obligatorio para SUPERSEDED/REDISTRIBUTED, null para ABANDONED."),
-    comment: external_exports3.string().max(2e3).nullable().optional().describe("Comentario libre opcional de trazabilidad."),
-    verification_tokens: verificationTokensField
+    description: "Cancela una SPEC con CIERRE HONESTO. Exige un motivo estructurado (cancellationReason: SUPERSEDED | REDISTRIBUTED | ABANDONED) y, para SUPERSEDED/REDISTRIBUTED, el destino a d\xF3nde se movi\xF3 el trabajo (supersededBySpecId: FK a otra SPEC del mismo tenant, sin auto-referencia). ABANDONED no admite destino. Transiciona SPEC\u2192CANCELLED (DRAFT/COMPLETED/BLOCKED\u2192CANCELLED). Errores: 422 CANCELLED_REASON_REQUIRED si falta el motivo; 422 SUPERSEDED_BY_REQUIRED / _SELF_REFERENCE / _NOT_FOUND / _NOT_ALLOWED seg\xFAn la validaci\xF3n condicional del destino. Espejo de c\xF3mo SKIPPED exige justificaci\xF3n. RBAC spec.transition (gobierno). La validaci\xF3n de reason es la \xDANICA puerta a CANCELLED (el vector gen\xE9rico+stateId ya no transiciona).",
+    inputSchema: external_exports3.object({
+      id: external_exports3.string(),
+      cancellationReason: external_exports3.enum(["SUPERSEDED", "REDISTRIBUTED", "ABANDONED"]).describe("Motivo estructurado del cierre honesto (obligatorio)."),
+      supersededBySpecId: external_exports3.string().nullable().optional().describe("SPEC destino. Obligatorio para SUPERSEDED/REDISTRIBUTED, null para ABANDONED."),
+      comment: external_exports3.string().max(2e3).nullable().optional().describe("Comentario libre opcional de trazabilidad."),
+      verification_tokens: verificationTokensField
+    }).strict()
   },
   async (params) => {
-    const ParamsSchema17 = external_exports3.object({
+    const ParamsSchema18 = external_exports3.object({
       id: external_exports3.string(),
       cancellationReason: external_exports3.enum(["SUPERSEDED", "REDISTRIBUTED", "ABANDONED"]),
       supersededBySpecId: external_exports3.string().nullable().optional(),
@@ -36971,7 +37263,7 @@ server.tool(
       verification_tokens: verificationTokensField
     }).strict();
     try {
-      const validated = ParamsSchema17.parse(params);
+      const validated = ParamsSchema18.parse(params);
       const spec = await apiClient.patch(`/specs/${validated.id}/cancel`, {
         cancellationReason: validated.cancellationReason,
         supersededBySpecId: validated.supersededBySpecId ?? null,
@@ -36991,32 +37283,38 @@ server.tool(
     }
   }
 );
-server.tool(
+server.registerTool(
   "spec_block",
-  "Bloquea una SPEC (\u2192BLOCKED) con MOTIVO obligatorio. Captura el estado compuesto de origen en blockedOriginState para restaurarlo al desbloquear (SPEC-0112 P2). reason vac\xEDo \u2192 400 BLOCK_REASON_REQUIRED. RBAC spec.transition. Thin wrapper de PATCH /specs/:id/block (SPEC-0138). Un param no declarado falla la validaci\xF3n Zod .strict() antes del HTTP.",
-  specBlockSchema,
+  {
+    description: "Bloquea una SPEC (\u2192BLOCKED) con MOTIVO obligatorio. Captura el estado compuesto de origen en blockedOriginState para restaurarlo al desbloquear (SPEC-0112 P2). reason vac\xEDo \u2192 400 BLOCK_REASON_REQUIRED. RBAC spec.transition. Thin wrapper de PATCH /specs/:id/block (SPEC-0138). Un param no declarado falla la validaci\xF3n Zod .strict() antes del HTTP.",
+    inputSchema: external_exports3.object(specBlockSchema).strict()
+  },
   makeSpecBlockHandler(apiClient)
 );
-server.tool(
+server.registerTool(
   "spec_unblock",
-  "Resuelve el BLOCKED de una SPEC: repone el estado compuesto de origen desde blockedOriginState (NO fuerza IN_PROGRESS) y registra la resoluci\xF3n (SpecUnblockResolution). resolutionNotes obligatoria (vac\xEDo \u2192 400). 409 si la SPEC no est\xE1 BLOCKED o no tiene snapshot; 403 sin spec.transition. Thin wrapper de PATCH /specs/:id/unblock. Un param no declarado falla la validaci\xF3n Zod .strict() antes del HTTP.",
-  specUnblockSchema,
+  {
+    description: "Resuelve el BLOCKED de una SPEC: repone el estado compuesto de origen desde blockedOriginState (NO fuerza IN_PROGRESS) y registra la resoluci\xF3n (SpecUnblockResolution). resolutionNotes obligatoria (vac\xEDo \u2192 400). 409 si la SPEC no est\xE1 BLOCKED o no tiene snapshot; 403 sin spec.transition. Thin wrapper de PATCH /specs/:id/unblock. Un param no declarado falla la validaci\xF3n Zod .strict() antes del HTTP.",
+    inputSchema: external_exports3.object(specUnblockSchema).strict()
+  },
   makeSpecUnblockHandler(apiClient)
 );
-server.tool(
+server.registerTool(
   "spec_supersede_phases",
-  "Superseding SELECTIVO de fases post-retorno-a-Engineering. Engineering elige un SET EXPL\xCDCITO de phaseIds a superseder (supersededByRevision=true). Entrada DEDICADA que corre POST-FLIP: gateada a inProgressContext=ENGINEERING sobre una SPEC en IN_PROGRESS (422 SUPERSEDE_CONTEXT_INVALID si no cumple). Del set, SOLO las fases can\xF3nicamente ACTIVE/READY_FOR_VALIDATION se marcan (COMPLETED/PENDING/BLOCKED/SKIPPED quedan intactas). NO recibe reason: la raz\xF3n del retorno ya vive en el SpecBlockedDeclaration append-only que escribi\xF3 el retorno-a-Engineering. 422 SUPERSEDE_PHASE_NOT_IN_SPEC si alg\xFAn phaseId no pertenece a la SPEC. Devuelve { superseded: string[] } con los ids efectivamente marcados.",
   {
-    specId: external_exports3.string(),
-    phaseIds: external_exports3.array(external_exports3.string()).min(1).describe("Set expl\xEDcito de phaseIds a superseder (no vac\xEDo).")
+    description: "Superseding SELECTIVO de fases post-retorno-a-Engineering. Engineering elige un SET EXPL\xCDCITO de phaseIds a superseder (supersededByRevision=true). Entrada DEDICADA que corre POST-FLIP: gateada a inProgressContext=ENGINEERING sobre una SPEC en IN_PROGRESS (422 SUPERSEDE_CONTEXT_INVALID si no cumple). Del set, SOLO las fases can\xF3nicamente ACTIVE/READY_FOR_VALIDATION se marcan (COMPLETED/PENDING/BLOCKED/SKIPPED quedan intactas). NO recibe reason: la raz\xF3n del retorno ya vive en el SpecBlockedDeclaration append-only que escribi\xF3 el retorno-a-Engineering. 422 SUPERSEDE_PHASE_NOT_IN_SPEC si alg\xFAn phaseId no pertenece a la SPEC. Devuelve { superseded: string[] } con los ids efectivamente marcados.",
+    inputSchema: external_exports3.object({
+      specId: external_exports3.string(),
+      phaseIds: external_exports3.array(external_exports3.string()).min(1).describe("Set expl\xEDcito de phaseIds a superseder (no vac\xEDo).")
+    }).strict()
   },
   async (params) => {
-    const ParamsSchema17 = external_exports3.object({
+    const ParamsSchema18 = external_exports3.object({
       specId: external_exports3.string(),
       phaseIds: external_exports3.array(external_exports3.string()).min(1)
     }).strict();
     try {
-      const validated = ParamsSchema17.parse(params);
+      const validated = ParamsSchema18.parse(params);
       const result = await apiClient.patch(`/specs/${validated.specId}/supersede-phases`, {
         phaseIds: validated.phaseIds
       });
@@ -37034,23 +37332,27 @@ server.tool(
     }
   }
 );
-server.tool(
+server.registerTool(
   "spec_phase_unlink",
-  "Desvincula un ticket/task/kb-link de una fase de SPEC, invocando el endpoint REST DELETE /specs/:specId/phases/:phaseId/unlink/:type/:linkId (reusa PhasesService.unlinkEntity, sin l\xF3gica de negocio nueva). Cleanup de gobierno: el rol OPERATOR lo invoca por el api-client de la sesi\xF3n, sin firmar un x-act-as-role (el unlink de cleanup es gobierno, no producci\xF3n \u2014 D4/ADR-006). Rechaza 400 si la fase est\xE1 en estado final (COMPLETED/SKIPPED) o en un reopen append-only activo. type \u2208 {task, ticket, kb}. linkId es el id del V\xCDNCULO de fase (SpecPhaseTask/SpecPhaseTicket/SpecPhaseKbLink), NO el id de la task/ticket. Devuelve el resultado del endpoint.",
-  specPhaseUnlinkSchema,
+  {
+    description: "Desvincula un ticket/task/kb-link de una fase de SPEC, invocando el endpoint REST DELETE /specs/:specId/phases/:phaseId/unlink/:type/:linkId (reusa PhasesService.unlinkEntity, sin l\xF3gica de negocio nueva). Cleanup de gobierno: el rol OPERATOR lo invoca por el api-client de la sesi\xF3n, sin firmar un x-act-as-role (el unlink de cleanup es gobierno, no producci\xF3n \u2014 D4/ADR-006). Rechaza 400 si la fase est\xE1 en estado final (COMPLETED/SKIPPED) o en un reopen append-only activo. type \u2208 {task, ticket, kb}. linkId es el id del V\xCDNCULO de fase (SpecPhaseTask/SpecPhaseTicket/SpecPhaseKbLink), NO el id de la task/ticket. Devuelve el resultado del endpoint.",
+    inputSchema: external_exports3.object(specPhaseUnlinkSchema).strict()
+  },
   makeSpecPhaseUnlinkHandler(apiClient)
 );
-server.tool(
+server.registerTool(
   "spec_reorder_phases",
-  'Bulk-reorder phases of a Spec by setting explicit sortOrder values. Invokes PATCH /specs/:specId/phases/reorder atomically (single Prisma $transaction \u2014 partial failure rolls back). Input uses semantic `phaseId` keys, re-mapped internally to the endpoint\'s `id` field. NO client-side duplicate-sortOrder validation \u2014 backend is single source of truth and propagates 400 on conflict. Example: spec_reorder_phases({ specId: "<specId>", ordering: [{ phaseId: "<phaseA>", sortOrder: 10 }, { phaseId: "<phaseB>", sortOrder: 20 }, { phaseId: "<phaseC>", sortOrder: 30 }] }). Returns the updated phases array sorted ascending by new sortOrder. Use spec_update_phase for single-phase updates (this tool is bulk-only).',
   {
-    specId: external_exports3.string().describe("Spec ID (cuid)."),
-    ordering: external_exports3.array(
-      external_exports3.object({
-        phaseId: external_exports3.string().describe("Phase ID (cuid). Re-mapped to `id` in the backend payload."),
-        sortOrder: external_exports3.number().describe("New sortOrder value. Schema is Int \u2014 non-integer values may be rejected by the backend with 400.")
-      })
-    ).describe("Bulk ordering list. All entries applied in a single $transaction; partial failure rolls back atomically.")
+    description: 'Bulk-reorder phases of a Spec by setting explicit sortOrder values. Invokes PATCH /specs/:specId/phases/reorder atomically (single Prisma $transaction \u2014 partial failure rolls back). Input uses semantic `phaseId` keys, re-mapped internally to the endpoint\'s `id` field. NO client-side duplicate-sortOrder validation \u2014 backend is single source of truth and propagates 400 on conflict. Example: spec_reorder_phases({ specId: "<specId>", ordering: [{ phaseId: "<phaseA>", sortOrder: 10 }, { phaseId: "<phaseB>", sortOrder: 20 }, { phaseId: "<phaseC>", sortOrder: 30 }] }). Returns the updated phases array sorted ascending by new sortOrder. Use spec_update_phase for single-phase updates (this tool is bulk-only).',
+    inputSchema: external_exports3.object({
+      specId: external_exports3.string().describe("Spec ID (cuid)."),
+      ordering: external_exports3.array(
+        external_exports3.object({
+          phaseId: external_exports3.string().describe("Phase ID (cuid). Re-mapped to `id` in the backend payload."),
+          sortOrder: external_exports3.number().describe("New sortOrder value. Schema is Int \u2014 non-integer values may be rejected by the backend with 400.")
+        })
+      ).describe("Bulk ordering list. All entries applied in a single $transaction; partial failure rolls back atomically.")
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -37069,17 +37371,21 @@ server.tool(
     }
   )
 );
-server.tool(
+server.registerTool(
   "spec_create_ticket",
-  "Create a ticket from a Spec phase (auto-linked). Subject gets prefixed with [SPEC-XXXX/PhaseName]. SPEC-0201 P6: verification_tokens ya NO se anteponen a description \u2014 la tabla renderizada viaja en el campo `verificationTable` del body y el Hub la persiste como comment del ticket, en la misma transaccion. `description` llega al Hub tal cual la escribio el autor.",
-  specCreateTicketSchema,
+  {
+    description: "Create a ticket from a Spec phase (auto-linked). Subject gets prefixed with [SPEC-XXXX/PhaseName]. SPEC-0201 P6: verification_tokens ya NO se anteponen a description \u2014 la tabla renderizada viaja en el campo `verificationTable` del body y el Hub la persiste como comment del ticket, en la misma transaccion. `description` llega al Hub tal cual la escribio el autor.",
+    inputSchema: external_exports3.object(specCreateTicketSchema).strict()
+  },
   makeSpecCreateTicketHandler(apiClient)
 );
-server.tool(
+server.registerTool(
   "task_take",
-  "Take an unassigned task (auto-assigns to current user). If the task is assigned to another user, returns an error \u2014 an admin must reassign. TKT-0300: rebota 422 PHASE_CONTRACT_MISALIGNED si la fase de la task tiene el contrato can\xF3nico reescrito sin realign (Engineering debe declarar el realign antes del pasaje a CC-Dev).",
   {
-    taskId: external_exports3.string().describe("Task ID to take")
+    description: "Take an unassigned task (auto-assigns to current user). If the task is assigned to another user, returns an error \u2014 an admin must reassign. TKT-0300: rebota 422 PHASE_CONTRACT_MISALIGNED si la fase de la task tiene el contrato can\xF3nico reescrito sin realign (Engineering debe declarar el realign antes del pasaje a CC-Dev).",
+    inputSchema: external_exports3.object({
+      taskId: external_exports3.string().describe("Task ID to take")
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({ taskId: external_exports3.string() }).strict(),
@@ -37087,12 +37393,14 @@ server.tool(
     ({ taskId }) => apiClient.post(`/tasks/${taskId}/take`, {})
   )
 );
-server.tool(
+server.registerTool(
   "task_assign",
-  "Assign a task to a specific user (admin operation).",
   {
-    taskId: external_exports3.string().describe("Task ID"),
-    assigneeId: external_exports3.string().describe("User ID to assign the task to")
+    description: "Assign a task to a specific user (admin operation).",
+    inputSchema: external_exports3.object({
+      taskId: external_exports3.string().describe("Task ID"),
+      assigneeId: external_exports3.string().describe("User ID to assign the task to")
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({ taskId: external_exports3.string(), assigneeId: external_exports3.string() }).strict(),
@@ -37100,30 +37408,38 @@ server.tool(
     ({ taskId, assigneeId }) => apiClient.patch(`/tasks/${taskId}/assign`, { assigneeId })
   )
 );
-server.tool(
+server.registerTool(
   "task_add_dependency",
-  "SPEC-0223 P3 \u2014 declara que una task de fase depende de OTRA task de la MISMA fase. Solo las aristas BLOCKS (default) frenan el despacho automatico: mientras la task destino no este DONE, el motor de elegibilidad no entrega la origen. RELATES_TO declara parentesco y no bloquea. Las dos tasks tienen que estar linkeadas a la misma fase y al mismo tenant \u2014 cualquier otra cosa devuelve 404 sin crear fila. Requiere task.dependency.write (ENGINEERING, OPERATOR o TESTER). SPEC-0238 P2: justification obligatoria (20+ caracteres normalizados) o 422 DEPENDENCY_JUSTIFICATION_REQUIRED.",
-  taskAddDependencySchema,
+  {
+    description: "SPEC-0223 P3 \u2014 declara que una task de fase depende de OTRA task de la MISMA fase. Solo las aristas BLOCKS (default) frenan el despacho automatico: mientras la task destino no este DONE, el motor de elegibilidad no entrega la origen. RELATES_TO declara parentesco y no bloquea. Las dos tasks tienen que estar linkeadas a la misma fase y al mismo tenant \u2014 cualquier otra cosa devuelve 404 sin crear fila. Requiere task.dependency.write (ENGINEERING, OPERATOR o TESTER). SPEC-0238 P2: justification obligatoria (20+ caracteres normalizados) o 422 DEPENDENCY_JUSTIFICATION_REQUIRED.",
+    inputSchema: external_exports3.object(taskAddDependencySchema).strict()
+  },
   makeTaskAddDependencyHandler(apiClient)
 );
-server.tool(
+server.registerTool(
   "task_remove_dependency",
-  "SPEC-0223 P3 \u2014 retira la dependencia de una task de fase sobre otra. Sin arista declarada devuelve 404 (y no un 200 mentiroso). Requiere task.dependency.write.",
-  taskRemoveDependencySchema,
+  {
+    description: "SPEC-0223 P3 \u2014 retira la dependencia de una task de fase sobre otra. Sin arista declarada devuelve 404 (y no un 200 mentiroso). Requiere task.dependency.write.",
+    inputSchema: external_exports3.object(taskRemoveDependencySchema).strict()
+  },
   makeTaskRemoveDependencyHandler(apiClient)
 );
-server.tool(
+server.registerTool(
   "phase_auto_run_record_result",
-  "SPEC-0223 P3 \u2014 registra el resultado tipado de una task despachada dentro de una corrida automatica de fase. status OK deja seguir la corrida; BLOCKED la detiene sin reintento y deja el run en BLOCKED \u2014 y EXIGE `reason`: un BLOCKED sin motivo devuelve 400 BLOCKED_RESULT_REQUIRES_REASON antes de tocar la base, porque es la fila que deja al Operador sin poder responder por que se trabo. Requiere phase.auto_run.record_result (CC_DEV-only). Se llama ANTES de terminar la sesion.",
-  phaseAutoRunRecordResultSchema,
+  {
+    description: "SPEC-0223 P3 \u2014 registra el resultado tipado de una task despachada dentro de una corrida automatica de fase. status OK deja seguir la corrida; BLOCKED la detiene sin reintento y deja el run en BLOCKED \u2014 y EXIGE `reason`: un BLOCKED sin motivo devuelve 400 BLOCKED_RESULT_REQUIRES_REASON antes de tocar la base, porque es la fila que deja al Operador sin poder responder por que se trabo. Requiere phase.auto_run.record_result (CC_DEV-only). Se llama ANTES de terminar la sesion.",
+    inputSchema: external_exports3.object(phaseAutoRunRecordResultSchema).strict()
+  },
   makePhaseAutoRunRecordResultHandler(apiClient)
 );
-server.tool(
+server.registerTool(
   "task_correct_worktree",
-  "TKT-0331 \u2014 corrige el branch can\xF3nico persistido en SpecPhaseTask.worktree cuando diverge del branch real del PR (WORKTREE_BRANCH_MISMATCH al cerrar). El campo se escribe UNA sola vez al tomar la task y hasta este ticket s\xF3lo se correg\xEDa con UPDATE manual en producci\xF3n. OPERATOR-only \u2014 el rol cuyo branch valida este campo (CC_DEV) no puede autocorregirse el gate.",
   {
-    taskId: external_exports3.string().describe("Task ID cuya SpecPhaseTask.worktree hay que corregir"),
-    worktree: external_exports3.string().describe("Branch real correcto (ej. el headBranch del PR) que el gate de cierre va a exigir a partir de ahora")
+    description: "TKT-0331 \u2014 corrige el branch can\xF3nico persistido en SpecPhaseTask.worktree cuando diverge del branch real del PR (WORKTREE_BRANCH_MISMATCH al cerrar). El campo se escribe UNA sola vez al tomar la task y hasta este ticket s\xF3lo se correg\xEDa con UPDATE manual en producci\xF3n. OPERATOR-only \u2014 el rol cuyo branch valida este campo (CC_DEV) no puede autocorregirse el gate.",
+    inputSchema: external_exports3.object({
+      taskId: external_exports3.string().describe("Task ID cuya SpecPhaseTask.worktree hay que corregir"),
+      worktree: external_exports3.string().describe("Branch real correcto (ej. el headBranch del PR) que el gate de cierre va a exigir a partir de ahora")
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({ taskId: external_exports3.string(), worktree: external_exports3.string() }).strict(),
@@ -37131,16 +37447,18 @@ server.tool(
     ({ taskId, worktree }) => apiClient.patch(`/tasks/${taskId}/worktree`, { worktree })
   )
 );
-server.tool(
+server.registerTool(
   "spec_create_kb",
-  "Create a KB article from a Spec phase (auto-linked, auto-tagged with spec:SPEC-XXXX).",
   {
-    specId: external_exports3.string(),
-    phaseId: external_exports3.string(),
-    title: external_exports3.string(),
-    content: external_exports3.string(),
-    summary: external_exports3.string().optional(),
-    tags: external_exports3.array(external_exports3.string()).optional()
+    description: "Create a KB article from a Spec phase (auto-linked, auto-tagged with spec:SPEC-XXXX).",
+    inputSchema: external_exports3.object({
+      specId: external_exports3.string(),
+      phaseId: external_exports3.string(),
+      title: external_exports3.string(),
+      content: external_exports3.string(),
+      summary: external_exports3.string().optional(),
+      tags: external_exports3.array(external_exports3.string()).optional()
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -37155,14 +37473,16 @@ server.tool(
     ({ specId, phaseId, ...data }) => apiClient.post(`/specs/${specId}/phases/${phaseId}/kb-articles`, data)
   )
 );
-server.tool(
+server.registerTool(
   "spec_link_entity",
-  "Link existing ticket, task, or KB article to a Spec phase.",
   {
-    specId: external_exports3.string(),
-    phaseId: external_exports3.string(),
-    entityType: external_exports3.enum(["ticket", "task", "kb"]),
-    entityId: external_exports3.string()
+    description: "Link existing ticket, task, or KB article to a Spec phase.",
+    inputSchema: external_exports3.object({
+      specId: external_exports3.string(),
+      phaseId: external_exports3.string(),
+      entityType: external_exports3.enum(["ticket", "task", "kb"]),
+      entityId: external_exports3.string()
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -37181,16 +37501,18 @@ server.tool(
     }
   )
 );
-server.tool(
+server.registerTool(
   "spec_unlink_entity",
-  "Unlink a ticket, task, or KB article from a Spec phase. Deletes the LINK row ONLY \u2014 the entity itself (the task/ticket/KB article) is NOT deleted. Symmetric to spec_link_entity. IMPORTANT: `linkId` is the id of the LINK row (SpecPhaseTask/SpecPhaseTicket/SpecPhaseKbLink.id), NOT the entity id. Obtain it from spec_get: the phase carries its linked tasks/tickets and each link row exposes its own `.id` (e.g. phases[].tasks[].id). Blocked on final-state phases (COMPLETED/SKIPPED) and during active append-only reopen windows, same as the underlying endpoint. Use case: free a phase from its linked tasks/tickets so it can be SKIPPED (the skip gate requires 0 links).",
   {
-    specId: external_exports3.string(),
-    phaseId: external_exports3.string(),
-    entityType: external_exports3.enum(["ticket", "task", "kb"]),
-    linkId: external_exports3.string().describe(
-      "ID of the LINK row (SpecPhaseTask/SpecPhaseTicket/SpecPhaseKbLink.id), NOT the entity id. From spec_get -> phases[].<tasks|tickets>[].id"
-    )
+    description: "Unlink a ticket, task, or KB article from a Spec phase. Deletes the LINK row ONLY \u2014 the entity itself (the task/ticket/KB article) is NOT deleted. Symmetric to spec_link_entity. IMPORTANT: `linkId` is the id of the LINK row (SpecPhaseTask/SpecPhaseTicket/SpecPhaseKbLink.id), NOT the entity id. Obtain it from spec_get: the phase carries its linked tasks/tickets and each link row exposes its own `.id` (e.g. phases[].tasks[].id). Blocked on final-state phases (COMPLETED/SKIPPED) and during active append-only reopen windows, same as the underlying endpoint. Use case: free a phase from its linked tasks/tickets so it can be SKIPPED (the skip gate requires 0 links).",
+    inputSchema: external_exports3.object({
+      specId: external_exports3.string(),
+      phaseId: external_exports3.string(),
+      entityType: external_exports3.enum(["ticket", "task", "kb"]),
+      linkId: external_exports3.string().describe(
+        "ID of the LINK row (SpecPhaseTask/SpecPhaseTicket/SpecPhaseKbLink.id), NOT the entity id. From spec_get -> phases[].<tasks|tickets>[].id"
+      )
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -37205,21 +37527,25 @@ server.tool(
     )
   )
 );
-server.tool(
+server.registerTool(
   "spec_get_documentation",
-  "Get the structured documentation sections of a Spec (technical manual, user manual, implementation detail, informal explanation, SDD kinds, trail). Returns each section with its KbArticle (or null if not yet written). kind filters to a single section; includeHistory defaults to false here (historyCount per kind, no history article.content) \u2014 pass includeHistory=true for the full history with content. TKT-0354 \u2014 `documentation` es UNA sola fila (la vigente m\xE1s reciente del kind) y `coCurrent` son LAS DEM\xC1S vigentes del mismo kind, cada una con su `originCaseId` y su `contentHash`: la lista completa de vigentes es `documentation` + `coCurrent`, y `coCurrentCount` la cuenta. Importa en los kinds per-caso (RISK_ACCEPTANCE / BLOCKED_RESOLUTION), donde una SPEC tiene N artefactos co-vigentes \u2014uno por TestCase\u2014 y hasta este ticket s\xF3lo se ve\xEDa el \xFAltimo. `history` es lo SUPERSEDED: en un kind per-caso queda vac\xEDo aunque haya N artefactos, as\xED que un `history: []` NO prueba ausencia \u2014 eso se lee en `coCurrentCount`.",
-  specGetDocumentationSchema,
+  {
+    description: "Get the structured documentation sections of a Spec (technical manual, user manual, implementation detail, informal explanation, SDD kinds, trail). Returns each section with its KbArticle (or null if not yet written). kind filters to a single section; includeHistory defaults to false here (historyCount per kind, no history article.content) \u2014 pass includeHistory=true for the full history with content. TKT-0354 \u2014 `documentation` es UNA sola fila (la vigente m\xE1s reciente del kind) y `coCurrent` son LAS DEM\xC1S vigentes del mismo kind, cada una con su `originCaseId` y su `contentHash`: la lista completa de vigentes es `documentation` + `coCurrent`, y `coCurrentCount` la cuenta. Importa en los kinds per-caso (RISK_ACCEPTANCE / BLOCKED_RESOLUTION), donde una SPEC tiene N artefactos co-vigentes \u2014uno por TestCase\u2014 y hasta este ticket s\xF3lo se ve\xEDa el \xFAltimo. `history` es lo SUPERSEDED: en un kind per-caso queda vac\xEDo aunque haya N artefactos, as\xED que un `history: []` NO prueba ausencia \u2014 eso se lee en `coCurrentCount`. TKT-0470 \u2014 cada fila de ADVERSARIAL_VERDICT (vigente, co-vigentes e historia) trae findingsSummary (TODAS las filas, por severidad y por status), blockingSummary (s\xF3lo lo que frena: el mismo predicado del gate de cierre), reviewMode (INTEGRAL|FOCUSED, derivado S\xD3LO de las unidades del artefacto) y reviewCoverage (status COMPLETE|UNAVAILABLE, unavailableReason, outputUnitsReviewedThisRound, outputUnitsInheritedUnchanged, inputSourcesReviewed, outOfScope \u2014 unidades del artefacto y fuentes de entrada por separado; status=UNAVAILABLE con LEGACY_WITHOUT_SNAPSHOT = verdict sin foto de la ronda pronunciado por familia, o sin cobertura declarada: conteos de unidades y reviewMode en null, nunca 0; un verdict per-item sin foto sale COMPLETE con sus conteos declarados). rejectionSummary es LEGADO y deprecado: cuenta todas las filas, ADDRESSED incluidas \u2014 no son hallazgos abiertos.",
+    inputSchema: external_exports3.object(specGetDocumentationSchema).strict()
+  },
   makeSpecGetDocumentationHandler(apiClient)
 );
-server.tool(
+server.registerTool(
   "spec_finding_accept_risk",
-  "Accept, with signature and justification, the risk of a HIGH finding of the CURRENT ADVERSARIAL_VERDICT (SPEC-0172 P5). Drops the finding out of the severity threshold that gates the transition WITHOUT re-emitting the verdict and without changing the SPEC state. Requires permission spec.accept_finding_risk (OPERATOR only, ADR-011) \u2014 403 for every other actor. Five distinguishable 422s: FINDING_ACCEPTANCE_NOT_ALLOWED_FOR_SEVERITY (only HIGH; CRITICAL has no valve), FINDING_ACCEPTANCE_JUSTIFICATION_REQUIRED (below the minimum length), FINDING_ACCEPTANCE_SELF_SIGNED (the effective role signing equals the verdict emitter role, or cannot be proven different \u2014 fail-safe on NULL), FINDING_ACCEPTANCE_CLASS_NOT_ACCEPTABLE (REPO_EVIDENCE_UNVERIFIABLE / VERIFIED_CLAIM_UNVERIFIABLE are never acceptable) and FINDING_ACCEPTANCE_SPEC_FINAL (verdict not current or SPEC in a final state). 404 FINDING_NOT_FOUND if the finding does not belong to the spec. Double-schema (external shape + .strict() internal) \u2014 each field must be in BOTH or the SDK strips it.",
   {
-    specId: external_exports3.string().describe("Spec ID (cuid)"),
-    findingId: external_exports3.string().describe("AdversarialFinding ID (cuid) \u2014 must belong to the CURRENT verdict of this spec and be HIGH"),
-    justification: external_exports3.string().describe(
-      "Why the risk is assumed. Minimum length enforced by the backend (O6: accepting must cost more than bouncing the verdict); a short note is rejected with 422 FINDING_ACCEPTANCE_JUSTIFICATION_REQUIRED. Persisted in acceptedRiskReason and in the AuditLog."
-    )
+    description: "Accept, with signature and justification, the risk of a HIGH finding of the CURRENT ADVERSARIAL_VERDICT (SPEC-0172 P5). Drops the finding out of the severity threshold that gates the transition WITHOUT re-emitting the verdict and without changing the SPEC state. Requires permission spec.accept_finding_risk (OPERATOR only, ADR-011) \u2014 403 for every other actor. Five distinguishable 422s: FINDING_ACCEPTANCE_NOT_ALLOWED_FOR_SEVERITY (only HIGH; CRITICAL has no valve), FINDING_ACCEPTANCE_JUSTIFICATION_REQUIRED (below the minimum length), FINDING_ACCEPTANCE_SELF_SIGNED (the effective role signing equals the verdict emitter role, or cannot be proven different \u2014 fail-safe on NULL), FINDING_ACCEPTANCE_CLASS_NOT_ACCEPTABLE (REPO_EVIDENCE_UNVERIFIABLE / VERIFIED_CLAIM_UNVERIFIABLE are never acceptable) and FINDING_ACCEPTANCE_SPEC_FINAL (verdict not current or SPEC in a final state). 404 FINDING_NOT_FOUND if the finding does not belong to the spec. Double-schema (external shape + .strict() internal) \u2014 each field must be in BOTH or the SDK strips it.",
+    inputSchema: external_exports3.object({
+      specId: external_exports3.string().describe("Spec ID (cuid)"),
+      findingId: external_exports3.string().describe("AdversarialFinding ID (cuid) \u2014 must belong to the CURRENT verdict of this spec and be HIGH"),
+      justification: external_exports3.string().describe(
+        "Why the risk is assumed. Minimum length enforced by the backend (O6: accepting must cost more than bouncing the verdict); a short note is rejected with 422 FINDING_ACCEPTANCE_JUSTIFICATION_REQUIRED. Persisted in acceptedRiskReason and in the AuditLog."
+      )
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -37233,12 +37559,14 @@ server.tool(
     ({ specId, findingId, ...body }) => apiClient.post(`/specs/${specId}/verdict-findings/${findingId}/accept-risk`, body)
   )
 );
-server.tool(
+server.registerTool(
   "spec_finding_reopen_risk",
-  "Revert an accepted risk on an ADVERSARIAL_VERDICT finding (SPEC-0172 P5): status\u2192OPEN + acceptedRiskClearedAt=now() + AuditLog entry. The four fields of the original acceptance (reason, byId, byRole, at) are NOT cleared \u2014 the trail survives the revert. The finding gates the transition again on the next threshold evaluation, in BOTH branches (\u2192APPROVED and \u2192COMPLETED). Requires permission state.force_transition (same as the plan-review reopen-risk precedent). 400 FINDING_NOT_ACCEPTED_RISK if the finding has no active acceptance. Double-schema (external shape + .strict() internal).",
   {
-    specId: external_exports3.string().describe("Spec ID (cuid)"),
-    findingId: external_exports3.string().describe("AdversarialFinding ID (cuid) \u2014 must currently be an active accepted risk")
+    description: "Revert an accepted risk on an ADVERSARIAL_VERDICT finding (SPEC-0172 P5): status\u2192OPEN + acceptedRiskClearedAt=now() + AuditLog entry. The four fields of the original acceptance (reason, byId, byRole, at) are NOT cleared \u2014 the trail survives the revert. The finding gates the transition again on the next threshold evaluation, in BOTH branches (\u2192APPROVED and \u2192COMPLETED). Requires permission state.force_transition (same as the plan-review reopen-risk precedent). 400 FINDING_NOT_ACCEPTED_RISK if the finding has no active acceptance. Double-schema (external shape + .strict() internal).",
+    inputSchema: external_exports3.object({
+      specId: external_exports3.string().describe("Spec ID (cuid)"),
+      findingId: external_exports3.string().describe("AdversarialFinding ID (cuid) \u2014 must currently be an active accepted risk")
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({ specId: external_exports3.string(), findingId: external_exports3.string() }).strict(),
@@ -37246,14 +37574,16 @@ server.tool(
     ({ specId, findingId }) => apiClient.post(`/specs/${specId}/verdict-findings/${findingId}/reopen-risk`, {})
   )
 );
-server.tool(
+server.registerTool(
   "spec_findings_read",
-  "Read the structured findings of a SPEC ADVERSARIAL_VERDICT (SPEC-0172 P6). Returns severity, finding class, resolution status and the full acceptance state (signer, effective role, date, justification and revert marker) WITHOUT deserializing the artifact markdown. By default only the CURRENT verdict \u2014 the only one the severity threshold evaluates; includeSuperseded=true adds previous rounds, each with its artifact `round` and `isCurrentVerdict: false`. Optional severity/status filters. Each finding also carries unitKeys, isLate (computed by the Hub) and lateOrigin (SPEC-0238 P5). Requires spec.findings_read (TKT-0271 \u2014 the six SDD roles carry this key; it used to be spec.read, which no SDD role holds, so every SDD session got 403). 404 if the SPEC does not belong to the caller tenant. Double-schema (external shape + .strict() internal) \u2014 each field must be in BOTH or the SDK strips it.",
   {
-    specId: external_exports3.string().describe("Spec ID (cuid)"),
-    severity: external_exports3.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"]).optional().describe("Optional filter by finding severity."),
-    status: external_exports3.enum(["OPEN", "ADDRESSED", "NOT_APPLICABLE", "DEFERRED", "ACCEPTED_KNOWN_RISK"]).optional().describe("Optional filter by resolution status."),
-    includeSuperseded: external_exports3.boolean().optional().describe("Default false (current verdict only). true adds the findings of superseded rounds.")
+    description: "Read the structured findings of a SPEC ADVERSARIAL_VERDICT (SPEC-0172 P6). Returns severity, finding class, resolution status and the full acceptance state (signer, effective role, date, justification and revert marker) WITHOUT deserializing the artifact markdown. By default only the CURRENT verdict \u2014 the only one the severity threshold evaluates; includeSuperseded=true adds previous rounds, each with its artifact `round` and `isCurrentVerdict: false`. Optional severity/status filters. Each finding also carries unitKeys, isLate (computed by the Hub) and lateOrigin (SPEC-0238 P5). Requires spec.findings_read (TKT-0271 \u2014 the six SDD roles carry this key; it used to be spec.read, which no SDD role holds, so every SDD session got 403). 404 if the SPEC does not belong to the caller tenant. Double-schema (external shape + .strict() internal) \u2014 each field must be in BOTH or the SDK strips it.",
+    inputSchema: external_exports3.object({
+      specId: external_exports3.string().describe("Spec ID (cuid)"),
+      severity: external_exports3.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"]).optional().describe("Optional filter by finding severity."),
+      status: external_exports3.enum(["OPEN", "ADDRESSED", "NOT_APPLICABLE", "DEFERRED", "ACCEPTED_KNOWN_RISK"]).optional().describe("Optional filter by resolution status."),
+      includeSuperseded: external_exports3.boolean().optional().describe("Default false (current verdict only). true adds the findings of superseded rounds.")
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -37277,12 +37607,14 @@ server.tool(
     }
   )
 );
-server.tool(
+server.registerTool(
   "spec_finding_get",
-  "Read ONE finding of a SPEC ADVERSARIAL_VERDICT by its cuid OR by its findingKey \u2014 the key the verdict names it with (SPEC-0172 P6, literal verification of O2: querying the resolution state of an individual finding without deserializing the artifact blob). If the key only exists in a superseded round, that one is returned with `isCurrentVerdict: false` and its `round`. Carries unitKeys, isLate and lateOrigin (SPEC-0238 P5). Requires spec.findings_read (TKT-0271 \u2014 the six SDD roles carry this key; it used to be spec.read, which no SDD role holds, so every SDD session got 403). 404 FINDING_NOT_FOUND if neither the id nor the key match inside the SPEC. Double-schema (external shape + .strict() internal).",
   {
-    specId: external_exports3.string().describe("Spec ID (cuid)"),
-    findingId: external_exports3.string().describe('AdversarialFinding cuid OR findingKey (e.g. "F3") of the finding to read')
+    description: "Read ONE finding of a SPEC ADVERSARIAL_VERDICT by its cuid OR by its findingKey \u2014 the key the verdict names it with (SPEC-0172 P6, literal verification of O2: querying the resolution state of an individual finding without deserializing the artifact blob). If the key only exists in a superseded round, that one is returned with `isCurrentVerdict: false` and its `round`. Carries unitKeys, isLate and lateOrigin (SPEC-0238 P5). Requires spec.findings_read (TKT-0271 \u2014 the six SDD roles carry this key; it used to be spec.read, which no SDD role holds, so every SDD session got 403). 404 FINDING_NOT_FOUND if neither the id nor the key match inside the SPEC. Double-schema (external shape + .strict() internal).",
+    inputSchema: external_exports3.object({
+      specId: external_exports3.string().describe("Spec ID (cuid)"),
+      findingId: external_exports3.string().describe('AdversarialFinding cuid OR findingKey (e.g. "F3") of the finding to read')
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({ specId: external_exports3.string(), findingId: external_exports3.string() }).strict(),
@@ -37290,12 +37622,14 @@ server.tool(
     ({ specId, findingId }) => apiClient.get(`/specs/${specId}/verdict-findings/${findingId}`)
   )
 );
-server.tool(
+server.registerTool(
   "spec_artifact_changes_read",
-  "Read which coverage units of the CURRENT DISCOVERY_REPORT or ENGINEERING_PLAN changed against the photo of the last ADVERSARIAL_VERDICT with a photo on that artifact (SPEC-0238 P5, ADR-004). Returns previousVerdictId (null if no earlier verdict has a photo: then every unit is changed), units [{unitKey, family, changed}], removedUnitKeys and counts. The server computes the change \u2014 an edited report item shows as changed and its old content as removed; a reordered one does not change. A focused round reviews the changed units and may declare UNCHANGED on the rest. Requires the same read access as spec_get_documentation. 400 for another kind, 404 if the SPEC or the artifact does not exist. Double-schema (external shape + .strict() internal).",
   {
-    specId: external_exports3.string().describe("Spec ID (cuid)"),
-    kind: external_exports3.enum(["DISCOVERY_REPORT", "ENGINEERING_PLAN"]).describe("Artifact to compare: DISCOVERY_REPORT or ENGINEERING_PLAN.")
+    description: "Read which coverage units of the CURRENT DISCOVERY_REPORT or ENGINEERING_PLAN changed against the photo of the last ADVERSARIAL_VERDICT with a photo on that artifact (SPEC-0238 P5, ADR-004). Returns previousVerdictId (null if no earlier verdict has a photo: then every unit is changed), units [{unitKey, family, changed}], removedUnitKeys and counts. The server computes the change \u2014 an edited report item shows as changed and its old content as removed; a reordered one does not change. A focused round reviews the changed units and may declare UNCHANGED on the rest. Requires the same read access as spec_get_documentation. 400 for another kind, 404 if the SPEC or the artifact does not exist. Double-schema (external shape + .strict() internal).",
+    inputSchema: external_exports3.object({
+      specId: external_exports3.string().describe("Spec ID (cuid)"),
+      kind: external_exports3.enum(["DISCOVERY_REPORT", "ENGINEERING_PLAN"]).describe("Artifact to compare: DISCOVERY_REPORT or ENGINEERING_PLAN.")
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({ specId: external_exports3.string(), kind: external_exports3.enum(["DISCOVERY_REPORT", "ENGINEERING_PLAN"]) }).strict(),
@@ -37303,12 +37637,14 @@ server.tool(
     ({ specId, kind }) => apiClient.get(`/specs/${specId}/documentation/${kind}/changes`)
   )
 );
-server.tool(
+server.registerTool(
   "spec_verdict_round_coverage_read",
-  "Read what ONE round of the ADVERSARIAL_VERDICT reviewed (SPEC-0238 P5, ADR-004): round, artifactReviewed, previousVerdictId, units [{unitKey, family, changed, disposition}] \u2014 changed against the previous verdict with a photo, disposition as declared (per unit, else the family one) \u2014, removedUnitKeys and counts {total, changed, changedReviewed, unchanged}. A verdict registered before P5 has no photo: hasPhoto false and empty units. Requires the same read access as spec_get_documentation. 404 if the verdict does not belong to the SPEC. Double-schema (external shape + .strict() internal).",
   {
-    specId: external_exports3.string().describe("Spec ID (cuid)"),
-    verdictId: external_exports3.string().describe("SpecDocumentation cuid of the ADVERSARIAL_VERDICT row (one per round)")
+    description: "Read what ONE round of the ADVERSARIAL_VERDICT reviewed (SPEC-0238 P5, ADR-004): round, artifactReviewed, previousVerdictId, units [{unitKey, family, changed, disposition}] \u2014 changed against the previous verdict with a photo, disposition as declared (per unit, else the family one) \u2014, removedUnitKeys and counts {total, changed, changedReviewed, unchanged}. A verdict registered before P5 has no photo: hasPhoto false and empty units. Requires the same read access as spec_get_documentation. 404 if the verdict does not belong to the SPEC. Double-schema (external shape + .strict() internal).",
+    inputSchema: external_exports3.object({
+      specId: external_exports3.string().describe("Spec ID (cuid)"),
+      verdictId: external_exports3.string().describe("SpecDocumentation cuid of the ADVERSARIAL_VERDICT row (one per round)")
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({ specId: external_exports3.string(), verdictId: external_exports3.string() }).strict(),
@@ -37316,12 +37652,14 @@ server.tool(
     ({ specId, verdictId }) => apiClient.get(`/specs/${specId}/documentation/verdicts/${verdictId}/round-coverage`)
   )
 );
-server.tool(
+server.registerTool(
   "tenant_accepted_risks_read",
-  "Read the ACTIVE risk acceptances of the whole tenant, WITHOUT fixing a SPEC (SPEC-0172 P6, O4 \u2014 the axis that did not exist in any implemented surface: the precedent GET /specs/:specId/accepted-risks requires a specId). Each acceptance carries its SPEC, the finding, the severity, who signed (user AND effective role), when, and how many days ago (ageDays). Active = signed, NOT reverted (acceptedRiskClearedAt NULL) and on the CURRENT verdict; reverted ones never appear. Also returns `metrics` { windowDays, specsWithAcceptance, totalSpecsInWindow, proportion }: the share of SPECs that went through the adversarial gate within the window and are processed under an exception today. No exception expires, so the signature date does not filter the list. Requires spec.findings_read (TKT-0271 \u2014 the six SDD roles carry this key; it used to be spec.read, which no SDD role holds, so every SDD session got 403). Double-schema (external shape + .strict() internal).",
   {
-    windowDays: external_exports3.number().optional().describe("Metric window: 30, 60 or 90 (default 30). Does NOT filter the acceptances list."),
-    specId: external_exports3.string().optional().describe("Optional filter: restrict `acceptances` to one SPEC. `metrics` stays tenant-wide.")
+    description: "Read the ACTIVE risk acceptances of the whole tenant, WITHOUT fixing a SPEC (SPEC-0172 P6, O4 \u2014 the axis that did not exist in any implemented surface: the precedent GET /specs/:specId/accepted-risks requires a specId). Each acceptance carries its SPEC, the finding, the severity, who signed (user AND effective role), when, and how many days ago (ageDays). Active = signed, NOT reverted (acceptedRiskClearedAt NULL) and on the CURRENT verdict; reverted ones never appear. Also returns `metrics` { windowDays, specsWithAcceptance, totalSpecsInWindow, proportion }: the share of SPECs that went through the adversarial gate within the window and are processed under an exception today. No exception expires, so the signature date does not filter the list. Requires spec.findings_read (TKT-0271 \u2014 the six SDD roles carry this key; it used to be spec.read, which no SDD role holds, so every SDD session got 403). Double-schema (external shape + .strict() internal).",
+    inputSchema: external_exports3.object({
+      windowDays: external_exports3.number().optional().describe("Metric window: 30, 60 or 90 (default 30). Does NOT filter the acceptances list."),
+      specId: external_exports3.string().optional().describe("Optional filter: restrict `acceptances` to one SPEC. `metrics` stays tenant-wide.")
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({ windowDays: external_exports3.number().optional(), specId: external_exports3.string().optional() }).strict(),
@@ -37335,12 +37673,14 @@ server.tool(
     }
   )
 );
-server.tool(
+server.registerTool(
   "spec_test_cases_read",
-  "Lee los TestCases de una SPEC (filtro opcional por fase). Cada caso incluye implementorId (T13) derivado de la firma inicial de sus fases (SpecPhase.assigneeId): un cuid si todas las fases comparten implementor, un array si difieren, null si el caso no tiene fases (scope SPEC). selfValidated siempre presente (A7).",
   {
-    specId: external_exports3.string().describe("Spec ID (cuid)"),
-    phaseId: external_exports3.string().optional().describe("Filtro opcional: s\xF3lo casos que referencian esta fase (cuid).")
+    description: "Lee los TestCases de una SPEC (filtro opcional por fase). Cada caso incluye implementorId (T13) derivado de la firma inicial de sus fases (SpecPhase.assigneeId): un cuid si todas las fases comparten implementor, un array si difieren, null si el caso no tiene fases (scope SPEC). selfValidated siempre presente (A7). TKT-0473: validationOwner siempre presente \u2014 AGENT (lo valida un agente) u OPERATOR (requiere juicio o acci\xF3n humana).",
+    inputSchema: external_exports3.object({
+      specId: external_exports3.string().describe("Spec ID (cuid)"),
+      phaseId: external_exports3.string().optional().describe("Filtro opcional: s\xF3lo casos que referencian esta fase (cuid).")
+    }).strict()
   },
   async (params) => {
     const qs = params.phaseId ? `?phaseId=${encodeURIComponent(params.phaseId)}` : "";
@@ -37348,45 +37688,49 @@ server.tool(
     return formatRead(cases);
   }
 );
-server.tool(
+server.registerTool(
   "spec_test_case_binding_supersede_sign",
-  "Firma una fila de TestCaseBindingSupersede (SPEC-0219 P6): separa quien REEMPLAZA un vinculante (el generador, system-triggered) de quien AUTORIZA el reemplazo. Requiere spec.supersede_binding \u2014 UN SOLO portador, rbac_role_sdd_operador (ADR-011); 403 para cualquier otro rol/sin act-as. Idempotente por fila: firmar dos veces no re-escribe la firma original. 404 si la fila no pertenece al (specId, caseId) del path o al tenant. 422 si reason no alcanza el m\xEDnimo (mismo que aceptar el riesgo de un finding). El supersedeId lo devuelve el 422 de la guarda de cierre (PATCH /specs/:id/complete \u2192 TEST_CASE_BINDING_SUPERSEDE_UNSIGNED), que enumera los pendientes.",
-  signBindingSupersedeSchema,
+  {
+    description: "Firma una fila de TestCaseBindingSupersede (SPEC-0219 P6): separa quien REEMPLAZA un vinculante (el generador, system-triggered) de quien AUTORIZA el reemplazo. Requiere spec.supersede_binding \u2014 UN SOLO portador, rbac_role_sdd_operador (ADR-011); 403 para cualquier otro rol/sin act-as. Idempotente por fila: firmar dos veces no re-escribe la firma original. 404 si la fila no pertenece al (specId, caseId) del path o al tenant. 422 si reason no alcanza el m\xEDnimo (mismo que aceptar el riesgo de un finding). El supersedeId lo devuelve el 422 de la guarda de cierre (PATCH /specs/:id/complete \u2192 TEST_CASE_BINDING_SUPERSEDE_UNSIGNED), que enumera los pendientes.",
+    inputSchema: external_exports3.object(signBindingSupersedeSchema).strict()
+  },
   makeSignBindingSupersedeHandler(apiClient)
 );
-server.tool(
+server.registerTool(
   "spec_test_case_discard",
-  "Declara que un TestCase vinculante no se prueba (TKT-0394): el caso queda resuelto sin evidencia y sin resoluci\xF3n de bloqueo (result=DISCARDED, locked \u2014 set_result lo rechaza despu\xE9s). Requiere spec.discard_test_case \u2014 UN SOLO portador, rbac_role_sdd_operador \u2014 M\xC1S v\xEDa humana: 422 HUMAN_SIGNATURE_REQUIRED si la sesi\xF3n llega con rol act-as declarado (a diferencia de spec_test_case_binding_supersede_sign, este es un canal exclusivamente humano). Motivo del cat\xE1logo cerrado (TestCaseDiscardReason) + cita LITERAL del successCriterion (422 DISCARD_CITATION_NOT_FOUND/DISCARD_CITATION_TOO_SHORT si no) + explanation no vac\xEDa + sin repetir una explanation ya firmada en la SPEC (422 DISCARD_EXPLANATION_REPEATED). 422 DISCARD_FORBIDDEN_OBJECTIVE_CASE si el caso cubre el objetivo de la SPEC (coversObjective); 422 TEST_CASE_ALREADY_DISCARDED si ya estaba descartado.",
-  discardTestCaseSchema,
+  {
+    description: "Declara que un TestCase vinculante no se prueba (TKT-0394): el caso queda resuelto sin evidencia y sin resoluci\xF3n de bloqueo (result=DISCARDED, locked \u2014 set_result lo rechaza despu\xE9s). Requiere spec.discard_test_case \u2014 UN SOLO portador, rbac_role_sdd_operador \u2014 M\xC1S v\xEDa humana: 422 HUMAN_SIGNATURE_REQUIRED si la sesi\xF3n llega con rol act-as declarado (a diferencia de spec_test_case_binding_supersede_sign, este es un canal exclusivamente humano). Motivo del cat\xE1logo cerrado (TestCaseDiscardReason) + cita LITERAL del successCriterion (422 DISCARD_CITATION_NOT_FOUND/DISCARD_CITATION_TOO_SHORT si no) + explanation no vac\xEDa + sin repetir una explanation ya firmada en la SPEC (422 DISCARD_EXPLANATION_REPEATED). 422 DISCARD_FORBIDDEN_OBJECTIVE_CASE si el caso cubre el objetivo de la SPEC (coversObjective); 422 TEST_CASE_ALREADY_DISCARDED si ya estaba descartado.",
+    inputSchema: external_exports3.object(discardTestCaseSchema).strict()
+  },
   makeDiscardTestCaseHandler(apiClient)
 );
-server.tool(
+server.registerTool(
   "spec_test_case_flag_integrity",
-  "Marca la integridad de un TestCase vinculante como posiblemente falseada (SPEC-0230 P4, ADR-007): integrityStatus=FLAGGED, integrityDetectedBy=ADVERSARIAL, integrityDetail=detail, m\xE1s un evento FLAGGED en el historial del caso con el texto completo, en la misma transacci\xF3n; despu\xE9s avisa a Spec.ownerId. Requiere spec.flag_test_case_integrity \u2014 UN SOLO portador, rbac_role_sdd_adversarial \u2014 y rol efectivo ADVERSARIAL (403 INTEGRITY_FLAG_REQUIRES_ADVERSARIAL con cualquier otro rol o sin act-as). S\xF3lo un vinculante con salida: result PASS, o BLOCKED con blockedResolutionStatus RISK_ACCEPTED o UNBLOCKED (422 INTEGRITY_FLAG_CASE_WITHOUT_EXIT si no); nunca un caso cuya marca ya fue aceptada (422 INTEGRITY_ALREADY_ACCEPTED). Una re-marca sobre un caso ya FLAGGED reescribe el detalle y deja su propio evento. No toca verificationStatus ni blockedResolutionStatus. detail vac\xEDo \u2192 400.",
-  testCaseFlagIntegritySchema,
+  {
+    description: "Marca la integridad de un TestCase vinculante como posiblemente falseada (SPEC-0230 P4, ADR-007): integrityStatus=FLAGGED, integrityDetectedBy=ADVERSARIAL, integrityDetail=detail, m\xE1s un evento FLAGGED en el historial del caso con el texto completo, en la misma transacci\xF3n; despu\xE9s avisa a Spec.ownerId. Requiere spec.flag_test_case_integrity \u2014 UN SOLO portador, rbac_role_sdd_adversarial \u2014 y rol efectivo ADVERSARIAL (403 INTEGRITY_FLAG_REQUIRES_ADVERSARIAL con cualquier otro rol o sin act-as). S\xF3lo un vinculante con salida: result PASS, o BLOCKED con blockedResolutionStatus RISK_ACCEPTED o UNBLOCKED (422 INTEGRITY_FLAG_CASE_WITHOUT_EXIT si no); nunca un caso cuya marca ya fue aceptada (422 INTEGRITY_ALREADY_ACCEPTED). Una re-marca sobre un caso ya FLAGGED reescribe el detalle y deja su propio evento. No toca verificationStatus ni blockedResolutionStatus. detail vac\xEDo \u2192 400.",
+    inputSchema: external_exports3.object(testCaseFlagIntegritySchema).strict()
+  },
   makeTestCaseFlagIntegrityHandler(apiClient)
 );
-server.tool(
+server.registerTool(
   "spec_request_engineering_review",
-  "Solicita la review de salida de Engineering: el backend valida el desglose instanciado y, si pasa, hace el handoff a Adversarial (SPEC \u2192 REVIEW). POST sin body; falla con 422 estructurado si la instanciaci\xF3n est\xE1 incompleta.",
   {
-    specId: external_exports3.string().describe("Spec ID (cuid) or SPEC-XXXX number")
+    description: 'Solicita la review de salida de Engineering: el backend valida el desglose instanciado y, si pasa, hace el handoff a Adversarial (SPEC \u2192 REVIEW). POST sin body; falla con 422 estructurado si la instanciaci\xF3n est\xE1 incompleta. TKT-0471 \u2014 se pide UNA vez: si todos los gates t\xE9cnicos pasan y lo \xDANICO que falta es la aprobaci\xF3n humana de los TestCases vinculantes, NO es un error: responde { status: "WAITING_OPERATOR_APPROVAL", code: "TEST_CASE_APPROVAL_REQUIRED", requestId, reused, unapprovedCases, pendingDecisionCases, message, request } y cuando el Operador deja el lote resuelto (aprobaciones y/o descartes) el Hub reanuda esa solicitud sola (re-pedir no duplica). El resultado de la reanudaci\xF3n o el rechazo con motivo se leen en spec_get \u2192 engineeringReviewRequest.',
+    inputSchema: external_exports3.object(specRequestEngineeringReviewSchema).strict()
   },
-  async (params) => strictApply(
-    external_exports3.object({ specId: external_exports3.string() }).strict(),
-    params,
-    ({ specId }) => apiClient.post(`/specs/${specId}/request-engineering-review`)
-  )
+  makeSpecRequestEngineeringReviewHandler(apiClient)
 );
-server.tool(
+server.registerTool(
   "spec_verified_claim_declare",
-  "Declara un VerifiedClaim (afirmaci\xF3n de existencia de un model/field/enum-value) sobre una Spec, opcionalmente scopeada a una fase. El sellado (result PASS/FAIL) lo escribe EXCLUSIVAMENTE el gate server-side de spec_request_engineering_review \u2014 esta tool NO sella (ADR-001). Permiso spec.verified_claim_declare (CC_DEV + OPERATOR).",
   {
-    specId: external_exports3.string().describe("Spec ID (cuid)"),
-    phaseId: external_exports3.string().optional().describe("Fase de la SPEC donde se declara el claim. Opcional \u2014 un claim puede ser a nivel SPEC, sin fase."),
-    type: external_exports3.enum(["MODEL_EXISTS", "FIELD_EXISTS", "ENUM_VALUE_EXISTS"]).describe("Tipo de afirmaci\xF3n de existencia."),
-    target: external_exports3.string().describe("S\xEDmbolo afirmado: model:X | field:X.y | enum-value E.V."),
-    assertedIn: external_exports3.string().describe("D\xF3nde se afirma el claim (secci\xF3n/fase del plan).")
+    description: "Declara un VerifiedClaim (afirmaci\xF3n de existencia de un model/field/enum-value) sobre una Spec, opcionalmente scopeada a una fase. El sellado (result PASS/FAIL) lo escribe EXCLUSIVAMENTE el gate server-side de spec_request_engineering_review \u2014 esta tool NO sella (ADR-001). Permiso spec.verified_claim_declare (CC_DEV + OPERATOR).",
+    inputSchema: external_exports3.object({
+      specId: external_exports3.string().describe("Spec ID (cuid)"),
+      phaseId: external_exports3.string().optional().describe("Fase de la SPEC donde se declara el claim. Opcional \u2014 un claim puede ser a nivel SPEC, sin fase."),
+      type: external_exports3.enum(["MODEL_EXISTS", "FIELD_EXISTS", "ENUM_VALUE_EXISTS"]).describe("Tipo de afirmaci\xF3n de existencia."),
+      target: external_exports3.string().describe("S\xEDmbolo afirmado: model:X | field:X.y | enum-value E.V."),
+      assertedIn: external_exports3.string().describe("D\xF3nde se afirma el claim (secci\xF3n/fase del plan).")
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -37400,15 +37744,17 @@ server.tool(
     ({ specId, ...body }) => apiClient.post(`/specs/${specId}/verified-claims`, body)
   )
 );
-server.tool(
+server.registerTool(
   "spec_introspection_declare",
-  "Crea una declaraci\xF3n de introspecci\xF3n de schema. scope=PROJECT es la base que cubre TODAS las specs futuras del proyecto; scope=SPEC es el override de una spec puntual, que gana sobre la base. Coherencia scope\u2194id: PROJECT exige projectId con specId nulo, SPEC exige specId con projectId nulo (400 INTROSPECTION_SCOPE_INCOHERENT si no se cumple). 409 INTROSPECTION_DECLARATION_ALREADY_EXISTS si ya existe (1 base por proyecto, 1 override por spec). Permiso spec.introspection_declare (OPERATOR-only).",
   {
-    scope: external_exports3.enum(["PROJECT", "SPEC"]),
-    projectId: external_exports3.string().optional().describe("FK a Project. Requerido y \xFAnico cuando scope=PROJECT."),
-    specId: external_exports3.string().optional().describe("FK a Spec. Requerido y \xFAnico cuando scope=SPEC (override)."),
-    adapterKind: external_exports3.enum(["PRISMA_DMMF", "SQL_DDL", "OPENEDGE_DF"]).describe("Stack de introspecci\xF3n."),
-    config: external_exports3.record(external_exports3.string(), external_exports3.unknown()).describe("Config por adapter (path/conn/etc).")
+    description: "Crea una declaraci\xF3n de introspecci\xF3n de schema. scope=PROJECT es la base que cubre TODAS las specs futuras del proyecto; scope=SPEC es el override de una spec puntual, que gana sobre la base. Coherencia scope\u2194id: PROJECT exige projectId con specId nulo, SPEC exige specId con projectId nulo (400 INTROSPECTION_SCOPE_INCOHERENT si no se cumple). 409 INTROSPECTION_DECLARATION_ALREADY_EXISTS si ya existe (1 base por proyecto, 1 override por spec). Permiso spec.introspection_declare (OPERATOR-only).",
+    inputSchema: external_exports3.object({
+      scope: external_exports3.enum(["PROJECT", "SPEC"]),
+      projectId: external_exports3.string().optional().describe("FK a Project. Requerido y \xFAnico cuando scope=PROJECT."),
+      specId: external_exports3.string().optional().describe("FK a Spec. Requerido y \xFAnico cuando scope=SPEC (override)."),
+      adapterKind: external_exports3.enum(["PRISMA_DMMF", "SQL_DDL", "OPENEDGE_DF"]).describe("Stack de introspecci\xF3n."),
+      config: external_exports3.record(external_exports3.string(), external_exports3.unknown()).describe("Config por adapter (path/conn/etc).")
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -37422,157 +37768,247 @@ server.tool(
     (body) => apiClient.post("/introspection-declarations", body)
   )
 );
-server.tool(
+server.registerTool(
   "spec_phase_realign_contract",
-  "Declara la re-alineaci\xF3n del contrato can\xF3nico de una fase: la \xDANICA acci\xF3n que apaga la marca de desalineo (contractAlignment.misaligned). No es un acuse \u2014 exige una disposici\xF3n por CADA artefacto que la se\xF1al enumera (staleTasks, staleAcceptanceCriteria, staleSurfaces y CONTENT si staleContent). Falta una sola \u2192 422 nombrando el faltante, sin apagar nada; y si aparece un artefacto nuevo entre tu lectura y el POST, tambi\xE9n rebota: la enumeraci\xF3n se recomputa dentro de la transacci\xF3n. Disposiciones: STILL_VALID / SUPERSEDED_BY (+supersededByRef, la \xFAnica forma de declarar un ganador cuando el modelo es add-only) / OBSOLETE (+note). Requiere permiso phase.realign_contract (ENGINEERING/OPERATOR) y la SPEC en {IN_PROGRESS, ENGINEERING}; fase en estado final \u2192 400.",
-  specPhaseRealignContractSchema,
+  {
+    description: "Declara la re-alineaci\xF3n del contrato can\xF3nico de una fase: la \xDANICA acci\xF3n que apaga la marca de desalineo (contractAlignment.misaligned). No es un acuse \u2014 exige una disposici\xF3n por CADA artefacto que la se\xF1al enumera (staleTasks, staleAcceptanceCriteria, staleSurfaces y CONTENT si staleContent). Falta una sola \u2192 422 nombrando el faltante, sin apagar nada; y si aparece un artefacto nuevo entre tu lectura y el POST, tambi\xE9n rebota: la enumeraci\xF3n se recomputa dentro de la transacci\xF3n. Disposiciones: STILL_VALID / SUPERSEDED_BY (+supersededByRef, la \xFAnica forma de declarar un ganador cuando el modelo es add-only) / OBSOLETE (+note). Requiere permiso phase.realign_contract (ENGINEERING/OPERATOR) y la SPEC en {IN_PROGRESS, ENGINEERING}; fase en estado final \u2192 400.",
+    inputSchema: external_exports3.object(specPhaseRealignContractSchema).strict()
+  },
   makeSpecPhaseRealignContractHandler(apiClient)
 );
-server.tool(
+server.registerTool(
   "spec_phase_comment_supersede",
-  'Marca un comment de fase como CONTENCI\xD3N SUPERADA por el ticket que levant\xF3 su limitaci\xF3n. Para qu\xE9: cuando una ronda contiene un defecto que no se puede corregir, Engineering postea un comment declarando la limitaci\xF3n \u2014 verdadero al escribirse. Si despu\xE9s la limitaci\xF3n se levanta, ese comment sigue vivo y sin marca, y la ronda siguiente lo lee como afirmaci\xF3n vigente y lo levanta como finding. Esta tool lo da de baja SIN editar su texto: la marca vive en columnas propias y la LECTURA (spec_get y spec_get_phase) pasa a anteponerle un banner "CONTENCI\xD3N SUPERADA \u2014 YA NO VIGENTE" que nombra el ticket. Idempotente con el MISMO ticketId; con otro rebota 409 PHASE_COMMENT_ALREADY_SUPERSEDED (la marca es un acto de registro, no un campo editable) \u2014 no hay desmarcado. A prop\xF3sito NO exige la SPEC abierta ni la fase viva: una contenci\xF3n sobrevive al cierre, y \xE9sa es justo la que hay que poder marcar. Requiere el permiso phase.supersede_comment (ENGINEERING + OPERATOR); CC_DEV y ADVERSARIAL reciben 403. `ticketId` es el CUID del ticket, NO su n\xFAmero: resolvelo antes con ticket_resolve_by_number.',
-  specPhaseCommentSupersedeSchema,
+  {
+    description: 'Marca un comment de fase como CONTENCI\xD3N SUPERADA por el ticket que levant\xF3 su limitaci\xF3n. Para qu\xE9: cuando una ronda contiene un defecto que no se puede corregir, Engineering postea un comment declarando la limitaci\xF3n \u2014 verdadero al escribirse. Si despu\xE9s la limitaci\xF3n se levanta, ese comment sigue vivo y sin marca, y la ronda siguiente lo lee como afirmaci\xF3n vigente y lo levanta como finding. Esta tool lo da de baja SIN editar su texto: la marca vive en columnas propias y la LECTURA (spec_get y spec_get_phase) pasa a anteponerle un banner "CONTENCI\xD3N SUPERADA \u2014 YA NO VIGENTE" que nombra el ticket. Idempotente con el MISMO ticketId; con otro rebota 409 PHASE_COMMENT_ALREADY_SUPERSEDED (la marca es un acto de registro, no un campo editable) \u2014 no hay desmarcado. A prop\xF3sito NO exige la SPEC abierta ni la fase viva: una contenci\xF3n sobrevive al cierre, y \xE9sa es justo la que hay que poder marcar. Requiere el permiso phase.supersede_comment (ENGINEERING + OPERATOR); CC_DEV y ADVERSARIAL reciben 403. `ticketId` es el CUID del ticket, NO su n\xFAmero: resolvelo antes con ticket_resolve_by_number.',
+    inputSchema: external_exports3.object(specPhaseCommentSupersedeSchema).strict()
+  },
   makeSpecPhaseCommentSupersedeHandler(apiClient)
 );
-server.tool(
+server.registerTool(
   "domain_context_set",
-  "Crea una version NUEVA del documento de conocimiento de dominio del tenant (usuarios, operacion, umbrales estables). Append-only: no pisa ninguna version anterior \u2014 la version se calcula como max(version) + 1 y NO existe update ni delete, porque una cita se sella contra el texto de UNA version y editarla volveria irreverificable toda cita ya sellada. `body` es el texto COMPLETO de la version nueva, no un delta. Escribirlo en ORACIONES COMPLETAS: una cita necesita 40 caracteres normalizados para respaldar un supuesto. Requiere el permiso tenant.domain_context.write (solo OPERATOR) \u2014 cualquier otro actor recibe 403. Devuelve el cuid de la version, que es el `source_id` citable.",
-  domainContextSetSchema,
+  {
+    description: "Crea una version NUEVA del documento de conocimiento de dominio del tenant (usuarios, operacion, umbrales estables). Append-only: no pisa ninguna version anterior \u2014 la version se calcula como max(version) + 1 y NO existe update ni delete, porque una cita se sella contra el texto de UNA version y editarla volveria irreverificable toda cita ya sellada. `body` es el texto COMPLETO de la version nueva, no un delta. Escribirlo en ORACIONES COMPLETAS: una cita necesita 40 caracteres normalizados para respaldar un supuesto. Requiere el permiso tenant.domain_context.write (solo OPERATOR) \u2014 cualquier otro actor recibe 403. Devuelve el cuid de la version, que es el `source_id` citable.",
+    inputSchema: external_exports3.object(domainContextSetSchema).strict()
+  },
   makeDomainContextSetHandler(apiClient)
 );
-server.tool(
+server.registerTool(
   "domain_context_get",
-  "Devuelve el documento de conocimiento de dominio del tenant. Sin `version` devuelve la VIGENTE (max(version)); con `version` devuelve esa version puntual, que es como se reverifica una cita sellada contra una version anterior. El `id` de la respuesta es el `source_id` que un EvidenceRef con source_type DOMAIN_CONTEXT tiene que citar. Lectura sin permiso especial (la necesita cualquiera que verifique una cita), acotada al tenant del firmante. 404 DOMAIN_CONTEXT_NOT_FOUND si el tenant no cargo ninguna version.",
-  domainContextGetSchema,
+  {
+    description: "Devuelve el documento de conocimiento de dominio del tenant. Sin `version` devuelve la VIGENTE (max(version)); con `version` devuelve esa version puntual, que es como se reverifica una cita sellada contra una version anterior. El `id` de la respuesta es el `source_id` que un EvidenceRef con source_type DOMAIN_CONTEXT tiene que citar. Lectura sin permiso especial (la necesita cualquiera que verifique una cita), acotada al tenant del firmante. 404 DOMAIN_CONTEXT_NOT_FOUND si el tenant no cargo ninguna version.",
+    inputSchema: external_exports3.object(domainContextGetSchema).strict()
+  },
   makeDomainContextGetHandler(apiClient)
 );
-server.tool(
+server.registerTool(
   "infra_context_set",
-  "Crea o ACTUALIZA EN SU LUGAR la entrada de INFRA_CONTEXT de (proyecto, operacion): como se opera una operacion recurrente de infraestructura, con sus comandos exactos. Update-in-place a proposito, a diferencia de domain_context_set que es append-only: aca lo peligroso es un comando VIEJO que sigue vigente, y nadie cita un comando de deploy en un artefacto sellado. La clave es (projectId, operacion) \u2014 la MISMA operacion se pisa, una distinta crea entrada nueva. `verificarDespues` es obligatorio y es el campo que evita el verde-falso (un comando que devuelve 0 sobre un artefacto que no cambio); `ultimaVerificacion` es la fecha en que se CORRIERON los comandos, NO la de esta edicion. Requiere el permiso tenant.infra_context.write (OPERATOR o TENANT_ADMIN) \u2014 cualquier otro rol recibe 403. 404 PROJECT_NOT_FOUND si el proyecto no es de este tenant.",
-  infraContextSetSchema,
+  {
+    description: "Crea o ACTUALIZA EN SU LUGAR la entrada de INFRA_CONTEXT de (proyecto, operacion): como se opera una operacion recurrente de infraestructura, con sus comandos exactos. Update-in-place a proposito, a diferencia de domain_context_set que es append-only: aca lo peligroso es un comando VIEJO que sigue vigente, y nadie cita un comando de deploy en un artefacto sellado. La clave es (projectId, operacion) \u2014 la MISMA operacion se pisa, una distinta crea entrada nueva. `verificarDespues` es obligatorio y es el campo que evita el verde-falso (un comando que devuelve 0 sobre un artefacto que no cambio); `ultimaVerificacion` es la fecha en que se CORRIERON los comandos, NO la de esta edicion. Requiere el permiso tenant.infra_context.write (OPERATOR o TENANT_ADMIN) \u2014 cualquier otro rol recibe 403. 404 PROJECT_NOT_FOUND si el proyecto no es de este tenant.",
+    inputSchema: external_exports3.object(infraContextSetSchema).strict()
+  },
   makeInfraContextSetHandler(apiClient)
 );
-server.tool(
+server.registerTool(
   "infra_context_get",
-  "Devuelve las entradas de INFRA_CONTEXT del tenant: como se opera cada operacion recurrente de infraestructura (deployar, rebuildear, publicar), con comandos, punto de parada, que verificar despues y que NO hace. Sin filtros devuelve todas; `projectId` y `operacion` acotan, y los dos juntos identifican una. LEELA ANTES de improvisar una secuencia de deploy/rebuild: si la operacion esta cargada, sus comandos son la fuente, no una sugerencia. Mira `ultimaVerificacion` \u2014 una entrada vieja puede haber dejado de funcionar. Lectura sin permiso especial (la necesita cualquiera que vaya a operar), acotada al tenant del firmante. Lista VACIA no es error: es un tenant que todavia no cargo nada.",
-  infraContextGetSchema,
+  {
+    description: "Devuelve las entradas de INFRA_CONTEXT del tenant: como se opera cada operacion recurrente de infraestructura (deployar, rebuildear, publicar), con comandos, punto de parada, que verificar despues y que NO hace. Sin filtros devuelve todas; `projectId` y `operacion` acotan, y los dos juntos identifican una. LEELA ANTES de improvisar una secuencia de deploy/rebuild: si la operacion esta cargada, sus comandos son la fuente, no una sugerencia. Mira `ultimaVerificacion` \u2014 una entrada vieja puede haber dejado de funcionar. Lectura sin permiso especial (la necesita cualquiera que vaya a operar), acotada al tenant del firmante. Lista VACIA no es error: es un tenant que todavia no cargo nada.",
+    inputSchema: external_exports3.object(infraContextGetSchema).strict()
+  },
   makeInfraContextGetHandler(apiClient)
 );
-server.tool(
+server.registerTool(
   "risk_acceptance_reason_list",
-  "Lista el catalogo de motivos de aceptacion de riesgo (RiskAcceptanceReason) del tenant autenticado, con su id y su baseAction \u2014 el dato que la emision de una aceptacion (P4) necesita citar. Filtros opcionales: q (contains-insensitive en name/label), isActive. Tenant-scoped server-side via el JWT.",
-  riskAcceptanceReasonListSchema,
+  {
+    description: "Lista el catalogo de motivos de aceptacion de riesgo (RiskAcceptanceReason) del tenant autenticado, con su id y su baseAction \u2014 el dato que la emision de una aceptacion (P4) necesita citar. Filtros opcionales: q (contains-insensitive en name/label), isActive. Tenant-scoped server-side via el JWT.",
+    inputSchema: external_exports3.object(riskAcceptanceReasonListSchema).strict()
+  },
   makeRiskAcceptanceReasonListHandler(apiClient)
 );
-server.tool(
+server.registerTool(
   "risk_acceptance_reason_create",
-  "Crea un motivo de aceptacion de riesgo en el tenant autenticado. Nace activo e isDefault:false. name es unico por tenant (409 si ya existe). baseAction (TECHNICAL_DEPENDENCY | DEFERRAL | DECISION_NOT_TO_DO) es OBLIGATORIO en la practica: sin el, el backend responde 422 RISK_REASON_BASE_ACTION_REQUIRED (caso (8) de O2) \u2014 no un rechazo de forma de esta tool. Requiere el permiso tenant.manage_risk_acceptance_reasons (TENANT_ADMIN, OPERATOR o SENIOR_ARCHITECT) \u2014 cualquier otro actor recibe 403.",
-  riskAcceptanceReasonCreateSchema,
+  {
+    description: "Crea un motivo de aceptacion de riesgo en el tenant autenticado. Nace activo e isDefault:false. name es unico por tenant (409 si ya existe). baseAction (TECHNICAL_DEPENDENCY | DEFERRAL | DECISION_NOT_TO_DO) es OBLIGATORIO en la practica: sin el, el backend responde 422 RISK_REASON_BASE_ACTION_REQUIRED (caso (8) de O2) \u2014 no un rechazo de forma de esta tool. Requiere el permiso tenant.manage_risk_acceptance_reasons (TENANT_ADMIN, OPERATOR o SENIOR_ARCHITECT) \u2014 cualquier otro actor recibe 403.",
+    inputSchema: external_exports3.object(riskAcceptanceReasonCreateSchema).strict()
+  },
   makeRiskAcceptanceReasonCreateHandler(apiClient)
 );
-server.tool(
+server.registerTool(
   "risk_acceptance_reason_update",
-  "Edita un motivo del tenant, incluida su baseAction. isDefault es INMUTABLE via este tool. 404 si el motivo es de otro tenant; 409 si el nuevo name colisiona. Requiere tenant.manage_risk_acceptance_reasons.",
-  riskAcceptanceReasonUpdateSchema,
+  {
+    description: "Edita un motivo del tenant, incluida su baseAction. isDefault es INMUTABLE via este tool. 404 si el motivo es de otro tenant; 409 si el nuevo name colisiona. Requiere tenant.manage_risk_acceptance_reasons.",
+    inputSchema: external_exports3.object(riskAcceptanceReasonUpdateSchema).strict()
+  },
   makeRiskAcceptanceReasonUpdateHandler(apiClient)
 );
-server.tool(
+server.registerTool(
   "risk_acceptance_reason_delete",
-  "Baja logica (isActive=false) de un motivo del tenant. SIEMPRE soft: un motivo ya citado por una aceptacion emitida esta referenciado por FK desde SpecDocumentation, y un borrado duro dejaria el trail sin el dato que explica la firma. Requiere tenant.manage_risk_acceptance_reasons.",
-  riskAcceptanceReasonDeleteSchema,
+  {
+    description: "Baja logica (isActive=false) de un motivo del tenant. SIEMPRE soft: un motivo ya citado por una aceptacion emitida esta referenciado por FK desde SpecDocumentation, y un borrado duro dejaria el trail sin el dato que explica la firma. Requiere tenant.manage_risk_acceptance_reasons.",
+    inputSchema: external_exports3.object(riskAcceptanceReasonDeleteSchema).strict()
+  },
   makeRiskAcceptanceReasonDeleteHandler(apiClient)
 );
-server.tool(
+server.registerTool(
   "corpus_document_create",
-  "Alta de un documento del Corpus: crea el KbArticle con su texto y el CorpusDocument con su alcance, en una sola transaccion, y lo deja en PROPOSED (POST /corpus/documents). scope TENANT rige para todo el tenant; scope PROJECT exige projectId de un Project del tenant (sin el, o con projectId en TENANT, 400; un Project inexistente o ajeno, 404 sin escribir filas). El estado inicial no se elige: PROPOSED. Para aprobarlo y ponerlo en vigencia usar corpus_document_transition. verification_tokens es OBLIGATORIO (requires_tokens: creacion de una entidad de negocio con intencion): sin el la tool rechaza ANTES de llamar al backend y no crea nada; se valida su forma y NO se registra en ninguna parte; el Hub no verifica su evidencia. Requiere la key corpus.create (identidad ARQUITECTO firmada en la sesion) \u2014 cualquier otro actor recibe 403 PERMISSION_DENIED.",
-  corpusDocumentCreateSchema,
+  {
+    description: "Alta de un documento del Corpus: crea el KbArticle con su texto y el CorpusDocument con su alcance, en una sola transaccion, y lo deja en PROPOSED (POST /corpus/documents). scope TENANT rige para todo el tenant; scope PROJECT exige projectId de un Project del tenant (sin el, o con projectId en TENANT, 400; un Project inexistente o ajeno, 404 sin escribir filas). El estado inicial no se elige: PROPOSED. Para aprobarlo y ponerlo en vigencia usar corpus_document_transition. verification_tokens es OBLIGATORIO (requires_tokens: creacion de una entidad de negocio con intencion): sin el la tool rechaza ANTES de llamar al backend y no crea nada; se valida su forma y NO se registra en ninguna parte; el Hub no verifica su evidencia. Requiere la key corpus.create (identidad ARQUITECTO firmada en la sesion) \u2014 cualquier otro actor recibe 403 PERMISSION_DENIED.",
+    inputSchema: external_exports3.object(corpusDocumentCreateSchema).strict()
+  },
   makeCorpusDocumentCreateHandler(apiClient)
 );
-server.tool(
+server.registerTool(
   "corpus_document_update",
-  "Edita el TEXTO de un documento del Corpus (title, content, summary, changeLog) y deja una revision de texto (PATCH /corpus/documents/:id). Es la via MCP para editar un documento del Corpus: update_kb_article invoca PATCH /kb/:id, que el backend cierra con 403 CORPUS_DOCUMENT_KB_DIRECT_EDIT_FORBIDDEN sobre los articulos que son documento del Corpus. No toca alcance ni vigencia (para eso corpus_document_set_scope) ni estado (corpus_document_transition). La historia queda legible por corpus_document_history. Requiere la key corpus.edit (identidad ARQUITECTO).",
-  corpusDocumentUpdateSchema,
+  {
+    description: "Edita el TEXTO de un documento del Corpus (title, content, summary, changeLog) y deja una revision de texto (PATCH /corpus/documents/:id). Es la via MCP para editar un documento del Corpus: update_kb_article invoca PATCH /kb/:id, que el backend cierra con 403 CORPUS_DOCUMENT_KB_DIRECT_EDIT_FORBIDDEN sobre los articulos que son documento del Corpus. No toca alcance ni vigencia (para eso corpus_document_set_scope) ni estado (corpus_document_transition). La historia queda legible por corpus_document_history. Requiere la key corpus.edit (identidad ARQUITECTO).",
+    inputSchema: external_exports3.object(corpusDocumentUpdateSchema).strict()
+  },
   makeCorpusDocumentUpdateHandler(apiClient)
 );
-server.tool(
+server.registerTool(
   "corpus_document_set_scope",
-  "Cambia el alcance (scope + projectId) y la ventana de vigencia (effectiveFrom, effectiveTo) de un documento del Corpus (PATCH /corpus/documents/:id/scope). Cada dimension que cambia deja su revision de metadatos; repetir los valores vigentes no deja ninguna. projectId es obligatorio con scope PROJECT y prohibido con TENANT. effectiveTo: null reabre la ventana; omitido no se toca; effectiveFrom no admite null. verification_tokens es OBLIGATORIO (requires_tokens: scope y ventana definen la vigencia y el backend los deja cambiar en cualquier estado, ACTIVE incluido): sin el la tool rechaza ANTES de llamar al backend y el documento no cambia; se valida su forma y NO se registra en ninguna parte; el Hub no verifica su evidencia. Requiere la key corpus.edit (identidad ARQUITECTO).",
-  corpusDocumentSetScopeSchema,
+  {
+    description: "Cambia el alcance (scope + projectId) y la ventana de vigencia (effectiveFrom, effectiveTo) de un documento del Corpus (PATCH /corpus/documents/:id/scope). Cada dimension que cambia deja su revision de metadatos; repetir los valores vigentes no deja ninguna. projectId es obligatorio con scope PROJECT y prohibido con TENANT. effectiveTo: null reabre la ventana; omitido no se toca; effectiveFrom no admite null. verification_tokens es OBLIGATORIO (requires_tokens: scope y ventana definen la vigencia y el backend los deja cambiar en cualquier estado, ACTIVE incluido): sin el la tool rechaza ANTES de llamar al backend y el documento no cambia; se valida su forma y NO se registra en ninguna parte; el Hub no verifica su evidencia. Requiere la key corpus.edit (identidad ARQUITECTO).",
+    inputSchema: external_exports3.object(corpusDocumentSetScopeSchema).strict()
+  },
   makeCorpusDocumentSetScopeHandler(apiClient)
 );
-server.tool(
+server.registerTool(
   "corpus_document_transition",
-  "Transicion del ciclo de vida de un documento del Corpus (POST /corpus/documents/:id/transitions, ADR-008): APPROVE, ACTIVATE, REJECT, SUSPEND, SUPERSEDE o ARCHIVE. El estado destino lo fija la tabla del backend, no el llamador; un par no admitido responde 409 sin cambiar el documento. Aprobar y poner en vigencia son DOS actos: APPROVE deja APPROVED sin abrir la ventana, ACTIVATE (exige effectiveFrom) deja ACTIVE. SUPERSEDE exige supersededByDocumentId (APPROVED o ACTIVE, mismo tenant, distinto de este). ARCHIVED es terminal. verification_tokens es OBLIGATORIO en toda transicion (requires_tokens: lifecycle/state transition): al menos un token; sin el la tool rechaza ANTES de llamar al backend y el documento no cambia. Se valida su forma y se REGISTRA al frente de note, que queda en el snapshot de la revision; el Hub no verifica su evidencia. Requiere la key corpus.approve (identidad ARQUITECTO).",
-  corpusDocumentTransitionSchema,
+  {
+    description: "Transicion del ciclo de vida de un documento del Corpus (POST /corpus/documents/:id/transitions, ADR-008): APPROVE, ACTIVATE, REJECT, SUSPEND, SUPERSEDE o ARCHIVE. El estado destino lo fija la tabla del backend, no el llamador; un par no admitido responde 409 sin cambiar el documento. Aprobar y poner en vigencia son DOS actos: APPROVE deja APPROVED sin abrir la ventana, ACTIVATE (exige effectiveFrom) deja ACTIVE. SUPERSEDE exige supersededByDocumentId (APPROVED o ACTIVE, mismo tenant, distinto de este). ARCHIVED es terminal. verification_tokens es OBLIGATORIO en toda transicion (requires_tokens: lifecycle/state transition): al menos un token; sin el la tool rechaza ANTES de llamar al backend y el documento no cambia. Se valida su forma y se REGISTRA al frente de note, que queda en el snapshot de la revision; el Hub no verifica su evidencia. Requiere la key corpus.approve (identidad ARQUITECTO).",
+    inputSchema: external_exports3.object(corpusDocumentTransitionSchema).strict()
+  },
   makeCorpusDocumentTransitionHandler(apiClient)
 );
-server.tool(
+server.registerTool(
   "corpus_relation_add",
-  "Alta de una relacion desde un documento del Corpus hacia otro (POST /corpus/documents/:id/relations): SUPERSEDES, DEPENDS_ON o DERIVED_FROM. El destino tiene que ser un documento del Corpus del tenant y distinto del de origen; la misma relacion (mismo destino y kind) no se repite. Deja su revision de metadatos. verification_tokens es OBLIGATORIO (requires_tokens: arista del grafo de dependencias): sin el la tool rechaza ANTES de llamar al backend y no crea la relacion; se valida su forma y NO se registra en ninguna parte; el Hub no verifica su evidencia. Requiere la key corpus.edit (identidad ARQUITECTO).",
-  corpusRelationAddSchema,
+  {
+    description: "Alta de una relacion desde un documento del Corpus hacia otro (POST /corpus/documents/:id/relations): SUPERSEDES, DEPENDS_ON o DERIVED_FROM. El destino tiene que ser un documento del Corpus del tenant y distinto del de origen; la misma relacion (mismo destino y kind) no se repite. Deja su revision de metadatos. verification_tokens es OBLIGATORIO (requires_tokens: arista del grafo de dependencias): sin el la tool rechaza ANTES de llamar al backend y no crea la relacion; se valida su forma y NO se registra en ninguna parte; el Hub no verifica su evidencia. Requiere la key corpus.edit (identidad ARQUITECTO).",
+    inputSchema: external_exports3.object(corpusRelationAddSchema).strict()
+  },
   makeCorpusRelationAddHandler(apiClient)
 );
-server.tool(
+server.registerTool(
   "corpus_relation_remove",
-  "Baja de una relacion que tiene al documento como extremo (DELETE /corpus/documents/:id/relations/:relationId). El relationId sale de corpus_relation_list. Deja su revision de metadatos. Requiere la key corpus.edit (identidad ARQUITECTO).",
-  corpusRelationRemoveSchema,
+  {
+    description: "Baja de una relacion que tiene al documento como extremo (DELETE /corpus/documents/:id/relations/:relationId). El relationId sale de corpus_relation_list. Deja su revision de metadatos. Requiere la key corpus.edit (identidad ARQUITECTO).",
+    inputSchema: external_exports3.object(corpusRelationRemoveSchema).strict()
+  },
   makeCorpusRelationRemoveHandler(apiClient)
 );
-server.tool(
+server.registerTool(
   "corpus_relation_list",
-  "Relaciones de un documento del Corpus en los dos sentidos (GET /corpus/documents/:id/relations), sin leer el texto de ninguno. Lectura: no requiere key del Corpus; acotada al tenant del firmante.",
-  corpusRelationListSchema,
+  {
+    description: "Relaciones de un documento del Corpus en los dos sentidos (GET /corpus/documents/:id/relations), sin leer el texto de ninguno. Lectura: no requiere key del Corpus; acotada al tenant del firmante.",
+    inputSchema: external_exports3.object(corpusRelationListSchema).strict()
+  },
   makeCorpusRelationListHandler(apiClient)
 );
-server.tool(
+server.registerTool(
   "corpus_document_history",
-  "Historia unificada de un documento del Corpus (GET /corpus/documents/:id/history): las revisiones de TEXTO (KbRevision) y las de METADATOS (estado, alcance, ventana, relaciones, excepciones) en una sola serie. `at` (ISO 8601) acota a las entradas con fecha menor o igual. Lectura: no requiere key del Corpus; acotada al tenant del firmante.",
-  corpusDocumentHistorySchema,
+  {
+    description: "Historia unificada de un documento del Corpus (GET /corpus/documents/:id/history): las revisiones de TEXTO (KbRevision) y las de METADATOS (estado, alcance, ventana, relaciones, excepciones) en una sola serie. `at` (ISO 8601) acota a las entradas con fecha menor o igual. Lectura: no requiere key del Corpus; acotada al tenant del firmante.",
+    inputSchema: external_exports3.object(corpusDocumentHistorySchema).strict()
+  },
   makeCorpusDocumentHistoryHandler(apiClient)
 );
-server.tool(
+server.registerTool(
   "corpus_exception_register",
-  "Registra la excepcion de un Project sobre una regla de scope TENANT (POST /corpus/exceptions): tenantDocumentId es el documento del Tenant que queda exceptuado, exceptionDocumentId el documento PROJECT del mismo Project que lo reemplaza (REPLACES) o lo acota (LIMITS). kind es obligatorio y no tiene default. Las invariantes de alcance y la pertenencia al tenant las valida el backend contra la base. Deja su revision sobre el documento del Tenant. verification_tokens es OBLIGATORIO (requires_tokens: creacion de una entidad que es una decision, con kind y rationale): sin el la tool rechaza ANTES de llamar al backend y no registra nada; se valida su forma y NO se registra en ninguna parte; el Hub no verifica su evidencia. Requiere la key corpus.except (identidad ARQUITECTO).",
-  corpusExceptionRegisterSchema,
+  {
+    description: "Registra la excepcion de un Project sobre una regla de scope TENANT (POST /corpus/exceptions): tenantDocumentId es el documento del Tenant que queda exceptuado, exceptionDocumentId el documento PROJECT del mismo Project que lo reemplaza (REPLACES) o lo acota (LIMITS). kind es obligatorio y no tiene default. Las invariantes de alcance y la pertenencia al tenant las valida el backend contra la base. Deja su revision sobre el documento del Tenant. verification_tokens es OBLIGATORIO (requires_tokens: creacion de una entidad que es una decision, con kind y rationale): sin el la tool rechaza ANTES de llamar al backend y no registra nada; se valida su forma y NO se registra en ninguna parte; el Hub no verifica su evidencia. Requiere la key corpus.except (identidad ARQUITECTO).",
+    inputSchema: external_exports3.object(corpusExceptionRegisterSchema).strict()
+  },
   makeCorpusExceptionRegisterHandler(apiClient)
 );
-server.tool(
+server.registerTool(
   "corpus_exception_remove",
-  "Da de baja una excepcion de Project (DELETE /corpus/exceptions/:id); deja su revision sobre el documento del Tenant. El id sale de corpus_exception_list. Requiere la key corpus.except (identidad ARQUITECTO).",
-  corpusExceptionRemoveSchema,
+  {
+    description: "Da de baja una excepcion de Project (DELETE /corpus/exceptions/:id); deja su revision sobre el documento del Tenant. El id sale de corpus_exception_list. Requiere la key corpus.except (identidad ARQUITECTO).",
+    inputSchema: external_exports3.object(corpusExceptionRemoveSchema).strict()
+  },
   makeCorpusExceptionRemoveHandler(apiClient)
 );
-server.tool(
+server.registerTool(
   "corpus_exception_list",
-  "Excepciones de un Project (GET /corpus/exceptions?projectId=...). projectId es obligatorio: sin el responde 400 en vez de devolver las de todo el tenant. Lectura: no requiere key del Corpus; acotada al tenant del firmante.",
-  corpusExceptionListSchema,
+  {
+    description: "Excepciones de un Project (GET /corpus/exceptions?projectId=...). projectId es obligatorio: sin el responde 400 en vez de devolver las de todo el tenant. Lectura: no requiere key del Corpus; acotada al tenant del firmante.",
+    inputSchema: external_exports3.object(corpusExceptionListSchema).strict()
+  },
   makeCorpusExceptionListHandler(apiClient)
 );
-server.tool(
+server.registerTool(
   "corpus_current_get",
-  "Corpus vigente de un Project a un momento (GET /corpus/projects/:projectId/current): los documentos de scope TENANT y los PROJECT de ese Project que rigen, cada uno con su alcance de origen y, si un Project los exceptua, la regla del Tenant marcada como exceptuada con su excepcion al lado. `at` (ISO 8601) evalua la ventana de vigencia en ese momento; omitido vale el instante de la consulta. Paginado (limit/offset). Lectura: no requiere key del Corpus; acotada al tenant del firmante.",
-  corpusCurrentGetSchema,
+  {
+    description: "Corpus vigente de un Project a un momento (GET /corpus/projects/:projectId/current): los documentos de scope TENANT y los PROJECT de ese Project que rigen, cada uno con su alcance de origen y, si un Project los exceptua, la regla del Tenant marcada como exceptuada con su excepcion al lado. `at` (ISO 8601) evalua la ventana de vigencia en ese momento; omitido vale el instante de la consulta. Paginado (limit/offset). Lectura: no requiere key del Corpus; acotada al tenant del firmante.",
+    inputSchema: external_exports3.object(corpusCurrentGetSchema).strict()
+  },
   makeCorpusCurrentGetHandler(apiClient)
 );
-server.tool(
-  "spec_request_operator_input",
-  "Pide input al Operador sobre una SPEC y la deja EN ESPERA, SIN castigo: el estado y el contexto de la SPEC NO cambian (mismo stateId, mismo inProgressContext) y tu turno cierra igual. Con la consulta abierta, el gate del dispatcher bloquea TODA transicion de la SPEC salvo BLOCKED y CANCELLED \u2014 el rechazo nombra el cuid de la consulta pendiente. Agrupar varias preguntas en un pedido es eficiencia, no evasion: el tope cuenta REQUESTS. Devuelve requestsUsed/requestsMax. 422 OPERATOR_INPUT_CAP_REACHED si la SPEC agoto el tope del tenant (sin retroceso de estado; el tope se sube por PATCH /admin/sdd/tenants/:id/operator-input-cap), OPERATOR_INPUT_ALREADY_OPEN si ya hay una abierta. 422 OPERATOR_INPUT_CHANNEL_CLOSED si Adversarial ya aprobo el artefacto en cuestion (el ENGINEERING_PLAN aprobado cierra el canal entero; el DISCOVERY_REPORT aprobado cierra solo los pedidos sobre ese artefacto) \u2014 despues de la aprobacion las salidas son la interfaz del agente o una task pendiente por falta de input. Requiere el permiso spec.request_operator_input (DISCOVERY, ENGINEERING, OPERATOR). La respuesta NO se da por MCP: es acto humano por UI.",
-  specRequestOperatorInputSchema,
-  makeSpecRequestOperatorInputHandler(apiClient)
-);
-server.tool(
+server.registerTool(
   "spec_operator_input_list",
-  "Consultas al Operador de una SPEC (historial completo) mas `pendingId` \u2014 la abierta que esta gateando el avance, o null \u2014 y requestsUsed/requestsMax. El `id` de cada fila es el `source_id` que un EvidenceRef con source_type OPERATOR_INPUT tiene que citar, y su `answerText` es el corpus contra el que se verifica la cita. Filtro opcional status (OPEN|ANSWERED); omitido devuelve todo, porque una consulta respondida sigue siendo fuente citable. Lectura sin permiso especial (la necesita cualquiera que verifique una cita), acotada al tenant del firmante.",
-  specOperatorInputListSchema,
+  {
+    description: "Consultas al Operador de una SPEC (historial completo) mas `pendingId` \u2014 la abierta que esta gateando el avance, o null \u2014 y requestsUsed/requestsMax. El `id` de cada fila es el `source_id` que un EvidenceRef con source_type OPERATOR_INPUT tiene que citar, y su `answerText` es el corpus contra el que se verifica la cita. Desde TKT-0475 cada fila suma `questionsTyped` (el valor tipado de la consulta V2: question, contextSummary, options, recommendation, evidenceRefs; null en las legacy), `selectedOptionId` (la opcion que eligio el Operador) y `answerClarification`. Filtro opcional status (OPEN|ANSWERED); omitido devuelve todo, porque una consulta respondida sigue siendo fuente citable. Lectura sin permiso especial (la necesita cualquiera que verifique una cita), acotada al tenant del firmante.",
+    inputSchema: external_exports3.object(specOperatorInputListSchema).strict()
+  },
   makeSpecOperatorInputListHandler(apiClient)
 );
-server.tool(
-  "task_add_acceptance_criterion",
-  "Agrega un AcceptanceCriterion (criterio de done verificable) a una task de fase. sortOrder lo computa el backend (max+1). testable default true. Tool nueva (NO extiende spec_create_task) para no colisionar con el worktree tkt-0014-mcp-create-task-deprecation.",
+server.registerTool(
+  "work_item_create",
   {
-    taskId: external_exports3.string().describe("Task ID (cuid)"),
-    text: external_exports3.string().describe("Texto del criterio de aceptaci\xF3n"),
-    testable: external_exports3.boolean().optional().describe("Default true. false si el criterio no es testeable autom\xE1ticamente.")
+    description: "Registra un trabajo (POST /work-items): nace en PENDING con su destino en tres campos \u2014targetRole (rol SDD destinatario), subjectType + subjectId (el objeto del Hub sobre el que trata) y requirements (capacidades requeridas)\u2014 y una fila de historial REGISTER. Devuelve el detalle del trabajo tal como lo responde la API. Requiere la clave work_item.write (los seis roles SDD); sin ella 403 PERMISSION_DENIED. Errores del dominio: 400 por un campo fuera de regla, 422 WORK_ITEM_SUBJECT_NOT_FOUND si el objeto no resuelve en el tenant de quien opera, 422 WORK_ITEM_ROLE_UNRESOLVED si la sesion no tiene rol efectivo. Registro operativo (ack-only): no lleva verification_tokens. Una clave que la tool no declara rebota en el MCP (Input validation error) sin llamar al backend.",
+    inputSchema: WorkItemCreateParamsSchema
+  },
+  makeWorkItemCreateHandler(apiClient)
+);
+server.registerTool(
+  "work_item_list",
+  {
+    description: "Lista los trabajos del tenant (GET /work-items), mas nuevos primero, con los filtros opcionales status, targetRole, subjectType y subjectId en la query y paginacion por cursor (limit de 1 a 100, default 50; nextCursor en la respuesta). Un cursor que no resuelve en el tenant de quien opera responde 400 WORK_ITEM_CURSOR_INVALID. Devuelve { items, nextCursor } tal como lo responde la API. Lectura: no requiere la clave work_item.write. Una clave que la tool no declara rebota en el MCP (Input validation error) sin llamar al backend.",
+    inputSchema: WorkItemListParamsSchema
+  },
+  makeWorkItemListHandler(apiClient)
+);
+server.registerTool(
+  "work_item_get",
+  {
+    description: "Lee un trabajo con sus ejecuciones (sequence asc) y su historial de cambios (GET /work-items/:workItemId), tal como lo responde la API. Un trabajo inexistente o de otro tenant responde 404 Not Found, con el mismo cuerpo en los dos casos. Lectura: no requiere la clave work_item.write. Una clave que la tool no declara rebota en el MCP (Input validation error) sin llamar al backend.",
+    inputSchema: WorkItemGetParamsSchema
+  },
+  makeWorkItemGetHandler(apiClient)
+);
+server.registerTool(
+  "work_item_execution_start",
+  {
+    description: "Arranca una ejecucion del trabajo (POST /work-items/:workItemId/executions, cuerpo {}): lo lleva a IN_PROGRESS desde PENDING, BLOCKED o FAILED y crea la ejecucion con el siguiente sequence. Devuelve { workItem, execution } tal como lo responde la API. Requiere la clave work_item.write; sin ella 403 PERMISSION_DENIED. Errores del dominio: 404 si el trabajo no existe en el tenant, 422 WORK_ITEM_TRANSITION_NOT_ALLOWED si su estado no admite arrancar, 422 WORK_ITEM_ROLE_UNRESOLVED si la sesion no tiene rol efectivo. Registro operativo (ack-only): no lleva verification_tokens. Una clave que la tool no declara rebota en el MCP (Input validation error) sin llamar al backend.",
+    inputSchema: WorkItemExecutionStartParamsSchema
+  },
+  makeWorkItemExecutionStartHandler(apiClient)
+);
+server.registerTool(
+  "work_item_execution_finish",
+  {
+    description: "Termina la ejecucion abierta del trabajo con su resultado (POST /work-items/:workItemId/executions/:executionId/finish, cuerpo { result }): SUCCEEDED lleva el trabajo a DONE, BLOCKED a BLOCKED y FAILED a FAILED. Devuelve { workItem, execution } tal como lo responde la API. Requiere la clave work_item.write; sin ella 403 PERMISSION_DENIED. Errores del dominio: 404 si el trabajo o la ejecucion no existen en el tenant, 422 WORK_ITEM_EXECUTION_NOT_OPEN si la ejecucion no es la abierta, 422 WORK_ITEM_TRANSITION_NOT_ALLOWED si el estado no admite terminar, 422 WORK_ITEM_ROLE_UNRESOLVED si la sesion no tiene rol efectivo. Registro operativo (ack-only): no lleva verification_tokens. Una clave que la tool no declara rebota en el MCP (Input validation error) sin llamar al backend.",
+    inputSchema: WorkItemExecutionFinishParamsSchema
+  },
+  makeWorkItemExecutionFinishHandler(apiClient)
+);
+server.registerTool(
+  "work_item_cancel",
+  {
+    description: "Cancela un trabajo que no esta en curso (POST /work-items/:workItemId/cancel, cuerpo {}): PENDING, BLOCKED o FAILED pasan a CANCELLED. Devuelve el detalle del trabajo tal como lo responde la API. Requiere la clave work_item.write; sin ella 403 PERMISSION_DENIED. Errores del dominio: 404 si el trabajo no existe en el tenant, 422 WORK_ITEM_TRANSITION_NOT_ALLOWED desde IN_PROGRESS, DONE o CANCELLED, 422 WORK_ITEM_ROLE_UNRESOLVED si la sesion no tiene rol efectivo. Registro operativo (ack-only): no lleva verification_tokens. Una clave que la tool no declara rebota en el MCP (Input validation error) sin llamar al backend.",
+    inputSchema: WorkItemCancelParamsSchema
+  },
+  makeWorkItemCancelHandler(apiClient)
+);
+server.registerTool(
+  "task_add_acceptance_criterion",
+  {
+    description: "Agrega un AcceptanceCriterion (criterio de done verificable) a una task de fase. sortOrder lo computa el backend (max+1). testable default true. Tool nueva (NO extiende spec_create_task) para no colisionar con el worktree tkt-0014-mcp-create-task-deprecation.",
+    inputSchema: external_exports3.object({
+      taskId: external_exports3.string().describe("Task ID (cuid)"),
+      text: external_exports3.string().describe("Texto del criterio de aceptaci\xF3n"),
+      testable: external_exports3.boolean().optional().describe("Default true. false si el criterio no es testeable autom\xE1ticamente.")
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -37584,14 +38020,16 @@ server.tool(
     ({ taskId, ...body }) => apiClient.post(`/tasks/${taskId}/acceptance-criteria`, body)
   )
 );
-server.tool(
+server.registerTool(
   "task_update_acceptance_criterion",
-  "Edita text y/o testable de un AcceptanceCriterion existente de una task. Al menos uno de los dos debe venir.",
   {
-    taskId: external_exports3.string().describe("Task ID (cuid)"),
-    criterionId: external_exports3.string().describe("AcceptanceCriterion ID (cuid)"),
-    text: external_exports3.string().optional().describe("Nuevo texto del criterio"),
-    testable: external_exports3.boolean().optional()
+    description: "Edita text y/o testable de un AcceptanceCriterion existente de una task. Al menos uno de los dos debe venir.",
+    inputSchema: external_exports3.object({
+      taskId: external_exports3.string().describe("Task ID (cuid)"),
+      criterionId: external_exports3.string().describe("AcceptanceCriterion ID (cuid)"),
+      text: external_exports3.string().optional().describe("Nuevo texto del criterio"),
+      testable: external_exports3.boolean().optional()
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -37604,12 +38042,14 @@ server.tool(
     ({ taskId, criterionId, ...body }) => apiClient.patch(`/tasks/${taskId}/acceptance-criteria/${criterionId}`, body)
   )
 );
-server.tool(
+server.registerTool(
   "task_delete_acceptance_criterion",
-  "Borra un AcceptanceCriterion de una task (ej. qued\xF3 obsoleto tras un cambio de contrato).",
   {
-    taskId: external_exports3.string().describe("Task ID (cuid)"),
-    criterionId: external_exports3.string().describe("AcceptanceCriterion ID (cuid)")
+    description: "Borra un AcceptanceCriterion de una task (ej. qued\xF3 obsoleto tras un cambio de contrato).",
+    inputSchema: external_exports3.object({
+      taskId: external_exports3.string().describe("Task ID (cuid)"),
+      criterionId: external_exports3.string().describe("AcceptanceCriterion ID (cuid)")
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({ taskId: external_exports3.string(), criterionId: external_exports3.string() }).strict(),
@@ -37617,12 +38057,14 @@ server.tool(
     ({ taskId, criterionId }) => apiClient.delete(`/tasks/${taskId}/acceptance-criteria/${criterionId}`)
   )
 );
-server.tool(
+server.registerTool(
   "spec_remove_documentation",
-  "Unlink a documentation section from a Spec. The underlying KbArticle is preserved (remains searchable via KB) \u2014 only the Spec\u2194Section association is removed.",
   {
-    specId: external_exports3.string(),
-    kind: external_exports3.enum(["MANUAL_TECHNICAL", "MANUAL_USER", "IMPLEMENTATION_DETAIL", "INFORMAL_EXPLANATION", "PROBLEM_STATEMENT", "DISCOVERY_REPORT", "DISCOVERY_AMENDMENT", "ENGINEERING_PLAN", "ADVERSARIAL_VERDICT", "CLOSEOUT_DECISION", "SDD_DESIGN", "SCHEMA_CONTRACT", "SDD_TASKS"])
+    description: "Unlink a documentation section from a Spec. The underlying KbArticle is preserved (remains searchable via KB) \u2014 only the Spec\u2194Section association is removed.",
+    inputSchema: external_exports3.object({
+      specId: external_exports3.string(),
+      kind: external_exports3.enum(["MANUAL_TECHNICAL", "MANUAL_USER", "IMPLEMENTATION_DETAIL", "INFORMAL_EXPLANATION", "PROBLEM_STATEMENT", "DISCOVERY_REPORT", "DISCOVERY_AMENDMENT", "ENGINEERING_PLAN", "ADVERSARIAL_VERDICT", "CLOSEOUT_DECISION", "SDD_DESIGN", "SCHEMA_CONTRACT", "SDD_TASKS"])
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -37633,20 +38075,22 @@ server.tool(
     ({ specId, kind }) => apiClient.delete(`/specs/${specId}/documentation/${kind}`)
   )
 );
-server.tool(
+server.registerTool(
   "spec_add_dependency",
-  'Add a dependency between two Specs. Use BLOCKS for hard prerequisites (target must be COMPLETED/ARCHIVED before source can start/complete). Use RELATES_TO for informational references (no enforcement). Cycles are automatically rejected. SPEC-0089 v0.3.1: verification_tokens validated (no markdown target \u2014 Option A: drop after validation). Strict-enforced post MCP_SERVER_RELEASE >= 0.2.0. Dependency graph edge is a structural relationship \u2014 validation gate makes the agent think "why".',
   {
-    specId: external_exports3.string().describe("Source Spec ID \u2014 the spec that DEPENDS ON another"),
-    dependsOnId: external_exports3.string().describe("Target Spec ID \u2014 the spec that must be completed first"),
-    type: external_exports3.enum(["BLOCKS", "RELATES_TO"]).optional().default("BLOCKS").describe("BLOCKS = hard gate on transitions, RELATES_TO = informational only"),
-    note: external_exports3.string().optional().describe("Optional note explaining the dependency"),
-    // SPEC-0238 P2 (ADR-006) — obligatoria en los dos schemas y en el body.
-    justification: external_exports3.string().min(20).describe("REQUIRED \u2014 why this dependency exists, 20+ characters after trimming and collapsing spaces. Without it the Hub answers 422 DEPENDENCY_JUSTIFICATION_REQUIRED."),
-    verification_tokens: verificationTokensField
+    description: 'Add a dependency between two Specs. Use BLOCKS for hard prerequisites (target must be COMPLETED/ARCHIVED before source can start/complete). Use RELATES_TO for informational references (no enforcement). Cycles are automatically rejected. SPEC-0089 v0.3.1: verification_tokens validated (no markdown target \u2014 Option A: drop after validation). Strict-enforced post MCP_SERVER_RELEASE >= 0.2.0. Dependency graph edge is a structural relationship \u2014 validation gate makes the agent think "why".',
+    inputSchema: external_exports3.object({
+      specId: external_exports3.string().describe("Source Spec ID \u2014 the spec that DEPENDS ON another"),
+      dependsOnId: external_exports3.string().describe("Target Spec ID \u2014 the spec that must be completed first"),
+      type: external_exports3.enum(["BLOCKS", "RELATES_TO"]).optional().default("BLOCKS").describe("BLOCKS = hard gate on transitions, RELATES_TO = informational only"),
+      note: external_exports3.string().optional().describe("Optional note explaining the dependency"),
+      // SPEC-0238 P2 (ADR-006) — obligatoria en los dos schemas y en el body.
+      justification: external_exports3.string().min(20).describe("REQUIRED \u2014 why this dependency exists, 20+ characters after trimming and collapsing spaces. Without it the Hub answers 422 DEPENDENCY_JUSTIFICATION_REQUIRED."),
+      verification_tokens: verificationTokensField
+    }).strict()
   },
   async (params) => {
-    const ParamsSchema17 = external_exports3.object({
+    const ParamsSchema18 = external_exports3.object({
       specId: external_exports3.string(),
       dependsOnId: external_exports3.string(),
       type: external_exports3.enum(["BLOCKS", "RELATES_TO"]).optional(),
@@ -37655,7 +38099,7 @@ server.tool(
       verification_tokens: verificationTokensField
     }).strict();
     try {
-      const validated = ParamsSchema17.parse(params);
+      const validated = ParamsSchema18.parse(params);
       const dep = await apiClient.post(`/specs/${validated.specId}/dependencies`, {
         dependsOnId: validated.dependsOnId,
         type: validated.type,
@@ -37680,12 +38124,14 @@ var specRemoveDependencyInputSchema = external_exports3.object({
   specId: external_exports3.string(),
   depId: external_exports3.string()
 }).strict();
-server.tool(
+server.registerTool(
   "spec_remove_dependency",
-  "Remove a dependency from a Spec.",
   {
-    specId: external_exports3.string().describe("Spec ID that owns the dependency"),
-    depId: external_exports3.string().describe("Dependency record ID to remove")
+    description: "Remove a dependency from a Spec.",
+    inputSchema: external_exports3.object({
+      specId: external_exports3.string().describe("Spec ID that owns the dependency"),
+      depId: external_exports3.string().describe("Dependency record ID to remove")
+    }).strict()
   },
   async (params) => strictApply(
     specRemoveDependencyInputSchema,
@@ -37693,24 +38139,28 @@ server.tool(
     ({ specId, depId }) => apiClient.del(`/specs/${specId}/dependencies/${depId}`)
   )
 );
-server.tool(
+server.registerTool(
   "spec_list_dependencies",
-  "List all dependencies for a Spec: outgoing (this spec depends on), incoming (other specs depend on this), plus blockers status (which BLOCKS deps are not yet satisfied). also returns isFeatureRoot (deliberately declared root of a new feature) and isOrphan (no edges in either direction AND not a declared root) so a root is distinguishable from an un-resolved orphan.",
   {
-    specId: external_exports3.string().describe("Spec ID or SPEC-XXXX number")
+    description: "List all dependencies for a Spec: outgoing (this spec depends on), incoming (other specs depend on this), plus blockers status (which BLOCKS deps are not yet satisfied). also returns isFeatureRoot (deliberately declared root of a new feature) and isOrphan (no edges in either direction AND not a declared root) so a root is distinguishable from an un-resolved orphan.",
+    inputSchema: external_exports3.object({
+      specId: external_exports3.string().describe("Spec ID or SPEC-XXXX number")
+    }).strict()
   },
   async (params) => {
     const deps = await apiClient.get(`/specs/${params.specId}/dependencies`);
     return formatRead(deps);
   }
 );
-server.tool(
+server.registerTool(
   "spec_declare_feature_root",
-  "Declare (or clear) a Spec as a feature root (ROOT_NEW_FEATURE). A Spec with no dependency edges is otherwise indistinguishable from an un-resolved orphan; this first-class flag lets spec_get and spec_list_dependencies surface a deliberate root. Pass isFeatureRoot=true to declare, false to clear. Optional justification is recorded in the audit trail. Wraps PATCH /specs/:id/feature-root.",
   {
-    specId: external_exports3.string().describe("Spec ID (cuid) or SPEC-XXXX number"),
-    isFeatureRoot: external_exports3.boolean().describe("true = declare feature root, false = clear the declaration"),
-    justification: external_exports3.string().optional().describe("Optional rationale (why this SPEC has no parent) \u2014 recorded in the audit trail")
+    description: "Declare (or clear) a Spec as a feature root (ROOT_NEW_FEATURE). A Spec with no dependency edges is otherwise indistinguishable from an un-resolved orphan; this first-class flag lets spec_get and spec_list_dependencies surface a deliberate root. Pass isFeatureRoot=true to declare, false to clear. Optional justification is recorded in the audit trail. Wraps PATCH /specs/:id/feature-root.",
+    inputSchema: external_exports3.object({
+      specId: external_exports3.string().describe("Spec ID (cuid) or SPEC-XXXX number"),
+      isFeatureRoot: external_exports3.boolean().describe("true = declare feature root, false = clear the declaration"),
+      justification: external_exports3.string().optional().describe("Optional rationale (why this SPEC has no parent) \u2014 recorded in the audit trail")
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -37722,21 +38172,23 @@ server.tool(
     ({ specId, isFeatureRoot, justification }) => apiClient.patch(`/specs/${specId}/feature-root`, { isFeatureRoot, justification })
   )
 );
-server.tool(
+server.registerTool(
   "phase_add_dependency",
-  "Add a dependency between two Spec Phases. Use BLOCKS for hard prerequisites. Cycles are automatically rejected. SPEC-0089 v0.3.1: verification_tokens validated (no markdown target \u2014 Option A: drop after validation). Strict-enforced post MCP_SERVER_RELEASE >= 0.2.0.",
   {
-    specId: external_exports3.string().describe("Spec ID that contains the source phase"),
-    phaseId: external_exports3.string().describe("Source Phase ID \u2014 the phase that DEPENDS ON another"),
-    dependsOnPhaseId: external_exports3.string().describe("Target Phase ID \u2014 the phase that must be completed first"),
-    type: external_exports3.enum(["BLOCKS", "RELATES_TO"]).optional().default("BLOCKS"),
-    note: external_exports3.string().optional(),
-    // SPEC-0238 P2 (ADR-006) — obligatoria en los dos schemas y en el body.
-    justification: external_exports3.string().min(20).describe("REQUIRED \u2014 why this dependency exists, 20+ characters after trimming and collapsing spaces. Without it the Hub answers 422 DEPENDENCY_JUSTIFICATION_REQUIRED."),
-    verification_tokens: verificationTokensField
+    description: "Add a dependency between two Spec Phases. Use BLOCKS for hard prerequisites. Cycles are automatically rejected. SPEC-0089 v0.3.1: verification_tokens validated (no markdown target \u2014 Option A: drop after validation). Strict-enforced post MCP_SERVER_RELEASE >= 0.2.0.",
+    inputSchema: external_exports3.object({
+      specId: external_exports3.string().describe("Spec ID that contains the source phase"),
+      phaseId: external_exports3.string().describe("Source Phase ID \u2014 the phase that DEPENDS ON another"),
+      dependsOnPhaseId: external_exports3.string().describe("Target Phase ID \u2014 the phase that must be completed first"),
+      type: external_exports3.enum(["BLOCKS", "RELATES_TO"]).optional().default("BLOCKS"),
+      note: external_exports3.string().optional(),
+      // SPEC-0238 P2 (ADR-006) — obligatoria en los dos schemas y en el body.
+      justification: external_exports3.string().min(20).describe("REQUIRED \u2014 why this dependency exists, 20+ characters after trimming and collapsing spaces. Without it the Hub answers 422 DEPENDENCY_JUSTIFICATION_REQUIRED."),
+      verification_tokens: verificationTokensField
+    }).strict()
   },
   async (params) => {
-    const ParamsSchema17 = external_exports3.object({
+    const ParamsSchema18 = external_exports3.object({
       specId: external_exports3.string(),
       phaseId: external_exports3.string(),
       dependsOnPhaseId: external_exports3.string(),
@@ -37746,7 +38198,7 @@ server.tool(
       verification_tokens: verificationTokensField
     }).strict();
     try {
-      const validated = ParamsSchema17.parse(params);
+      const validated = ParamsSchema18.parse(params);
       const dep = await apiClient.post(
         `/specs/${validated.specId}/phases/${validated.phaseId}/dependencies`,
         {
@@ -37770,13 +38222,15 @@ server.tool(
     }
   }
 );
-server.tool(
+server.registerTool(
   "phase_remove_dependency",
-  "Remove a dependency from a Spec Phase.",
   {
-    specId: external_exports3.string().describe("Spec ID that contains the phase"),
-    phaseId: external_exports3.string().describe("Phase ID that owns the dependency"),
-    depId: external_exports3.string().describe("Dependency record ID to remove")
+    description: "Remove a dependency from a Spec Phase.",
+    inputSchema: external_exports3.object({
+      specId: external_exports3.string().describe("Spec ID that contains the phase"),
+      phaseId: external_exports3.string().describe("Phase ID that owns the dependency"),
+      depId: external_exports3.string().describe("Dependency record ID to remove")
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -37788,33 +38242,37 @@ server.tool(
     ({ specId, phaseId, depId }) => apiClient.del(`/specs/${specId}/phases/${phaseId}/dependencies/${depId}`)
   )
 );
-server.tool(
+server.registerTool(
   "phase_list_dependencies",
-  "List all dependencies for a Spec Phase: outgoing, incoming, and blockers status.",
   {
-    specId: external_exports3.string().describe("Spec ID that contains the phase"),
-    phaseId: external_exports3.string().describe("Phase ID")
+    description: "List all dependencies for a Spec Phase: outgoing, incoming, and blockers status.",
+    inputSchema: external_exports3.object({
+      specId: external_exports3.string().describe("Spec ID that contains the phase"),
+      phaseId: external_exports3.string().describe("Phase ID")
+    }).strict()
   },
   async (params) => {
     const deps = await apiClient.get(`/specs/${params.specId}/phases/${params.phaseId}/dependencies`);
     return formatRead(deps);
   }
 );
-server.tool(
+server.registerTool(
   "spec_phase_declare_surfaces",
-  "Declare the CONSUMES/PRODUCES surfaces (endpoint/permission/data/migration) of a Spec Phase, as structured data (PhaseSurface). Full replace: the persisted surfaces end up EXACTLY the ones in this call. Feeds the future consumer/producer reconciliation gate (item h, P3) \u2014 Engineering declares these when building the plan.",
   {
-    specId: external_exports3.string().describe("Spec ID that contains the phase"),
-    phaseId: external_exports3.string().describe("Phase ID declaring the surfaces"),
-    surfaces: external_exports3.array(
-      external_exports3.object({
-        direction: external_exports3.enum(["CONSUMES", "PRODUCES"]),
-        kind: external_exports3.enum(["ENDPOINT", "PERMISSION", "DATA", "MIGRATION"]),
-        ref: external_exports3.string().describe("Endpoint path, permission key, data/table name, or migration name"),
-        preexisting: external_exports3.boolean().optional().describe("true si la superficie ya exist\xEDa antes de esta SPEC"),
-        note: external_exports3.string().optional()
-      })
-    ).describe("Full replacement list \u2014 surfaces not included here are removed")
+    description: "Declare the CONSUMES/PRODUCES surfaces (endpoint/permission/data/migration) of a Spec Phase, as structured data (PhaseSurface). Full replace: the persisted surfaces end up EXACTLY the ones in this call. Feeds the future consumer/producer reconciliation gate (item h, P3) \u2014 Engineering declares these when building the plan.",
+    inputSchema: external_exports3.object({
+      specId: external_exports3.string().describe("Spec ID that contains the phase"),
+      phaseId: external_exports3.string().describe("Phase ID declaring the surfaces"),
+      surfaces: external_exports3.array(
+        external_exports3.object({
+          direction: external_exports3.enum(["CONSUMES", "PRODUCES"]),
+          kind: external_exports3.enum(["ENDPOINT", "PERMISSION", "DATA", "MIGRATION"]),
+          ref: external_exports3.string().describe("Endpoint path, permission key, data/table name, or migration name"),
+          preexisting: external_exports3.boolean().optional().describe("true si la superficie ya exist\xEDa antes de esta SPEC"),
+          note: external_exports3.string().optional()
+        })
+      ).describe("Full replacement list \u2014 surfaces not included here are removed")
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -37834,12 +38292,14 @@ server.tool(
     ({ specId, phaseId, surfaces }) => apiClient.put(`/specs/${specId}/phases/${phaseId}/surfaces`, { surfaces })
   )
 );
-server.tool(
+server.registerTool(
   "spec_phase_list_surfaces",
-  "List the CONSUMES/PRODUCES surfaces declared for a Spec Phase.",
   {
-    specId: external_exports3.string().describe("Spec ID that contains the phase"),
-    phaseId: external_exports3.string().describe("Phase ID")
+    description: "List the CONSUMES/PRODUCES surfaces declared for a Spec Phase.",
+    inputSchema: external_exports3.object({
+      specId: external_exports3.string().describe("Spec ID that contains the phase"),
+      phaseId: external_exports3.string().describe("Phase ID")
+    }).strict()
   },
   async (params) => {
     const surfaces = await apiClient.get(`/specs/${params.specId}/phases/${params.phaseId}/surfaces`);
@@ -37848,21 +38308,23 @@ server.tool(
 );
 var ENTITY_TYPE_ENUM = external_exports3.enum(["SPEC", "PHASE", "TICKET", "TASK", "QA_SPECIFICATION", "QA_RUN"]);
 var NODE_AUDIT_DISPOSITION_ENUM = external_exports3.enum(["AUDITED", "OUT_OF_SCOPE"]);
-server.tool(
+server.registerTool(
   "spec_declare_node_audit",
-  "Declare the audit disposition (AUDITED/OUT_OF_SCOPE) of every edge of a state-machine node that a Spec touches, as structured data (SpecNodeAudit). Full replace by (entityType,node): the persisted audits end up EXACTLY the ones in this call. Feeds the future node-scope-coverage gate (item i, P6) \u2014 Engineering declares these when a phase modifies a node with multiple live edges.",
   {
-    specId: external_exports3.string().describe("Spec ID declaring the audit"),
-    entityType: ENTITY_TYPE_ENUM.describe("Entity type the audited state machine belongs to (SPEC, PHASE, etc.)"),
-    node: external_exports3.string().describe("Name of the state (node) being audited"),
-    audits: external_exports3.array(
-      external_exports3.object({
-        edgeFrom: external_exports3.string().describe("Origin state of the audited edge"),
-        edgeTo: external_exports3.string().describe("Destination state of the audited edge"),
-        disposition: NODE_AUDIT_DISPOSITION_ENUM,
-        reason: external_exports3.string().optional().describe("Required when disposition=OUT_OF_SCOPE")
-      })
-    ).describe("Full replacement list \u2014 edges not included here are removed for this (entityType,node)")
+    description: "Declare the audit disposition (AUDITED/OUT_OF_SCOPE) of every edge of a state-machine node that a Spec touches, as structured data (SpecNodeAudit). Full replace by (entityType,node): the persisted audits end up EXACTLY the ones in this call. Feeds the future node-scope-coverage gate (item i, P6) \u2014 Engineering declares these when a phase modifies a node with multiple live edges.",
+    inputSchema: external_exports3.object({
+      specId: external_exports3.string().describe("Spec ID declaring the audit"),
+      entityType: ENTITY_TYPE_ENUM.describe("Entity type the audited state machine belongs to (SPEC, PHASE, etc.)"),
+      node: external_exports3.string().describe("Name of the state (node) being audited"),
+      audits: external_exports3.array(
+        external_exports3.object({
+          edgeFrom: external_exports3.string().describe("Origin state of the audited edge"),
+          edgeTo: external_exports3.string().describe("Destination state of the audited edge"),
+          disposition: NODE_AUDIT_DISPOSITION_ENUM,
+          reason: external_exports3.string().optional().describe("Required when disposition=OUT_OF_SCOPE")
+        })
+      ).describe("Full replacement list \u2014 edges not included here are removed for this (entityType,node)")
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -37882,13 +38344,15 @@ server.tool(
     ({ specId, entityType, node, audits }) => apiClient.put(`/specs/${specId}/node-audits`, { entityType, node, audits })
   )
 );
-server.tool(
+server.registerTool(
   "spec_list_node_audits",
-  "List the node-audit coverage declared for a Spec. Optional entityType/node filters.",
   {
-    specId: external_exports3.string().describe("Spec ID"),
-    entityType: ENTITY_TYPE_ENUM.optional(),
-    node: external_exports3.string().optional()
+    description: "List the node-audit coverage declared for a Spec. Optional entityType/node filters.",
+    inputSchema: external_exports3.object({
+      specId: external_exports3.string().describe("Spec ID"),
+      entityType: ENTITY_TYPE_ENUM.optional(),
+      node: external_exports3.string().optional()
+    }).strict()
   },
   async (params) => {
     const query = new URLSearchParams();
@@ -37899,27 +38363,31 @@ server.tool(
     return formatRead(audits);
   }
 );
-server.tool(
+server.registerTool(
   "future_promise_get",
-  "Get a FuturePromise by id with linked entities (spec, phase, blockedBy, owner).",
   {
-    id: external_exports3.string().describe("FuturePromise ID")
+    description: "Get a FuturePromise by id with linked entities (spec, phase, blockedBy, owner).",
+    inputSchema: external_exports3.object({
+      id: external_exports3.string().describe("FuturePromise ID")
+    }).strict()
   },
   async (params) => {
     const promise2 = await apiClient.get(`/future-promises/${params.id}`);
     return formatRead(promise2);
   }
 );
-server.tool(
+server.registerTool(
   "future_promise_list",
-  "List FuturePromises with filters. Default ordering: priorityPostTrigger DESC, createdAt ASC.",
   {
-    status: external_exports3.enum(["BACKLOG", "TRIGGER_MET", "PROMOTED", "ARCHIVED", "OBSOLETE"]).optional(),
-    triggerType: external_exports3.enum(["COMMERCIAL", "MILESTONE", "OPERATIONAL", "TECHNICAL", "UNDEFINED"]).optional(),
-    promiseType: external_exports3.enum(["STUB_SPEC", "DEFERRED_PHASE", "DEFERRED_DEPENDENCY", "TECHNICAL_DEBT", "IDEA"]).optional(),
-    linkedSpecId: external_exports3.string().optional(),
-    limit: external_exports3.number().optional().describe("Default 50, max 500"),
-    offset: external_exports3.number().optional().describe("Default 0")
+    description: "List FuturePromises with filters. Default ordering: priorityPostTrigger DESC, createdAt ASC.",
+    inputSchema: external_exports3.object({
+      status: external_exports3.enum(["BACKLOG", "TRIGGER_MET", "PROMOTED", "ARCHIVED", "OBSOLETE"]).optional(),
+      triggerType: external_exports3.enum(["COMMERCIAL", "MILESTONE", "OPERATIONAL", "TECHNICAL", "UNDEFINED"]).optional(),
+      promiseType: external_exports3.enum(["STUB_SPEC", "DEFERRED_PHASE", "DEFERRED_DEPENDENCY", "TECHNICAL_DEBT", "IDEA"]).optional(),
+      linkedSpecId: external_exports3.string().optional(),
+      limit: external_exports3.number().optional().describe("Default 50, max 500"),
+      offset: external_exports3.number().optional().describe("Default 0")
+    }).strict()
   },
   async (params) => {
     const qs = new URLSearchParams();
@@ -37933,11 +38401,13 @@ server.tool(
     return formatRead(result);
   }
 );
-server.tool(
+server.registerTool(
   "future_promise_mark_triggered",
-  "Mark a FuturePromise as TRIGGER_MET (BACKLOG -> TRIGGER_MET). Requires all blockedBy promises in PROMOTED. Auto-sets triggeredAt server-side.",
   {
-    id: external_exports3.string().describe("FuturePromise ID to transition to TRIGGER_MET")
+    description: "Mark a FuturePromise as TRIGGER_MET (BACKLOG -> TRIGGER_MET). Requires all blockedBy promises in PROMOTED. Auto-sets triggeredAt server-side.",
+    inputSchema: external_exports3.object({
+      id: external_exports3.string().describe("FuturePromise ID to transition to TRIGGER_MET")
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({ id: external_exports3.string() }).strict(),
@@ -37945,12 +38415,14 @@ server.tool(
     ({ id }) => apiClient.post(`/future-promises/${id}/mark-triggered`, {})
   )
 );
-server.tool(
+server.registerTool(
   "future_promise_archive",
-  "Archive a FuturePromise. reason='archived' = decisi\xF3n consciente (no se har\xE1); 'obsolete' = contexto cambi\xF3, ya no aplica. Rejects if current status is terminal (PROMOTED, ARCHIVED, OBSOLETE).",
   {
-    id: external_exports3.string().describe("FuturePromise ID to archive"),
-    reason: external_exports3.enum(["archived", "obsolete"]).describe("'archived' or 'obsolete'")
+    description: "Archive a FuturePromise. reason='archived' = decisi\xF3n consciente (no se har\xE1); 'obsolete' = contexto cambi\xF3, ya no aplica. Rejects if current status is terminal (PROMOTED, ARCHIVED, OBSOLETE).",
+    inputSchema: external_exports3.object({
+      id: external_exports3.string().describe("FuturePromise ID to archive"),
+      reason: external_exports3.enum(["archived", "obsolete"]).describe("'archived' or 'obsolete'")
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -37961,16 +38433,18 @@ server.tool(
     ({ id, reason }) => apiClient.post(`/future-promises/${id}/archive`, { reason })
   )
 );
-server.tool(
+server.registerTool(
   "future_promise_search_by_trigger",
-  "Search FuturePromises by trigger condition (NL). Aplica OR contains insensitive sobre title, description, triggerCondition. Combinable con filtros structured (triggerType, promiseType, linkedSpecId) via AND. Same backend endpoint que future_promise_list (alias sem\xE1ntico con q). Default ordering: priorityPostTrigger DESC, createdAt ASC.",
   {
-    query: external_exports3.string().min(1).describe('Search text (ej. "cliente externo segmento target", "SPEC-0011 COMPLETED")'),
-    triggerType: external_exports3.enum(["COMMERCIAL", "MILESTONE", "OPERATIONAL", "TECHNICAL", "UNDEFINED"]).optional().describe("Narrow por categor\xEDa de trigger"),
-    promiseType: external_exports3.enum(["STUB_SPEC", "DEFERRED_PHASE", "DEFERRED_DEPENDENCY", "TECHNICAL_DEBT", "IDEA"]).optional(),
-    linkedSpecId: external_exports3.string().optional().describe("Narrow por SPEC linkeada"),
-    status: external_exports3.enum(["BACKLOG", "TRIGGER_MET", "PROMOTED", "ARCHIVED", "OBSOLETE"]).optional().describe("Default: undefined (todos los status). T\xEDpicamente BACKLOG para discovery activo."),
-    limit: external_exports3.number().optional().describe("Default 50, max 500")
+    description: "Search FuturePromises by trigger condition (NL). Aplica OR contains insensitive sobre title, description, triggerCondition. Combinable con filtros structured (triggerType, promiseType, linkedSpecId) via AND. Same backend endpoint que future_promise_list (alias sem\xE1ntico con q). Default ordering: priorityPostTrigger DESC, createdAt ASC.",
+    inputSchema: external_exports3.object({
+      query: external_exports3.string().min(1).describe('Search text (ej. "cliente externo segmento target", "SPEC-0011 COMPLETED")'),
+      triggerType: external_exports3.enum(["COMMERCIAL", "MILESTONE", "OPERATIONAL", "TECHNICAL", "UNDEFINED"]).optional().describe("Narrow por categor\xEDa de trigger"),
+      promiseType: external_exports3.enum(["STUB_SPEC", "DEFERRED_PHASE", "DEFERRED_DEPENDENCY", "TECHNICAL_DEBT", "IDEA"]).optional(),
+      linkedSpecId: external_exports3.string().optional().describe("Narrow por SPEC linkeada"),
+      status: external_exports3.enum(["BACKLOG", "TRIGGER_MET", "PROMOTED", "ARCHIVED", "OBSOLETE"]).optional().describe("Default: undefined (todos los status). T\xEDpicamente BACKLOG para discovery activo."),
+      limit: external_exports3.number().optional().describe("Default 50, max 500")
+    }).strict()
   },
   async (params) => {
     const qs = new URLSearchParams();
@@ -37984,32 +38458,36 @@ server.tool(
     return formatRead(result);
   }
 );
-server.tool(
+server.registerTool(
   "decision_get",
-  "Get a Decision by id with relations (parentDecision, supersedes, supersededBy, outgoingRelations, incomingRelations \u2014 1 level each). 404 if id belongs to another tenant.",
   {
-    id: external_exports3.string().describe("Decision id.")
+    description: "Get a Decision by id with relations (parentDecision, supersedes, supersededBy, outgoingRelations, incomingRelations \u2014 1 level each). 404 if id belongs to another tenant.",
+    inputSchema: external_exports3.object({
+      id: external_exports3.string().describe("Decision id.")
+    }).strict()
   },
   async (params) => {
     const decision = await apiClient.get(`/decisions/${params.id}`);
     return formatRead(decision);
   }
 );
-server.tool(
+server.registerTool(
   "decision_list",
-  "List Decisions with filters (kind/lifecycle/scope/linkedSpecId/linkedPhaseId/parentDecisionId/tags/tagsAll/isBlocking). Default lifecycle=ACTIVE backend-side. tags=OR (hasSome), tagsAll=AND (hasEvery). Returns {data, total, limit, offset}.",
   {
-    kind: external_exports3.enum(DECISION_KINDS).optional(),
-    lifecycle: external_exports3.enum(["ACTIVE", "SUPERSEDED", "RETRACTED", "HISTORICAL", "BLOCKED"]).optional().describe("Default ACTIVE backend-side. Pass explicit to list other lifecycles."),
-    scope: external_exports3.enum(["SPEC_LEVEL", "PHASE_LEVEL"]).optional(),
-    linkedSpecId: external_exports3.string().optional(),
-    linkedPhaseId: external_exports3.string().optional(),
-    parentDecisionId: external_exports3.string().optional(),
-    tags: external_exports3.array(external_exports3.string()).optional().describe("OR match \u2014 at least one tag from the list (hasSome)."),
-    tagsAll: external_exports3.array(external_exports3.string()).optional().describe("AND match \u2014 all tags must be present (hasEvery)."),
-    isBlocking: external_exports3.boolean().optional(),
-    limit: external_exports3.number().int().min(1).max(200).optional().describe("Default 50, max 200."),
-    offset: external_exports3.number().int().min(0).optional().describe("Default 0.")
+    description: "List Decisions with filters (kind/lifecycle/scope/linkedSpecId/linkedPhaseId/parentDecisionId/tags/tagsAll/isBlocking). Default lifecycle=ACTIVE backend-side. tags=OR (hasSome), tagsAll=AND (hasEvery). Returns {data, total, limit, offset}.",
+    inputSchema: external_exports3.object({
+      kind: external_exports3.enum(DECISION_KINDS).optional(),
+      lifecycle: external_exports3.enum(["ACTIVE", "SUPERSEDED", "RETRACTED", "HISTORICAL", "BLOCKED"]).optional().describe("Default ACTIVE backend-side. Pass explicit to list other lifecycles."),
+      scope: external_exports3.enum(["SPEC_LEVEL", "PHASE_LEVEL"]).optional(),
+      linkedSpecId: external_exports3.string().optional(),
+      linkedPhaseId: external_exports3.string().optional(),
+      parentDecisionId: external_exports3.string().optional(),
+      tags: external_exports3.array(external_exports3.string()).optional().describe("OR match \u2014 at least one tag from the list (hasSome)."),
+      tagsAll: external_exports3.array(external_exports3.string()).optional().describe("AND match \u2014 all tags must be present (hasEvery)."),
+      isBlocking: external_exports3.boolean().optional(),
+      limit: external_exports3.number().int().min(1).max(200).optional().describe("Default 50, max 200."),
+      offset: external_exports3.number().int().min(0).optional().describe("Default 0.")
+    }).strict()
   },
   async (params) => {
     const qs = new URLSearchParams();
@@ -38028,26 +38506,28 @@ server.tool(
     return formatRead(result);
   }
 );
-server.tool(
+server.registerTool(
   "decision_search",
-  'Search Decisions (SPEC-0048 F3 TSK-A \u2014 BM25-only V1). Free-text query via websearch_to_tsquery (espacios=AND, "..."=phrase, OR expl\xEDcito) sobre title (A) + body (B) + supersededReason/retractedReason (C). Tags NO en BM25 \u2014 filtran via tags (OR/hasSome) y tagsAll (AND/hasEvery). Supersession chain navigation via supersedingChainOf (forward-walking recursive CTE). lifecycle SIN default (a diferencia de decision_list) \u2014 search expone all-lifecycles a menos que se filtre expl\xEDcito. Returns {data, total, limit, offset} donde data[i] = {item: Decision, score: number} (score=0 cuando q ausente, orden por createdAt DESC).',
   {
-    q: external_exports3.string().optional().describe("Free-text query. Ausente \u2192 solo structured filters, orden por createdAt DESC."),
-    kind: external_exports3.enum(DECISION_KINDS).optional(),
-    lifecycle: external_exports3.enum(["ACTIVE", "SUPERSEDED", "RETRACTED", "HISTORICAL", "BLOCKED"]).optional().describe("NO default \u2014 search list across all lifecycles a menos que se filtre expl\xEDcito."),
-    scope: external_exports3.enum(["SPEC_LEVEL", "PHASE_LEVEL"]).optional(),
-    dateFrom: external_exports3.string().optional().describe("ISO 8601 \u2014 inclusive lower bound del createdAt."),
-    dateTo: external_exports3.string().optional().describe("ISO 8601 \u2014 inclusive upper bound del createdAt."),
-    tags: external_exports3.array(external_exports3.string()).optional().describe("OR match \u2014 al menos un tag de la lista (hasSome)."),
-    tagsAll: external_exports3.array(external_exports3.string()).optional().describe("AND match \u2014 todos los tags presentes (hasEvery)."),
-    supersedingChainOf: external_exports3.string().optional().describe("Forward-walking recursive CTE: trae el chain forward INCLUYENDO el seed (origin) + las decisiones que la supersedean recursivamente. Cycle protection via PG14+ CYCLE clause + maxDepth (default 100). El seed se incluye como anchor del CTE \u2014 V2 podr\xEDa exponer flag `excludeSeed` opcional."),
-    maxDepth: external_exports3.number().int().min(1).max(1e3).optional().describe("Max recursion depth para supersedingChainOf chain walk. Default 100. Defensive cap independiente de cycle protection."),
-    linkedSpecId: external_exports3.string().optional(),
-    linkedPhaseId: external_exports3.string().optional(),
-    parentDecisionId: external_exports3.string().optional(),
-    isBlocking: external_exports3.boolean().optional(),
-    limit: external_exports3.number().int().min(1).max(200).optional().describe("Default 50, max 200."),
-    offset: external_exports3.number().int().min(0).optional().describe("Default 0.")
+    description: 'Search Decisions (SPEC-0048 F3 TSK-A \u2014 BM25-only V1). Free-text query via websearch_to_tsquery (espacios=AND, "..."=phrase, OR expl\xEDcito) sobre title (A) + body (B) + supersededReason/retractedReason (C). Tags NO en BM25 \u2014 filtran via tags (OR/hasSome) y tagsAll (AND/hasEvery). Supersession chain navigation via supersedingChainOf (forward-walking recursive CTE). lifecycle SIN default (a diferencia de decision_list) \u2014 search expone all-lifecycles a menos que se filtre expl\xEDcito. Returns {data, total, limit, offset} donde data[i] = {item: Decision, score: number} (score=0 cuando q ausente, orden por createdAt DESC).',
+    inputSchema: external_exports3.object({
+      q: external_exports3.string().optional().describe("Free-text query. Ausente \u2192 solo structured filters, orden por createdAt DESC."),
+      kind: external_exports3.enum(DECISION_KINDS).optional(),
+      lifecycle: external_exports3.enum(["ACTIVE", "SUPERSEDED", "RETRACTED", "HISTORICAL", "BLOCKED"]).optional().describe("NO default \u2014 search list across all lifecycles a menos que se filtre expl\xEDcito."),
+      scope: external_exports3.enum(["SPEC_LEVEL", "PHASE_LEVEL"]).optional(),
+      dateFrom: external_exports3.string().optional().describe("ISO 8601 \u2014 inclusive lower bound del createdAt."),
+      dateTo: external_exports3.string().optional().describe("ISO 8601 \u2014 inclusive upper bound del createdAt."),
+      tags: external_exports3.array(external_exports3.string()).optional().describe("OR match \u2014 al menos un tag de la lista (hasSome)."),
+      tagsAll: external_exports3.array(external_exports3.string()).optional().describe("AND match \u2014 todos los tags presentes (hasEvery)."),
+      supersedingChainOf: external_exports3.string().optional().describe("Forward-walking recursive CTE: trae el chain forward INCLUYENDO el seed (origin) + las decisiones que la supersedean recursivamente. Cycle protection via PG14+ CYCLE clause + maxDepth (default 100). El seed se incluye como anchor del CTE \u2014 V2 podr\xEDa exponer flag `excludeSeed` opcional."),
+      maxDepth: external_exports3.number().int().min(1).max(1e3).optional().describe("Max recursion depth para supersedingChainOf chain walk. Default 100. Defensive cap independiente de cycle protection."),
+      linkedSpecId: external_exports3.string().optional(),
+      linkedPhaseId: external_exports3.string().optional(),
+      parentDecisionId: external_exports3.string().optional(),
+      isBlocking: external_exports3.boolean().optional(),
+      limit: external_exports3.number().int().min(1).max(200).optional().describe("Default 50, max 200."),
+      offset: external_exports3.number().int().min(0).optional().describe("Default 0.")
+    }).strict()
   },
   async (params) => {
     const qs = new URLSearchParams();
@@ -38071,27 +38551,29 @@ server.tool(
     return formatRead(result);
   }
 );
-server.tool(
+server.registerTool(
   "spec_search",
-  'Search Specs (SPEC-0048 F3 TSK-C \u2014 BM25-only V1). Free-text query via websearch_to_tsquery (espacios=AND, "..."=phrase, OR expl\xEDcito) sobre title (A) + description (B). Tags NO en BM25 \u2014 filtran via tags (OR/hasSome) y tagsAll (AND/hasEvery). Status filter via stateId/stateName FK lookup (Spec usa SpecState configurable, NO enum hardcoded). Tenant scoping via JOIN Workspace.tenantId \u2014 excluye specs sin workspaceId NULL (consistent SPEC-0051 F4). Returns {data, total, limit, offset} donde data[i] = {item: Spec, score: number} (score=0 cuando q ausente, orden por createdAt DESC). tenantId impl\xEDcito del JWT.',
   {
-    q: external_exports3.string().optional().describe("Free-text query. Ausente \u2192 solo structured filters, orden por createdAt DESC."),
-    stateId: external_exports3.string().optional().describe("SpecState FK direct (cuid). Mutuamente excluyente con stateName (si ambos vienen, stateId prevalece)."),
-    stateName: external_exports3.string().optional().describe('SpecState.name lookup (ej. "IN_PROGRESS"). \xDAtil cuando solo se conoce el nombre del estado.'),
-    priority: external_exports3.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).optional(),
-    category: external_exports3.string().optional(),
-    ownerId: external_exports3.string().optional(),
-    clientId: external_exports3.string().optional(),
-    dateFrom: external_exports3.string().optional().describe("ISO 8601 \u2014 inclusive lower bound del createdAt."),
-    dateTo: external_exports3.string().optional().describe("ISO 8601 \u2014 inclusive upper bound del createdAt."),
-    tags: external_exports3.array(external_exports3.string()).optional().describe("OR match \u2014 al menos un tag de la lista (hasSome)."),
-    tagsAll: external_exports3.array(external_exports3.string()).optional().describe("AND match \u2014 todos los tags presentes (hasEvery)."),
-    workspaceId: external_exports3.string().optional().describe("Taxonomy narrowing dentro del tenant."),
-    projectId: external_exports3.string().optional(),
-    moduleId: external_exports3.string().optional(),
-    submoduleId: external_exports3.string().optional(),
-    limit: external_exports3.number().int().min(1).max(200).optional().describe("Default 50, max 200."),
-    offset: external_exports3.number().int().min(0).optional().describe("Default 0.")
+    description: 'Search Specs (SPEC-0048 F3 TSK-C \u2014 BM25-only V1). Free-text query via websearch_to_tsquery (espacios=AND, "..."=phrase, OR expl\xEDcito) sobre title (A) + description (B). Tags NO en BM25 \u2014 filtran via tags (OR/hasSome) y tagsAll (AND/hasEvery). Status filter via stateId/stateName FK lookup (Spec usa SpecState configurable, NO enum hardcoded). Tenant scoping via JOIN Workspace.tenantId \u2014 excluye specs sin workspaceId NULL (consistent SPEC-0051 F4). Returns {data, total, limit, offset} donde data[i] = {item: Spec, score: number} (score=0 cuando q ausente, orden por createdAt DESC). tenantId impl\xEDcito del JWT.',
+    inputSchema: external_exports3.object({
+      q: external_exports3.string().optional().describe("Free-text query. Ausente \u2192 solo structured filters, orden por createdAt DESC."),
+      stateId: external_exports3.string().optional().describe("SpecState FK direct (cuid). Mutuamente excluyente con stateName (si ambos vienen, stateId prevalece)."),
+      stateName: external_exports3.string().optional().describe('SpecState.name lookup (ej. "IN_PROGRESS"). \xDAtil cuando solo se conoce el nombre del estado.'),
+      priority: external_exports3.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).optional(),
+      category: external_exports3.string().optional(),
+      ownerId: external_exports3.string().optional(),
+      clientId: external_exports3.string().optional(),
+      dateFrom: external_exports3.string().optional().describe("ISO 8601 \u2014 inclusive lower bound del createdAt."),
+      dateTo: external_exports3.string().optional().describe("ISO 8601 \u2014 inclusive upper bound del createdAt."),
+      tags: external_exports3.array(external_exports3.string()).optional().describe("OR match \u2014 al menos un tag de la lista (hasSome)."),
+      tagsAll: external_exports3.array(external_exports3.string()).optional().describe("AND match \u2014 todos los tags presentes (hasEvery)."),
+      workspaceId: external_exports3.string().optional().describe("Taxonomy narrowing dentro del tenant."),
+      projectId: external_exports3.string().optional(),
+      moduleId: external_exports3.string().optional(),
+      submoduleId: external_exports3.string().optional(),
+      limit: external_exports3.number().int().min(1).max(200).optional().describe("Default 50, max 200."),
+      offset: external_exports3.number().int().min(0).optional().describe("Default 0.")
+    }).strict()
   },
   async (params) => {
     const qs = new URLSearchParams();
@@ -38116,28 +38598,32 @@ server.tool(
     return formatRead(result);
   }
 );
-server.tool(
+server.registerTool(
   "meeting_get",
-  "Get a Meeting by id with relations populadas (extractions + linkedSpecs/Tickets/Kb/Decisions, 1 nivel). includeTranscript (default false, omitido) \u2014 true incluye rawTranscript completo. 404 si pertenece a otro tenant.",
-  meetingGetSchema,
+  {
+    description: "Get a Meeting by id with relations populadas (extractions + linkedSpecs/Tickets/Kb/Decisions, 1 nivel). includeTranscript (default false, omitido) \u2014 true incluye rawTranscript completo. 404 si pertenece a otro tenant.",
+    inputSchema: external_exports3.object(meetingGetSchema).strict()
+  },
   makeMeetingGetHandler(apiClient)
 );
-server.tool(
+server.registerTool(
   "meeting_list",
-  "List Meetings con filters + pagination. Filters: status, source, recordedAfter/Before (ISO datetime), taxonomy (workspaceId/projectId/moduleId/submoduleId), tags=OR (hasSome), tagsAll=AND (hasEvery). Returns {data, total, limit, offset}. Default ordering: recordedAt DESC.",
   {
-    status: external_exports3.enum(["PENDING", "INGESTED", "PROCESSED", "ARCHIVED", "ERROR"]).optional(),
-    source: external_exports3.enum(["GOOGLE_DRIVE", "ZOOM_DRIVE", "MANUAL_UPLOAD"]).optional(),
-    recordedAfter: external_exports3.string().optional().describe("ISO datetime \u2014 solo meetings con recordedAt >= valor."),
-    recordedBefore: external_exports3.string().optional().describe("ISO datetime \u2014 solo meetings con recordedAt <= valor."),
-    workspaceId: external_exports3.string().optional(),
-    projectId: external_exports3.string().optional(),
-    moduleId: external_exports3.string().optional(),
-    submoduleId: external_exports3.string().optional(),
-    tags: external_exports3.array(external_exports3.string()).optional().describe("OR match \u2014 al menos un tag (hasSome)."),
-    tagsAll: external_exports3.array(external_exports3.string()).optional().describe("AND match \u2014 todos los tags presentes (hasEvery)."),
-    limit: external_exports3.number().int().min(1).max(200).optional().describe("Default 50, max 200."),
-    offset: external_exports3.number().int().min(0).optional().describe("Default 0.")
+    description: "List Meetings con filters + pagination. Filters: status, source, recordedAfter/Before (ISO datetime), taxonomy (workspaceId/projectId/moduleId/submoduleId), tags=OR (hasSome), tagsAll=AND (hasEvery). Returns {data, total, limit, offset}. Default ordering: recordedAt DESC.",
+    inputSchema: external_exports3.object({
+      status: external_exports3.enum(["PENDING", "INGESTED", "PROCESSED", "ARCHIVED", "ERROR"]).optional(),
+      source: external_exports3.enum(["GOOGLE_DRIVE", "ZOOM_DRIVE", "MANUAL_UPLOAD"]).optional(),
+      recordedAfter: external_exports3.string().optional().describe("ISO datetime \u2014 solo meetings con recordedAt >= valor."),
+      recordedBefore: external_exports3.string().optional().describe("ISO datetime \u2014 solo meetings con recordedAt <= valor."),
+      workspaceId: external_exports3.string().optional(),
+      projectId: external_exports3.string().optional(),
+      moduleId: external_exports3.string().optional(),
+      submoduleId: external_exports3.string().optional(),
+      tags: external_exports3.array(external_exports3.string()).optional().describe("OR match \u2014 al menos un tag (hasSome)."),
+      tagsAll: external_exports3.array(external_exports3.string()).optional().describe("AND match \u2014 todos los tags presentes (hasEvery)."),
+      limit: external_exports3.number().int().min(1).max(200).optional().describe("Default 50, max 200."),
+      offset: external_exports3.number().int().min(0).optional().describe("Default 0.")
+    }).strict()
   },
   async (params) => {
     const qs = new URLSearchParams();
@@ -38157,13 +38643,15 @@ server.tool(
     return formatRead(result);
   }
 );
-server.tool(
+server.registerTool(
   "meeting_link_to_spec",
-  "Link a Meeting to a Spec (M:N). Idempotente \u2014 re-link no falla. Cross-tenant safe: 403 si Spec pertenece a otro tenant, 404 si no existe. Note opcional describe el motivo del link.",
   {
-    meetingId: external_exports3.string().describe("Meeting id."),
-    specId: external_exports3.string().describe("Spec id a linkear."),
-    note: external_exports3.string().optional().describe('Nota opcional describiendo el link (ej. "discussed", "decided here").')
+    description: "Link a Meeting to a Spec (M:N). Idempotente \u2014 re-link no falla. Cross-tenant safe: 403 si Spec pertenece a otro tenant, 404 si no existe. Note opcional describe el motivo del link.",
+    inputSchema: external_exports3.object({
+      meetingId: external_exports3.string().describe("Meeting id."),
+      specId: external_exports3.string().describe("Spec id a linkear."),
+      note: external_exports3.string().optional().describe('Nota opcional describiendo el link (ej. "discussed", "decided here").')
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -38175,13 +38663,15 @@ server.tool(
     ({ meetingId, ...body }) => apiClient.post(`/meetings/${meetingId}/spec-links`, body)
   )
 );
-server.tool(
+server.registerTool(
   "meeting_link_to_ticket",
-  "Link a Meeting to a Ticket (M:N). Idempotente. Cross-tenant safe v\xEDa workspace.tenantId.",
   {
-    meetingId: external_exports3.string().describe("Meeting id."),
-    ticketId: external_exports3.string().describe("Ticket id a linkear."),
-    note: external_exports3.string().optional().describe("Nota opcional describiendo el link.")
+    description: "Link a Meeting to a Ticket (M:N). Idempotente. Cross-tenant safe v\xEDa workspace.tenantId.",
+    inputSchema: external_exports3.object({
+      meetingId: external_exports3.string().describe("Meeting id."),
+      ticketId: external_exports3.string().describe("Ticket id a linkear."),
+      note: external_exports3.string().optional().describe("Nota opcional describiendo el link.")
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -38193,13 +38683,15 @@ server.tool(
     ({ meetingId, ...body }) => apiClient.post(`/meetings/${meetingId}/ticket-links`, body)
   )
 );
-server.tool(
+server.registerTool(
   "meeting_link_to_kb",
-  "Link a Meeting to a KbArticle (M:N). Idempotente. Cross-tenant safe v\xEDa KbArticle.tenantId direct (SPEC-0055 F1).",
   {
-    meetingId: external_exports3.string().describe("Meeting id."),
-    articleId: external_exports3.string().describe("KbArticle id a linkear."),
-    note: external_exports3.string().optional().describe("Nota opcional describiendo el link.")
+    description: "Link a Meeting to a KbArticle (M:N). Idempotente. Cross-tenant safe v\xEDa KbArticle.tenantId direct (SPEC-0055 F1).",
+    inputSchema: external_exports3.object({
+      meetingId: external_exports3.string().describe("Meeting id."),
+      articleId: external_exports3.string().describe("KbArticle id a linkear."),
+      note: external_exports3.string().optional().describe("Nota opcional describiendo el link.")
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -38211,22 +38703,24 @@ server.tool(
     ({ meetingId, ...body }) => apiClient.post(`/meetings/${meetingId}/kb-links`, body)
   )
 );
-server.tool(
+server.registerTool(
   "meeting_search_semantic",
-  "Hybrid semantic search over meeting transcript chunks (SPEC-0050 F3 TSK-C). Combina BM25 (websearch_to_tsquery sobre meeting_embedding.search_vector idioma spanish) + cosine similarity (pgvector <=> sobre el chunk embedding) via Reciprocal Rank Fusion (RRF k=60 \u2014 industry standard Elastic/OpenSearch/Vespa/Weaviate). Query embedded request-time con Cohere search_query inputType (asymmetric retrieval). Filters: meetingId (within-meeting), dateFrom/dateTo (Meeting.recordedAt), tags (OR/hasSome) + tagsAll (AND/hasEvery), taxonomy (workspaceId/projectId/moduleId/submoduleId SPEC-0051). Pagination limit (default 50, max 200) + offset. tenantId impl\xEDcito JWT. Retorna {data, total, limit, offset} con data[i] = {item: MeetingChunkResult, score}. score=0 cuando q ausente (orden por Meeting.recordedAt DESC, BM25/cosine no se eval\xFAan). MeetingChunkResult include id, meetingId, chunkIndex, content, createdAt + meeting summary (id, title, recordedAt, status). Aggregation a meeting-level diferida V2.",
   {
-    q: external_exports3.string().optional().describe("Free-text query. Ausente \u2192 solo structured filters, score=0, orden por Meeting.recordedAt DESC."),
-    meetingId: external_exports3.string().optional().describe("Filter chunks de un Meeting espec\xEDfico (within-meeting search)."),
-    dateFrom: external_exports3.string().optional().describe("ISO 8601 \u2014 inclusive lower bound del Meeting.recordedAt."),
-    dateTo: external_exports3.string().optional().describe("ISO 8601 \u2014 inclusive upper bound del Meeting.recordedAt."),
-    tags: external_exports3.array(external_exports3.string()).optional().describe("OR match \u2014 al menos un tag del Meeting (hasSome)."),
-    tagsAll: external_exports3.array(external_exports3.string()).optional().describe("AND match \u2014 todos los tags del Meeting (hasEvery)."),
-    workspaceId: external_exports3.string().optional().describe("Taxonomy workspaceId del Meeting."),
-    projectId: external_exports3.string().optional().describe("Taxonomy \u2014 projectId del Meeting."),
-    moduleId: external_exports3.string().optional().describe("Taxonomy \u2014 moduleId del Meeting."),
-    submoduleId: external_exports3.string().optional().describe("Taxonomy \u2014 submoduleId del Meeting."),
-    limit: external_exports3.number().int().min(1).max(200).optional().describe("Default 50, max 200."),
-    offset: external_exports3.number().int().min(0).optional().describe("Default 0.")
+    description: "Hybrid semantic search over meeting transcript chunks (SPEC-0050 F3 TSK-C). Combina BM25 (websearch_to_tsquery sobre meeting_embedding.search_vector idioma spanish) + cosine similarity (pgvector <=> sobre el chunk embedding) via Reciprocal Rank Fusion (RRF k=60 \u2014 industry standard Elastic/OpenSearch/Vespa/Weaviate). Query embedded request-time con Cohere search_query inputType (asymmetric retrieval). Filters: meetingId (within-meeting), dateFrom/dateTo (Meeting.recordedAt), tags (OR/hasSome) + tagsAll (AND/hasEvery), taxonomy (workspaceId/projectId/moduleId/submoduleId SPEC-0051). Pagination limit (default 50, max 200) + offset. tenantId impl\xEDcito JWT. Retorna {data, total, limit, offset} con data[i] = {item: MeetingChunkResult, score}. score=0 cuando q ausente (orden por Meeting.recordedAt DESC, BM25/cosine no se eval\xFAan). MeetingChunkResult include id, meetingId, chunkIndex, content, createdAt + meeting summary (id, title, recordedAt, status). Aggregation a meeting-level diferida V2.",
+    inputSchema: external_exports3.object({
+      q: external_exports3.string().optional().describe("Free-text query. Ausente \u2192 solo structured filters, score=0, orden por Meeting.recordedAt DESC."),
+      meetingId: external_exports3.string().optional().describe("Filter chunks de un Meeting espec\xEDfico (within-meeting search)."),
+      dateFrom: external_exports3.string().optional().describe("ISO 8601 \u2014 inclusive lower bound del Meeting.recordedAt."),
+      dateTo: external_exports3.string().optional().describe("ISO 8601 \u2014 inclusive upper bound del Meeting.recordedAt."),
+      tags: external_exports3.array(external_exports3.string()).optional().describe("OR match \u2014 al menos un tag del Meeting (hasSome)."),
+      tagsAll: external_exports3.array(external_exports3.string()).optional().describe("AND match \u2014 todos los tags del Meeting (hasEvery)."),
+      workspaceId: external_exports3.string().optional().describe("Taxonomy workspaceId del Meeting."),
+      projectId: external_exports3.string().optional().describe("Taxonomy \u2014 projectId del Meeting."),
+      moduleId: external_exports3.string().optional().describe("Taxonomy \u2014 moduleId del Meeting."),
+      submoduleId: external_exports3.string().optional().describe("Taxonomy \u2014 submoduleId del Meeting."),
+      limit: external_exports3.number().int().min(1).max(200).optional().describe("Default 50, max 200."),
+      offset: external_exports3.number().int().min(0).optional().describe("Default 0.")
+    }).strict()
   },
   async (params) => {
     const qs = new URLSearchParams();
@@ -38266,28 +38760,30 @@ var testExecutionCreateInputSchema = external_exports3.object({
   submoduleId: external_exports3.string().optional(),
   tags: external_exports3.array(external_exports3.string()).optional()
 }).strict();
-server.tool(
+server.registerTool(
   "test_execution_create",
-  "Create a TestExecution log entry. Required: suiteName, framework, status (ALL_PASS|SOME_FAIL|ALL_FAIL|RUNNING|ERROR), totalCount. Linkeo expl\xEDcito opcional (linkedSpecId/PhaseId/TaskId \u2014 validados pre-create cross-tenant safe). tenantId/executedById/executedAt server-controlled (NUNCA del payload). Granularidad: 1 entry por test suite run.",
   {
-    suiteName: external_exports3.string().min(1).max(500).describe('Nombre del test suite (e.g. "MeetingsController (e2e)").'),
-    framework: external_exports3.string().min(1).max(80).describe("Test framework (free-form: vitest, jest, playwright, pytest, etc.)."),
-    fileName: external_exports3.string().optional().describe("Path al archivo de tests (opcional)."),
-    status: external_exports3.enum(["ALL_PASS", "SOME_FAIL", "ALL_FAIL", "RUNNING", "ERROR"]).describe("Resultado agregado del run."),
-    totalCount: external_exports3.number().int().min(0).describe("Total de tests en el suite."),
-    passedCount: external_exports3.number().int().min(0).optional().describe("Default 0."),
-    failedCount: external_exports3.number().int().min(0).optional().describe("Default 0."),
-    skippedCount: external_exports3.number().int().min(0).optional().describe("Default 0."),
-    durationMs: external_exports3.number().int().min(0).optional().describe("Duraci\xF3n total en ms. Default 0."),
-    summary: external_exports3.record(external_exports3.string(), external_exports3.unknown()).optional().describe("JSON libre: { failedTestNames: string[], reasons: {testName: msg}, ... }."),
-    linkedSpecId: external_exports3.string().optional().describe("Spec linkeada (validada cross-tenant via workspace.tenantId)."),
-    linkedPhaseId: external_exports3.string().optional().describe("SpecPhase linkeada."),
-    linkedTaskId: external_exports3.string().optional().describe("Task linkeada (existence check, no tenant scoping en Task)."),
-    workspaceId: external_exports3.string().optional().describe("Taxonomy workspace (NULLABLE para TestExecution)."),
-    projectId: external_exports3.string().optional(),
-    moduleId: external_exports3.string().optional(),
-    submoduleId: external_exports3.string().optional(),
-    tags: external_exports3.array(external_exports3.string()).optional().describe('Namespaced tags ("smoke", "regression", "module:tesoreria").')
+    description: "Create a TestExecution log entry. Required: suiteName, framework, status (ALL_PASS|SOME_FAIL|ALL_FAIL|RUNNING|ERROR), totalCount. Linkeo expl\xEDcito opcional (linkedSpecId/PhaseId/TaskId \u2014 validados pre-create cross-tenant safe). tenantId/executedById/executedAt server-controlled (NUNCA del payload). Granularidad: 1 entry por test suite run.",
+    inputSchema: external_exports3.object({
+      suiteName: external_exports3.string().min(1).max(500).describe('Nombre del test suite (e.g. "MeetingsController (e2e)").'),
+      framework: external_exports3.string().min(1).max(80).describe("Test framework (free-form: vitest, jest, playwright, pytest, etc.)."),
+      fileName: external_exports3.string().optional().describe("Path al archivo de tests (opcional)."),
+      status: external_exports3.enum(["ALL_PASS", "SOME_FAIL", "ALL_FAIL", "RUNNING", "ERROR"]).describe("Resultado agregado del run."),
+      totalCount: external_exports3.number().int().min(0).describe("Total de tests en el suite."),
+      passedCount: external_exports3.number().int().min(0).optional().describe("Default 0."),
+      failedCount: external_exports3.number().int().min(0).optional().describe("Default 0."),
+      skippedCount: external_exports3.number().int().min(0).optional().describe("Default 0."),
+      durationMs: external_exports3.number().int().min(0).optional().describe("Duraci\xF3n total en ms. Default 0."),
+      summary: external_exports3.record(external_exports3.string(), external_exports3.unknown()).optional().describe("JSON libre: { failedTestNames: string[], reasons: {testName: msg}, ... }."),
+      linkedSpecId: external_exports3.string().optional().describe("Spec linkeada (validada cross-tenant via workspace.tenantId)."),
+      linkedPhaseId: external_exports3.string().optional().describe("SpecPhase linkeada."),
+      linkedTaskId: external_exports3.string().optional().describe("Task linkeada (existence check, no tenant scoping en Task)."),
+      workspaceId: external_exports3.string().optional().describe("Taxonomy workspace (NULLABLE para TestExecution)."),
+      projectId: external_exports3.string().optional(),
+      moduleId: external_exports3.string().optional(),
+      submoduleId: external_exports3.string().optional(),
+      tags: external_exports3.array(external_exports3.string()).optional().describe('Namespaced tags ("smoke", "regression", "module:tesoreria").')
+    }).strict()
   },
   async (params) => strictApply(
     testExecutionCreateInputSchema,
@@ -38295,38 +38791,42 @@ server.tool(
     (data) => apiClient.post("/test-executions", data)
   )
 );
-server.tool(
+server.registerTool(
   "test_execution_get",
-  "Get TestExecution by id with relations populadas (linkedSpec/Phase/Task + executedBy resolved). 404 si pertenece a otro tenant.",
   {
-    id: external_exports3.string().describe("TestExecution id.")
+    description: "Get TestExecution by id with relations populadas (linkedSpec/Phase/Task + executedBy resolved). 404 si pertenece a otro tenant.",
+    inputSchema: external_exports3.object({
+      id: external_exports3.string().describe("TestExecution id.")
+    }).strict()
   },
   async (params) => {
     const exec = await apiClient.get(`/test-executions/${params.id}`);
     return formatRead(exec);
   }
 );
-server.tool(
+server.registerTool(
   "test_execution_list",
-  "List TestExecutions con filters + pagination. Default ordering: executedAt DESC. Default `archivedAt IS NULL` (decision 5 \u2014 soft archive 90d). Filters: status, framework, suiteName, linked* IDs, taxonomy, executedAt range (executedAfter/Before ISO datetime), tags=OR (hasSome), tagsAll=AND (hasEvery), includeArchived=true para incluir archivadas. Returns {data, total, limit, offset}.",
   {
-    status: external_exports3.enum(["ALL_PASS", "SOME_FAIL", "ALL_FAIL", "RUNNING", "ERROR"]).optional(),
-    framework: external_exports3.string().optional(),
-    suiteName: external_exports3.string().optional(),
-    linkedSpecId: external_exports3.string().optional(),
-    linkedPhaseId: external_exports3.string().optional(),
-    linkedTaskId: external_exports3.string().optional(),
-    workspaceId: external_exports3.string().optional(),
-    projectId: external_exports3.string().optional(),
-    moduleId: external_exports3.string().optional(),
-    submoduleId: external_exports3.string().optional(),
-    executedAfter: external_exports3.string().optional().describe("ISO datetime \u2014 solo executions con executedAt >= valor."),
-    executedBefore: external_exports3.string().optional().describe("ISO datetime \u2014 solo executions con executedAt <= valor."),
-    tags: external_exports3.array(external_exports3.string()).optional().describe("OR match (hasSome)."),
-    tagsAll: external_exports3.array(external_exports3.string()).optional().describe("AND match (hasEvery)."),
-    includeArchived: external_exports3.boolean().optional().describe("Default false. Si true, incluye archivedAt NOT NULL."),
-    limit: external_exports3.number().int().min(1).max(200).optional().describe("Default 50, max 200."),
-    offset: external_exports3.number().int().min(0).optional().describe("Default 0.")
+    description: "List TestExecutions con filters + pagination. Default ordering: executedAt DESC. Default `archivedAt IS NULL` (decision 5 \u2014 soft archive 90d). Filters: status, framework, suiteName, linked* IDs, taxonomy, executedAt range (executedAfter/Before ISO datetime), tags=OR (hasSome), tagsAll=AND (hasEvery), includeArchived=true para incluir archivadas. Returns {data, total, limit, offset}.",
+    inputSchema: external_exports3.object({
+      status: external_exports3.enum(["ALL_PASS", "SOME_FAIL", "ALL_FAIL", "RUNNING", "ERROR"]).optional(),
+      framework: external_exports3.string().optional(),
+      suiteName: external_exports3.string().optional(),
+      linkedSpecId: external_exports3.string().optional(),
+      linkedPhaseId: external_exports3.string().optional(),
+      linkedTaskId: external_exports3.string().optional(),
+      workspaceId: external_exports3.string().optional(),
+      projectId: external_exports3.string().optional(),
+      moduleId: external_exports3.string().optional(),
+      submoduleId: external_exports3.string().optional(),
+      executedAfter: external_exports3.string().optional().describe("ISO datetime \u2014 solo executions con executedAt >= valor."),
+      executedBefore: external_exports3.string().optional().describe("ISO datetime \u2014 solo executions con executedAt <= valor."),
+      tags: external_exports3.array(external_exports3.string()).optional().describe("OR match (hasSome)."),
+      tagsAll: external_exports3.array(external_exports3.string()).optional().describe("AND match (hasEvery)."),
+      includeArchived: external_exports3.boolean().optional().describe("Default false. Si true, incluye archivedAt NOT NULL."),
+      limit: external_exports3.number().int().min(1).max(200).optional().describe("Default 50, max 200."),
+      offset: external_exports3.number().int().min(0).optional().describe("Default 0.")
+    }).strict()
   },
   async (params) => {
     const qs = new URLSearchParams();
@@ -38351,20 +38851,22 @@ server.tool(
     return formatRead(result);
   }
 );
-server.tool(
+server.registerTool(
   "test_execution_update",
-  "Update TestExecution. Editable fields F1: tags, summary, linked* (re-link tard\xEDo), taxonomy. Status NO editable (rechaza 400 \u2014 TestExecution result inmutable post-create; para re-correr suite, crear nuevo entry). archivedAt NUNCA editable client-side (Cron worker server-side only).",
   {
-    id: external_exports3.string().describe("TestExecution id to update."),
-    tags: external_exports3.array(external_exports3.string()).optional(),
-    summary: external_exports3.record(external_exports3.string(), external_exports3.unknown()).optional(),
-    linkedSpecId: external_exports3.string().nullable().optional().describe("Pass null to clear."),
-    linkedPhaseId: external_exports3.string().nullable().optional(),
-    linkedTaskId: external_exports3.string().nullable().optional(),
-    workspaceId: external_exports3.string().nullable().optional(),
-    projectId: external_exports3.string().nullable().optional(),
-    moduleId: external_exports3.string().nullable().optional(),
-    submoduleId: external_exports3.string().nullable().optional()
+    description: "Update TestExecution. Editable fields F1: tags, summary, linked* (re-link tard\xEDo), taxonomy. Status NO editable (rechaza 400 \u2014 TestExecution result inmutable post-create; para re-correr suite, crear nuevo entry). archivedAt NUNCA editable client-side (Cron worker server-side only).",
+    inputSchema: external_exports3.object({
+      id: external_exports3.string().describe("TestExecution id to update."),
+      tags: external_exports3.array(external_exports3.string()).optional(),
+      summary: external_exports3.record(external_exports3.string(), external_exports3.unknown()).optional(),
+      linkedSpecId: external_exports3.string().nullable().optional().describe("Pass null to clear."),
+      linkedPhaseId: external_exports3.string().nullable().optional(),
+      linkedTaskId: external_exports3.string().nullable().optional(),
+      workspaceId: external_exports3.string().nullable().optional(),
+      projectId: external_exports3.string().nullable().optional(),
+      moduleId: external_exports3.string().nullable().optional(),
+      submoduleId: external_exports3.string().nullable().optional()
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -38387,12 +38889,14 @@ var workspaceCreateInputSchema = external_exports3.object({
   name: external_exports3.string().min(1).max(120),
   description: external_exports3.string().max(2e3).optional()
 }).strict();
-server.tool(
+server.registerTool(
   "workspace_create",
-  "Create a Workspace in the current tenant (top-level taxonomy grouping). Workspace name is unique per tenant.",
   {
-    name: external_exports3.string().min(1).max(120).describe('Workspace name (e.g. "IntegraERP", "Integra Hub", "SpecOE"). Unique within current tenant.'),
-    description: external_exports3.string().max(2e3).optional()
+    description: "Create a Workspace in the current tenant (top-level taxonomy grouping). Workspace name is unique per tenant.",
+    inputSchema: external_exports3.object({
+      name: external_exports3.string().min(1).max(120).describe('Workspace name (e.g. "IntegraERP", "Integra Hub", "SpecOE"). Unique within current tenant.'),
+      description: external_exports3.string().max(2e3).optional()
+    }).strict()
   },
   async (params) => strictApply(
     workspaceCreateInputSchema,
@@ -38400,24 +38904,28 @@ server.tool(
     (data) => apiClient.post("/workspaces", data)
   )
 );
-server.tool(
+server.registerTool(
   "workspace_get",
-  "Get a Workspace by id (with its Projects). Scoped to current tenant \u2014 404 if id belongs to another tenant.",
   {
-    id: external_exports3.string().describe("Workspace ID")
+    description: "Get a Workspace by id (with its Projects). Scoped to current tenant \u2014 404 if id belongs to another tenant.",
+    inputSchema: external_exports3.object({
+      id: external_exports3.string().describe("Workspace ID")
+    }).strict()
   },
   async (params) => {
     const ws = await apiClient.get(`/workspaces/${params.id}`);
     return formatRead(ws);
   }
 );
-server.tool(
+server.registerTool(
   "workspace_list",
-  "List Workspaces of the current tenant with optional free-text search.",
   {
-    q: external_exports3.string().optional().describe("Contains-insensitive search on name/description."),
-    limit: external_exports3.number().optional().describe("Default 50, max 500"),
-    offset: external_exports3.number().optional().describe("Default 0")
+    description: "List Workspaces of the current tenant with optional free-text search.",
+    inputSchema: external_exports3.object({
+      q: external_exports3.string().optional().describe("Contains-insensitive search on name/description."),
+      limit: external_exports3.number().optional().describe("Default 50, max 500"),
+      offset: external_exports3.number().optional().describe("Default 0")
+    }).strict()
   },
   async (params) => {
     const qs = new URLSearchParams();
@@ -38428,13 +38936,15 @@ server.tool(
     return formatRead(result);
   }
 );
-server.tool(
+server.registerTool(
   "workspace_update",
-  "Update a Workspace (name/description). Scoped to current tenant.",
   {
-    id: external_exports3.string(),
-    name: external_exports3.string().min(1).max(120).optional(),
-    description: external_exports3.string().max(2e3).optional()
+    description: "Update a Workspace (name/description). Scoped to current tenant.",
+    inputSchema: external_exports3.object({
+      id: external_exports3.string(),
+      name: external_exports3.string().min(1).max(120).optional(),
+      description: external_exports3.string().max(2e3).optional()
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -38446,11 +38956,13 @@ server.tool(
     ({ id, ...data }) => apiClient.patch(`/workspaces/${id}`, data)
   )
 );
-server.tool(
+server.registerTool(
   "workspace_delete",
-  "Delete a Workspace. CASCADES projects, modules and submodules of this workspace. Spec/Ticket FKs to deleted entities are SET NULL (legacy compat).",
   {
-    id: external_exports3.string()
+    description: "Delete a Workspace. CASCADES projects, modules and submodules of this workspace. Spec/Ticket FKs to deleted entities are SET NULL (legacy compat).",
+    inputSchema: external_exports3.object({
+      id: external_exports3.string()
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({ id: external_exports3.string() }).strict(),
@@ -38458,15 +38970,17 @@ server.tool(
     ({ id }) => apiClient.delete(`/workspaces/${id}`)
   )
 );
-server.tool(
+server.registerTool(
   "project_create",
-  "Create a Project under a Workspace. Workspace must belong to current tenant. Project name is unique per workspace. Optional gitRepoUrl/gitRepoProvider for future SPEC-0051 F5 auto-detection.",
   {
-    workspaceId: external_exports3.string().describe("Parent workspace ID (must belong to current tenant)."),
-    name: external_exports3.string().min(1).max(160).describe('Project name (e.g. "integra-hub", "Integra.Web"). Unique within workspace.'),
-    description: external_exports3.string().max(2e3).optional(),
-    gitRepoUrl: external_exports3.string().url().optional().describe("Optional. Deferred \u2014 auto-detect projectId from branch git remote."),
-    gitRepoProvider: external_exports3.string().max(40).optional().describe('Optional. "GitHub" | "Gitea" | "GitLab" | "Other".')
+    description: "Create a Project under a Workspace. Workspace must belong to current tenant. Project name is unique per workspace. Optional gitRepoUrl/gitRepoProvider for future SPEC-0051 F5 auto-detection.",
+    inputSchema: external_exports3.object({
+      workspaceId: external_exports3.string().describe("Parent workspace ID (must belong to current tenant)."),
+      name: external_exports3.string().min(1).max(160).describe('Project name (e.g. "integra-hub", "Integra.Web"). Unique within workspace.'),
+      description: external_exports3.string().max(2e3).optional(),
+      gitRepoUrl: external_exports3.string().url().optional().describe("Optional. Deferred \u2014 auto-detect projectId from branch git remote."),
+      gitRepoProvider: external_exports3.string().max(40).optional().describe('Optional. "GitHub" | "Gitea" | "GitLab" | "Other".')
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -38480,25 +38994,29 @@ server.tool(
     (data) => apiClient.post("/projects", data)
   )
 );
-server.tool(
+server.registerTool(
   "project_get",
-  "Get a Project by id (with its Modules). Scoped to current tenant.",
   {
-    id: external_exports3.string()
+    description: "Get a Project by id (with its Modules). Scoped to current tenant.",
+    inputSchema: external_exports3.object({
+      id: external_exports3.string()
+    }).strict()
   },
   async (params) => {
     const project = await apiClient.get(`/projects/${params.id}`);
     return formatRead(project);
   }
 );
-server.tool(
+server.registerTool(
   "project_list",
-  "List Projects of the current tenant. Optionally narrow by workspaceId.",
   {
-    workspaceId: external_exports3.string().optional().describe("Narrow to projects of a specific workspace (must belong to current tenant)."),
-    q: external_exports3.string().optional().describe("Contains-insensitive on name/description."),
-    limit: external_exports3.number().optional(),
-    offset: external_exports3.number().optional()
+    description: "List Projects of the current tenant. Optionally narrow by workspaceId.",
+    inputSchema: external_exports3.object({
+      workspaceId: external_exports3.string().optional().describe("Narrow to projects of a specific workspace (must belong to current tenant)."),
+      q: external_exports3.string().optional().describe("Contains-insensitive on name/description."),
+      limit: external_exports3.number().optional(),
+      offset: external_exports3.number().optional()
+    }).strict()
   },
   async (params) => {
     const qs = new URLSearchParams();
@@ -38510,15 +39028,17 @@ server.tool(
     return formatRead(result);
   }
 );
-server.tool(
+server.registerTool(
   "project_update",
-  "Update a Project (name/description/gitRepoUrl/gitRepoProvider). workspaceId is immutable.",
   {
-    id: external_exports3.string(),
-    name: external_exports3.string().min(1).max(160).optional(),
-    description: external_exports3.string().max(2e3).optional(),
-    gitRepoUrl: external_exports3.string().url().optional(),
-    gitRepoProvider: external_exports3.string().max(40).optional()
+    description: "Update a Project (name/description/gitRepoUrl/gitRepoProvider). workspaceId is immutable.",
+    inputSchema: external_exports3.object({
+      id: external_exports3.string(),
+      name: external_exports3.string().min(1).max(160).optional(),
+      description: external_exports3.string().max(2e3).optional(),
+      gitRepoUrl: external_exports3.string().url().optional(),
+      gitRepoProvider: external_exports3.string().max(40).optional()
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -38532,11 +39052,13 @@ server.tool(
     ({ id, ...data }) => apiClient.patch(`/projects/${id}`, data)
   )
 );
-server.tool(
+server.registerTool(
   "project_delete",
-  "Delete a Project. CASCADES its modules and submodules. Spec/Ticket FKs SET NULL.",
   {
-    id: external_exports3.string()
+    description: "Delete a Project. CASCADES its modules and submodules. Spec/Ticket FKs SET NULL.",
+    inputSchema: external_exports3.object({
+      id: external_exports3.string()
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({ id: external_exports3.string() }).strict(),
@@ -38544,14 +39066,16 @@ server.tool(
     ({ id }) => apiClient.delete(`/projects/${id}`)
   )
 );
-server.tool(
+server.registerTool(
   "project_repo_create",
-  "Create a ProjectRepo: a git repo declared by the current tenant. repoKey is unique per tenant (409 on duplicate) and immutable afterwards \u2014 it is the key that Task/TestCase evidence points at. Scoped to current tenant.",
   {
-    repoKey: external_exports3.string().min(1).max(64).describe('Stable key of the repo within the tenant (e.g. "integra-hub"). Letters, digits, dot, dash, underscore. Immutable after create.'),
-    displayName: external_exports3.string().min(1).max(160).describe('Human-readable name (e.g. "Integra Hub").'),
-    remoteUrl: external_exports3.string().url().optional().describe("Optional. Git remote URL of the repo."),
-    active: external_exports3.boolean().optional().describe("Optional, default true. Set false to retire a repo instead of deleting it.")
+    description: "Create a ProjectRepo: a git repo declared by the current tenant. repoKey is unique per tenant (409 on duplicate) and immutable afterwards \u2014 it is the key that Task/TestCase evidence points at. Scoped to current tenant.",
+    inputSchema: external_exports3.object({
+      repoKey: external_exports3.string().min(1).max(64).describe('Stable key of the repo within the tenant (e.g. "integra-hub"). Letters, digits, dot, dash, underscore. Immutable after create.'),
+      displayName: external_exports3.string().min(1).max(160).describe('Human-readable name (e.g. "Integra Hub").'),
+      remoteUrl: external_exports3.string().url().optional().describe("Optional. Git remote URL of the repo."),
+      active: external_exports3.boolean().optional().describe("Optional, default true. Set false to retire a repo instead of deleting it.")
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -38564,14 +39088,16 @@ server.tool(
     (data) => apiClient.post("/project-repos", data)
   )
 );
-server.tool(
+server.registerTool(
   "project_repo_list",
-  "List the ProjectRepos of the current tenant. Optionally narrow by active state or free text on repoKey/displayName.",
   {
-    active: external_exports3.boolean().optional().describe("true = only active; false = only retired; omitted = both."),
-    q: external_exports3.string().optional().describe("Contains-insensitive on repoKey/displayName."),
-    limit: external_exports3.number().optional(),
-    offset: external_exports3.number().optional()
+    description: "List the ProjectRepos of the current tenant. Optionally narrow by active state or free text on repoKey/displayName.",
+    inputSchema: external_exports3.object({
+      active: external_exports3.boolean().optional().describe("true = only active; false = only retired; omitted = both."),
+      q: external_exports3.string().optional().describe("Contains-insensitive on repoKey/displayName."),
+      limit: external_exports3.number().optional(),
+      offset: external_exports3.number().optional()
+    }).strict()
   },
   async (params) => {
     const qs = new URLSearchParams();
@@ -38583,14 +39109,16 @@ server.tool(
     return formatRead(result);
   }
 );
-server.tool(
+server.registerTool(
   "project_repo_update",
-  "Update a ProjectRepo (displayName/remoteUrl/active). repoKey is immutable \u2014 retire a repo with active:false instead of deleting or renaming it.",
   {
-    id: external_exports3.string(),
-    displayName: external_exports3.string().min(1).max(160).optional(),
-    remoteUrl: external_exports3.string().url().optional(),
-    active: external_exports3.boolean().optional()
+    description: "Update a ProjectRepo (displayName/remoteUrl/active). repoKey is immutable \u2014 retire a repo with active:false instead of deleting or renaming it.",
+    inputSchema: external_exports3.object({
+      id: external_exports3.string(),
+      displayName: external_exports3.string().min(1).max(160).optional(),
+      remoteUrl: external_exports3.string().url().optional(),
+      active: external_exports3.boolean().optional()
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -38603,13 +39131,15 @@ server.tool(
     ({ id, ...data }) => apiClient.patch(`/project-repos/${id}`, data)
   )
 );
-server.tool(
+server.registerTool(
   "module_create",
-  "Create a Module under a Project. Project must belong to current tenant. Module name is unique per project.",
   {
-    projectId: external_exports3.string().describe("Parent project ID (must belong to current tenant)."),
-    name: external_exports3.string().min(1).max(160).describe('Module name (e.g. "Tesoreria", "Spec", "skill-server"). Unique within project.'),
-    description: external_exports3.string().max(2e3).optional()
+    description: "Create a Module under a Project. Project must belong to current tenant. Module name is unique per project.",
+    inputSchema: external_exports3.object({
+      projectId: external_exports3.string().describe("Parent project ID (must belong to current tenant)."),
+      name: external_exports3.string().min(1).max(160).describe('Module name (e.g. "Tesoreria", "Spec", "skill-server"). Unique within project.'),
+      description: external_exports3.string().max(2e3).optional()
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -38621,25 +39151,29 @@ server.tool(
     (data) => apiClient.post("/modules", data)
   )
 );
-server.tool(
+server.registerTool(
   "module_get",
-  "Get a Module by id (with its Submodules). Scoped to current tenant.",
   {
-    id: external_exports3.string()
+    description: "Get a Module by id (with its Submodules). Scoped to current tenant.",
+    inputSchema: external_exports3.object({
+      id: external_exports3.string()
+    }).strict()
   },
   async (params) => {
     const mod = await apiClient.get(`/modules/${params.id}`);
     return formatRead(mod);
   }
 );
-server.tool(
+server.registerTool(
   "module_list",
-  "List Modules of the current tenant. Optionally narrow by projectId.",
   {
-    projectId: external_exports3.string().optional(),
-    q: external_exports3.string().optional(),
-    limit: external_exports3.number().optional(),
-    offset: external_exports3.number().optional()
+    description: "List Modules of the current tenant. Optionally narrow by projectId.",
+    inputSchema: external_exports3.object({
+      projectId: external_exports3.string().optional(),
+      q: external_exports3.string().optional(),
+      limit: external_exports3.number().optional(),
+      offset: external_exports3.number().optional()
+    }).strict()
   },
   async (params) => {
     const qs = new URLSearchParams();
@@ -38651,13 +39185,15 @@ server.tool(
     return formatRead(result);
   }
 );
-server.tool(
+server.registerTool(
   "module_update",
-  "Update a Module (name/description). projectId is immutable.",
   {
-    id: external_exports3.string(),
-    name: external_exports3.string().min(1).max(160).optional(),
-    description: external_exports3.string().max(2e3).optional()
+    description: "Update a Module (name/description). projectId is immutable.",
+    inputSchema: external_exports3.object({
+      id: external_exports3.string(),
+      name: external_exports3.string().min(1).max(160).optional(),
+      description: external_exports3.string().max(2e3).optional()
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -38669,11 +39205,13 @@ server.tool(
     ({ id, ...data }) => apiClient.patch(`/modules/${id}`, data)
   )
 );
-server.tool(
+server.registerTool(
   "module_delete",
-  "Delete a Module. CASCADES its submodules. Spec/Ticket FKs SET NULL.",
   {
-    id: external_exports3.string()
+    description: "Delete a Module. CASCADES its submodules. Spec/Ticket FKs SET NULL.",
+    inputSchema: external_exports3.object({
+      id: external_exports3.string()
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({ id: external_exports3.string() }).strict(),
@@ -38681,13 +39219,15 @@ server.tool(
     ({ id }) => apiClient.delete(`/modules/${id}`)
   )
 );
-server.tool(
+server.registerTool(
   "submodule_create",
-  "Create a Submodule under a Module. Module must belong to current tenant. Submodule name is unique per module. Submodules are OPTIONAL \u2014 many modules have none.",
   {
-    moduleId: external_exports3.string().describe("Parent module ID (must belong to current tenant)."),
-    name: external_exports3.string().min(1).max(160).describe('Submodule name (e.g. "Conciliaciones"). Unique within module.'),
-    description: external_exports3.string().max(2e3).optional()
+    description: "Create a Submodule under a Module. Module must belong to current tenant. Submodule name is unique per module. Submodules are OPTIONAL \u2014 many modules have none.",
+    inputSchema: external_exports3.object({
+      moduleId: external_exports3.string().describe("Parent module ID (must belong to current tenant)."),
+      name: external_exports3.string().min(1).max(160).describe('Submodule name (e.g. "Conciliaciones"). Unique within module.'),
+      description: external_exports3.string().max(2e3).optional()
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -38699,25 +39239,29 @@ server.tool(
     (data) => apiClient.post("/submodules", data)
   )
 );
-server.tool(
+server.registerTool(
   "submodule_get",
-  "Get a Submodule by id. Scoped to current tenant.",
   {
-    id: external_exports3.string()
+    description: "Get a Submodule by id. Scoped to current tenant.",
+    inputSchema: external_exports3.object({
+      id: external_exports3.string()
+    }).strict()
   },
   async (params) => {
     const sub = await apiClient.get(`/submodules/${params.id}`);
     return formatRead(sub);
   }
 );
-server.tool(
+server.registerTool(
   "submodule_list",
-  "List Submodules of the current tenant. Optionally narrow by moduleId.",
   {
-    moduleId: external_exports3.string().optional(),
-    q: external_exports3.string().optional(),
-    limit: external_exports3.number().optional(),
-    offset: external_exports3.number().optional()
+    description: "List Submodules of the current tenant. Optionally narrow by moduleId.",
+    inputSchema: external_exports3.object({
+      moduleId: external_exports3.string().optional(),
+      q: external_exports3.string().optional(),
+      limit: external_exports3.number().optional(),
+      offset: external_exports3.number().optional()
+    }).strict()
   },
   async (params) => {
     const qs = new URLSearchParams();
@@ -38729,13 +39273,15 @@ server.tool(
     return formatRead(result);
   }
 );
-server.tool(
+server.registerTool(
   "submodule_update",
-  "Update a Submodule (name/description). moduleId is immutable.",
   {
-    id: external_exports3.string(),
-    name: external_exports3.string().min(1).max(160).optional(),
-    description: external_exports3.string().max(2e3).optional()
+    description: "Update a Submodule (name/description). moduleId is immutable.",
+    inputSchema: external_exports3.object({
+      id: external_exports3.string(),
+      name: external_exports3.string().min(1).max(160).optional(),
+      description: external_exports3.string().max(2e3).optional()
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -38747,11 +39293,13 @@ server.tool(
     ({ id, ...data }) => apiClient.patch(`/submodules/${id}`, data)
   )
 );
-server.tool(
+server.registerTool(
   "submodule_delete",
-  "Delete a Submodule. Spec/Ticket FKs SET NULL.",
   {
-    id: external_exports3.string()
+    description: "Delete a Submodule. Spec/Ticket FKs SET NULL.",
+    inputSchema: external_exports3.object({
+      id: external_exports3.string()
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({ id: external_exports3.string() }).strict(),
@@ -38759,13 +39307,15 @@ server.tool(
     ({ id }) => apiClient.delete(`/submodules/${id}`)
   )
 );
-server.tool(
+server.registerTool(
   "initiative_create",
-  "Create an Initiative (passive grouping of related Specs). number INI-NNNN is generated server-side \u2014 never provided by the client.",
   {
-    name: external_exports3.string().min(1).max(160).describe("Initiative display name."),
-    description: external_exports3.string().max(2e3).optional(),
-    ownerId: external_exports3.string().describe("Owner user cuid. Immutable post-create.")
+    description: "Create an Initiative (passive grouping of related Specs). number INI-NNNN is generated server-side \u2014 never provided by the client.",
+    inputSchema: external_exports3.object({
+      name: external_exports3.string().min(1).max(160).describe("Initiative display name."),
+      description: external_exports3.string().max(2e3).optional(),
+      ownerId: external_exports3.string().describe("Owner user cuid. Immutable post-create.")
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -38777,22 +39327,26 @@ server.tool(
     (data) => apiClient.post("/initiatives", data)
   )
 );
-server.tool(
+server.registerTool(
   "initiative_get",
-  "Get an Initiative by cuid (cuid-only \u2014 resolve INI-NNNN first via initiative_resolve_by_number). Returns detail incl. assigned specs and specCountByState: EXCLUSIVELY { [stateName]: count } (O4 \u2014 no burn-down/velocity metrics in v1). Scoped to current tenant.",
   {
-    id: external_exports3.string().describe("Initiative cuid (cuid-only; use initiative_resolve_by_number for INI-NNNN).")
+    description: "Get an Initiative by cuid (cuid-only \u2014 resolve INI-NNNN first via initiative_resolve_by_number). Returns detail incl. assigned specs and specCountByState: EXCLUSIVELY { [stateName]: count } (O4 \u2014 no burn-down/velocity metrics in v1). Scoped to current tenant.",
+    inputSchema: external_exports3.object({
+      id: external_exports3.string().describe("Initiative cuid (cuid-only; use initiative_resolve_by_number for INI-NNNN).")
+    }).strict()
   },
   makeInitiativeGetHandler(apiClient)
 );
-server.tool(
+server.registerTool(
   "initiative_list",
-  "List Initiatives of the current tenant. Filters: ownerId, archived (true = only archived, false = only active, omitted = both). Pagination limit/offset. Returns {data, total, limit, offset}.",
   {
-    ownerId: external_exports3.string().optional(),
-    archived: external_exports3.boolean().optional(),
-    limit: external_exports3.number().optional(),
-    offset: external_exports3.number().optional()
+    description: "List Initiatives of the current tenant. Filters: ownerId, archived (true = only archived, false = only active, omitted = both). Pagination limit/offset. Returns {data, total, limit, offset}.",
+    inputSchema: external_exports3.object({
+      ownerId: external_exports3.string().optional(),
+      archived: external_exports3.boolean().optional(),
+      limit: external_exports3.number().optional(),
+      offset: external_exports3.number().optional()
+    }).strict()
   },
   async (params) => {
     const qs = new URLSearchParams();
@@ -38804,13 +39358,15 @@ server.tool(
     return formatRead(result);
   }
 );
-server.tool(
+server.registerTool(
   "initiative_update",
-  "Update an Initiative (name/description only \u2014 number, tenantId and ownerId are immutable).",
   {
-    id: external_exports3.string().describe("Initiative cuid."),
-    name: external_exports3.string().min(1).max(160).optional(),
-    description: external_exports3.string().max(2e3).optional()
+    description: "Update an Initiative (name/description only \u2014 number, tenantId and ownerId are immutable).",
+    inputSchema: external_exports3.object({
+      id: external_exports3.string().describe("Initiative cuid."),
+      name: external_exports3.string().min(1).max(160).optional(),
+      description: external_exports3.string().max(2e3).optional()
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -38822,11 +39378,13 @@ server.tool(
     ({ id, ...data }) => apiClient.patch(`/initiatives/${id}`, data)
   )
 );
-server.tool(
+server.registerTool(
   "initiative_archive",
-  "Archive an Initiative (sets archivedAt, removes it from active listings). Idempotent \u2014 a second archive does NOT change the original date. This is the ONLY lifecycle operation: Initiative has NO state machine (O5).",
   {
-    id: external_exports3.string().describe("Initiative cuid.")
+    description: "Archive an Initiative (sets archivedAt, removes it from active listings). Idempotent \u2014 a second archive does NOT change the original date. This is the ONLY lifecycle operation: Initiative has NO state machine (O5).",
+    inputSchema: external_exports3.object({
+      id: external_exports3.string().describe("Initiative cuid.")
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({ id: external_exports3.string() }).strict(),
@@ -38834,12 +39392,14 @@ server.tool(
     ({ id }) => apiClient.post(`/initiatives/${id}/archive`, {})
   )
 );
-server.tool(
+server.registerTool(
   "spec_assign_to_initiative",
-  "Assign a Spec to an Initiative (sets Spec.initiativeId \u2014 OVERWRITES a previous assignment, ADR-5; audit via existing activity-log, OQ2). Both must belong to current tenant. specId is cuid-only (resolve SPEC-XXXX via spec_resolve_by_number).",
   {
-    initiativeId: external_exports3.string().describe("Initiative cuid."),
-    specId: external_exports3.string().describe("Spec cuid (cuid-only).")
+    description: "Assign a Spec to an Initiative (sets Spec.initiativeId \u2014 OVERWRITES a previous assignment, ADR-5; audit via existing activity-log, OQ2). Both must belong to current tenant. specId is cuid-only (resolve SPEC-XXXX via spec_resolve_by_number).",
+    inputSchema: external_exports3.object({
+      initiativeId: external_exports3.string().describe("Initiative cuid."),
+      specId: external_exports3.string().describe("Spec cuid (cuid-only).")
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({ initiativeId: external_exports3.string(), specId: external_exports3.string() }).strict(),
@@ -38847,12 +39407,14 @@ server.tool(
     ({ initiativeId, specId }) => apiClient.post(`/initiatives/${initiativeId}/assign-spec`, { specId })
   )
 );
-server.tool(
+server.registerTool(
   "spec_remove_from_initiative",
-  "Remove a Spec from an Initiative (sets Spec.initiativeId = null). specId is cuid-only.",
   {
-    initiativeId: external_exports3.string().describe("Initiative cuid (the one the spec is being removed from)."),
-    specId: external_exports3.string().describe("Spec cuid (cuid-only).")
+    description: "Remove a Spec from an Initiative (sets Spec.initiativeId = null). specId is cuid-only.",
+    inputSchema: external_exports3.object({
+      initiativeId: external_exports3.string().describe("Initiative cuid (the one the spec is being removed from)."),
+      specId: external_exports3.string().describe("Spec cuid (cuid-only).")
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({ initiativeId: external_exports3.string(), specId: external_exports3.string() }).strict(),
@@ -38860,34 +39422,38 @@ server.tool(
     ({ initiativeId, specId }) => apiClient.post(`/initiatives/${initiativeId}/remove-spec`, { specId })
   )
 );
-server.tool(
+server.registerTool(
   "qa_spec_get",
-  "Get a QaSpecification by id (tenant-scoped). 404 si pertenece a otro tenant. Devuelve full record incluyendo content, validationSteps, originalContent (snapshot pre-edit si aplica), llmModel/llmCostCents, status lifecycle, reviewedBy/At, rejectReason.",
   {
-    id: external_exports3.string().describe("QaSpecification id.")
+    description: "Get a QaSpecification by id (tenant-scoped). 404 si pertenece a otro tenant. Devuelve full record incluyendo content, validationSteps, originalContent (snapshot pre-edit si aplica), llmModel/llmCostCents, status lifecycle, reviewedBy/At, rejectReason.",
+    inputSchema: external_exports3.object({
+      id: external_exports3.string().describe("QaSpecification id.")
+    }).strict()
   },
   async (params) => {
     const qaSpec = await apiClient.get(`/qa-specs/${params.id}`);
     return formatRead(qaSpec);
   }
 );
-server.tool(
+server.registerTool(
   "qa_spec_list",
-  "List QaSpecifications con filters tenant-scoped. Filters: status (lifecycle), specId, phaseId, includeFailures (default true \u2014 set false para excluir status=FAILED). Pagination: limit (default 50, max 200) + offset. Default ordering createdAt DESC. Returns {data, total, limit, offset}.",
   {
-    status: external_exports3.enum([
-      "AUTO_GENERATED",
-      "UNDER_REVIEW",
-      "APPROVED",
-      "IN_QA",
-      "COMPLETED",
-      "FAILED"
-    ]).optional().describe("Filter por lifecycle status."),
-    specId: external_exports3.string().optional().describe("Filter por parent Spec id."),
-    phaseId: external_exports3.string().optional().describe("Filter por parent SpecPhase id."),
-    includeFailures: external_exports3.boolean().optional().describe("Default true. Set false para excluir status=FAILED."),
-    limit: external_exports3.number().int().min(1).max(200).optional().describe("Default 50, max 200."),
-    offset: external_exports3.number().int().min(0).optional().describe("Default 0.")
+    description: "List QaSpecifications con filters tenant-scoped. Filters: status (lifecycle), specId, phaseId, includeFailures (default true \u2014 set false para excluir status=FAILED). Pagination: limit (default 50, max 200) + offset. Default ordering createdAt DESC. Returns {data, total, limit, offset}.",
+    inputSchema: external_exports3.object({
+      status: external_exports3.enum([
+        "AUTO_GENERATED",
+        "UNDER_REVIEW",
+        "APPROVED",
+        "IN_QA",
+        "COMPLETED",
+        "FAILED"
+      ]).optional().describe("Filter por lifecycle status."),
+      specId: external_exports3.string().optional().describe("Filter por parent Spec id."),
+      phaseId: external_exports3.string().optional().describe("Filter por parent SpecPhase id."),
+      includeFailures: external_exports3.boolean().optional().describe("Default true. Set false para excluir status=FAILED."),
+      limit: external_exports3.number().int().min(1).max(200).optional().describe("Default 50, max 200."),
+      offset: external_exports3.number().int().min(0).optional().describe("Default 0.")
+    }).strict()
   },
   async (params) => {
     const qs = new URLSearchParams();
@@ -38902,20 +39468,22 @@ server.tool(
     return formatRead(result);
   }
 );
-server.tool(
+server.registerTool(
   "qa_spec_open_review",
-  'Lifecycle convenience tool: AUTO_GENERATED \u2192 UNDER_REVIEW. Senior architect abre la QaSpec para revisar (puede despu\xE9s editar via qa_spec_update y aprobar/rechazar via qa_spec_approve/reject). Audit row creada con action=EDIT + notes="opened review" (R1 enum extension RECHAZADO operador \u2014 reusar EDIT con notes). SPEC-0089 v0.3.1: verification_tokens validated (no markdown target \u2014 Option A). Strict-enforced post MCP_SERVER_RELEASE >= 0.2.0.',
   {
-    id: external_exports3.string().describe("QaSpecification id en estado AUTO_GENERATED."),
-    verification_tokens: verificationTokensField
+    description: 'Lifecycle convenience tool: AUTO_GENERATED \u2192 UNDER_REVIEW. Senior architect abre la QaSpec para revisar (puede despu\xE9s editar via qa_spec_update y aprobar/rechazar via qa_spec_approve/reject). Audit row creada con action=EDIT + notes="opened review" (R1 enum extension RECHAZADO operador \u2014 reusar EDIT con notes). SPEC-0089 v0.3.1: verification_tokens validated (no markdown target \u2014 Option A). Strict-enforced post MCP_SERVER_RELEASE >= 0.2.0.',
+    inputSchema: external_exports3.object({
+      id: external_exports3.string().describe("QaSpecification id en estado AUTO_GENERATED."),
+      verification_tokens: verificationTokensField
+    }).strict()
   },
   async (params) => {
-    const ParamsSchema17 = external_exports3.object({
+    const ParamsSchema18 = external_exports3.object({
       id: external_exports3.string(),
       verification_tokens: verificationTokensField
     }).strict();
     try {
-      const validated = ParamsSchema17.parse(params);
+      const validated = ParamsSchema18.parse(params);
       const qaSpec = await apiClient.post(`/qa-specs/${validated.id}/transitions`, {
         to: "UNDER_REVIEW"
       });
@@ -38933,20 +39501,22 @@ server.tool(
     }
   }
 );
-server.tool(
+server.registerTool(
   "qa_spec_approve",
-  "Lifecycle convenience tool: UNDER_REVIEW \u2192 APPROVED. Senior architect aprueba la QaSpec post-revisi\xF3n. reviewedById + reviewedAt populated server-side. QA team puede entonces tomar ownership (futuro: qa_spec_start_qa). Audit row con action=APPROVE. SPEC-0089 v0.3.1: verification_tokens validated (no markdown target \u2014 Option A). Approval is a structural verdict. Strict-enforced post MCP_SERVER_RELEASE >= 0.2.0.",
   {
-    id: external_exports3.string().describe("QaSpecification id en estado UNDER_REVIEW."),
-    verification_tokens: verificationTokensField
+    description: "Lifecycle convenience tool: UNDER_REVIEW \u2192 APPROVED. Senior architect aprueba la QaSpec post-revisi\xF3n. reviewedById + reviewedAt populated server-side. QA team puede entonces tomar ownership (futuro: qa_spec_start_qa). Audit row con action=APPROVE. SPEC-0089 v0.3.1: verification_tokens validated (no markdown target \u2014 Option A). Approval is a structural verdict. Strict-enforced post MCP_SERVER_RELEASE >= 0.2.0.",
+    inputSchema: external_exports3.object({
+      id: external_exports3.string().describe("QaSpecification id en estado UNDER_REVIEW."),
+      verification_tokens: verificationTokensField
+    }).strict()
   },
   async (params) => {
-    const ParamsSchema17 = external_exports3.object({
+    const ParamsSchema18 = external_exports3.object({
       id: external_exports3.string(),
       verification_tokens: verificationTokensField
     }).strict();
     try {
-      const validated = ParamsSchema17.parse(params);
+      const validated = ParamsSchema18.parse(params);
       const qaSpec = await apiClient.post(`/qa-specs/${validated.id}/transitions`, {
         to: "APPROVED"
       });
@@ -38964,15 +39534,17 @@ server.tool(
     }
   }
 );
-server.tool(
+server.registerTool(
   "qa_run_create",
-  'Create QaRun PENDING contra una QaSpec APPROVED. Cross-module side-effect (D-D6): QaSpec.transition() APPROVED\u2192IN_QA disparado autom\xE1ticamente. Workspace/Project/Module/Submodule denormalizados desde qaSpec.spec para fast-filter. runByUserId server-set desde JWT. runByAgent free-form opcional ("ci-github-actions", "qa-runner-agent"). 409 si QaSpec status != APPROVED.',
   {
-    qaSpecificationId: external_exports3.string().describe("QaSpecification id en estado APPROVED."),
-    environment: external_exports3.enum(["DEV", "STAGING", "QA", "PROD"]).describe("TAG l\xF3gico V1 (D-D5). Infra f\xEDsica separada FuturePromise."),
-    runByAgent: external_exports3.string().max(120).optional().describe("Identificador free-form del agent. NULL = MANUAL_OPERATOR humano."),
-    ciCommitSha: external_exports3.string().max(80).optional(),
-    ciRunUrl: external_exports3.string().url().max(500).optional()
+    description: 'Create QaRun PENDING contra una QaSpec APPROVED. Cross-module side-effect (D-D6): QaSpec.transition() APPROVED\u2192IN_QA disparado autom\xE1ticamente. Workspace/Project/Module/Submodule denormalizados desde qaSpec.spec para fast-filter. runByUserId server-set desde JWT. runByAgent free-form opcional ("ci-github-actions", "qa-runner-agent"). 409 si QaSpec status != APPROVED.',
+    inputSchema: external_exports3.object({
+      qaSpecificationId: external_exports3.string().describe("QaSpecification id en estado APPROVED."),
+      environment: external_exports3.enum(["DEV", "STAGING", "QA", "PROD"]).describe("TAG l\xF3gico V1 (D-D5). Infra f\xEDsica separada FuturePromise."),
+      runByAgent: external_exports3.string().max(120).optional().describe("Identificador free-form del agent. NULL = MANUAL_OPERATOR humano."),
+      ciCommitSha: external_exports3.string().max(80).optional(),
+      ciRunUrl: external_exports3.string().url().max(500).optional()
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -38986,31 +39558,35 @@ server.tool(
     (data) => apiClient.post("/qa-runs", data)
   )
 );
-server.tool(
+server.registerTool(
   "qa_run_get",
-  "Get a QaRun by id (tenant-scoped). Devuelve full record con relations: steps (ordered by stepIndex asc) + divergences (ordered by createdAt asc) + qaSpecification summary (id/title/status/specId/phaseId). 404 si pertenece a otro tenant.",
   {
-    id: external_exports3.string().describe("QaRun id.")
+    description: "Get a QaRun by id (tenant-scoped). Devuelve full record con relations: steps (ordered by stepIndex asc) + divergences (ordered by createdAt asc) + qaSpecification summary (id/title/status/specId/phaseId). 404 si pertenece a otro tenant.",
+    inputSchema: external_exports3.object({
+      id: external_exports3.string().describe("QaRun id.")
+    }).strict()
   },
   async (params) => {
     const qaRun = await apiClient.get(`/qa-runs/${params.id}`);
     return formatRead(qaRun);
   }
 );
-server.tool(
+server.registerTool(
   "qa_run_list",
-  "List QaRuns con filters tenant-scoped. Filters: qaSpecificationId, status (lifecycle), environment (DEV/STAGING/QA/PROD), runByUserId, workspaceId/projectId/moduleId/submoduleId. Pagination: limit (default 50, max 200) + offset. Default ordering createdAt DESC. Returns {data, total, limit, offset}.",
   {
-    qaSpecificationId: external_exports3.string().optional(),
-    status: external_exports3.enum(["PENDING", "RUNNING", "COMPLETED", "FAILED", "ABORTED"]).optional(),
-    environment: external_exports3.enum(["DEV", "STAGING", "QA", "PROD"]).optional(),
-    runByUserId: external_exports3.string().optional(),
-    workspaceId: external_exports3.string().optional(),
-    projectId: external_exports3.string().optional(),
-    moduleId: external_exports3.string().optional(),
-    submoduleId: external_exports3.string().optional(),
-    limit: external_exports3.number().int().min(1).max(200).optional(),
-    offset: external_exports3.number().int().min(0).optional()
+    description: "List QaRuns con filters tenant-scoped. Filters: qaSpecificationId, status (lifecycle), environment (DEV/STAGING/QA/PROD), runByUserId, workspaceId/projectId/moduleId/submoduleId. Pagination: limit (default 50, max 200) + offset. Default ordering createdAt DESC. Returns {data, total, limit, offset}.",
+    inputSchema: external_exports3.object({
+      qaSpecificationId: external_exports3.string().optional(),
+      status: external_exports3.enum(["PENDING", "RUNNING", "COMPLETED", "FAILED", "ABORTED"]).optional(),
+      environment: external_exports3.enum(["DEV", "STAGING", "QA", "PROD"]).optional(),
+      runByUserId: external_exports3.string().optional(),
+      workspaceId: external_exports3.string().optional(),
+      projectId: external_exports3.string().optional(),
+      moduleId: external_exports3.string().optional(),
+      submoduleId: external_exports3.string().optional(),
+      limit: external_exports3.number().int().min(1).max(200).optional(),
+      offset: external_exports3.number().int().min(0).optional()
+    }).strict()
   },
   async (params) => {
     const qs = new URLSearchParams();
@@ -39036,16 +39612,18 @@ var qaRunRecordStepInputSchema = external_exports3.object({
   output: external_exports3.string().optional(),
   errorMessage: external_exports3.string().optional()
 }).strict();
-server.tool(
+server.registerTool(
   "qa_run_record_step",
-  "Record a QaRunStep. Auto-transition QaRun PENDING\u2192RUNNING al primer step (idempotente). 409 si run cerrado (COMPLETED/FAILED/ABORTED). Unique constraint (qaRunId, stepIndex) \u2014 duplicates rejected. status PASS/FAIL/SKIP setean completedAt server-side; RUNNING setea startedAt.",
   {
-    id: external_exports3.string().describe("QaRun id."),
-    stepIndex: external_exports3.number().int().min(0).describe("0-based index del step dentro del run."),
-    name: external_exports3.string().min(1).max(200).describe("Nombre del step (matchable con validationStep de QaSpec por convention, NO FK)."),
-    status: external_exports3.enum(["PENDING", "RUNNING", "PASS", "FAIL", "SKIP"]),
-    output: external_exports3.string().optional().describe("Output free-form (logs, screenshots URLs, expected vs actual)."),
-    errorMessage: external_exports3.string().optional().describe("Error structured cuando status=FAIL.")
+    description: "Record a QaRunStep. Auto-transition QaRun PENDING\u2192RUNNING al primer step (idempotente). 409 si run cerrado (COMPLETED/FAILED/ABORTED). Unique constraint (qaRunId, stepIndex) \u2014 duplicates rejected. status PASS/FAIL/SKIP setean completedAt server-side; RUNNING setea startedAt.",
+    inputSchema: external_exports3.object({
+      id: external_exports3.string().describe("QaRun id."),
+      stepIndex: external_exports3.number().int().min(0).describe("0-based index del step dentro del run."),
+      name: external_exports3.string().min(1).max(200).describe("Nombre del step (matchable con validationStep de QaSpec por convention, NO FK)."),
+      status: external_exports3.enum(["PENDING", "RUNNING", "PASS", "FAIL", "SKIP"]),
+      output: external_exports3.string().optional().describe("Output free-form (logs, screenshots URLs, expected vs actual)."),
+      errorMessage: external_exports3.string().optional().describe("Error structured cuando status=FAIL.")
+    }).strict()
   },
   async (params) => strictApply(
     qaRunRecordStepInputSchema,
@@ -39053,20 +39631,22 @@ server.tool(
     ({ id, ...data }) => apiClient.post(`/qa-runs/${id}/steps`, data)
   )
 );
-server.tool(
+server.registerTool(
   "qa_run_register_divergence",
-  "Register a QaDivergence (failure detectada vs criterios QaSpec). autoCreateTicket=true + severity \u2208 {BLOCKER, MAJOR} \u2192 TSK-C handler crear\xE1 ticket as\xEDncrono (soft-fail). MINOR/INFO log-only. F3 TSK-B s\xF3lo persiste. qaRunStepId opcional \u2014 si presente, validado pertenece al run. 409 si run cerrado. SPEC-0089 v0.3.1: verification_tokens prepended to details as `## Verification` table when details is provided; otherwise prepended to summary. Strict-enforced post MCP_SERVER_RELEASE >= 0.2.0.",
   {
-    id: external_exports3.string().describe("QaRun id."),
-    qaRunStepId: external_exports3.string().optional().describe("Step opcional al que aplica. NULL = aplica al run entero."),
-    severity: external_exports3.enum(["BLOCKER", "MAJOR", "MINOR", "INFO"]),
-    summary: external_exports3.string().min(1).max(500).describe("Resumen corto de la divergence."),
-    details: external_exports3.string().optional().describe("Detalle full free-form."),
-    autoCreateTicket: external_exports3.boolean().optional().describe("Default false. Si true + severity \u2208 {BLOCKER,MAJOR}, TSK-C handler crea ticket."),
-    verification_tokens: verificationTokensField
+    description: "Register a QaDivergence (failure detectada vs criterios QaSpec). autoCreateTicket=true + severity \u2208 {BLOCKER, MAJOR} \u2192 TSK-C handler crear\xE1 ticket as\xEDncrono (soft-fail). MINOR/INFO log-only. F3 TSK-B s\xF3lo persiste. qaRunStepId opcional \u2014 si presente, validado pertenece al run. 409 si run cerrado. SPEC-0089 v0.3.1: verification_tokens prepended to details as `## Verification` table when details is provided; otherwise prepended to summary. Strict-enforced post MCP_SERVER_RELEASE >= 0.2.0.",
+    inputSchema: external_exports3.object({
+      id: external_exports3.string().describe("QaRun id."),
+      qaRunStepId: external_exports3.string().optional().describe("Step opcional al que aplica. NULL = aplica al run entero."),
+      severity: external_exports3.enum(["BLOCKER", "MAJOR", "MINOR", "INFO"]),
+      summary: external_exports3.string().min(1).max(500).describe("Resumen corto de la divergence."),
+      details: external_exports3.string().optional().describe("Detalle full free-form."),
+      autoCreateTicket: external_exports3.boolean().optional().describe("Default false. Si true + severity \u2208 {BLOCKER,MAJOR}, TSK-C handler crea ticket."),
+      verification_tokens: verificationTokensField
+    }).strict()
   },
   async (params) => {
-    const ParamsSchema17 = external_exports3.object({
+    const ParamsSchema18 = external_exports3.object({
       id: external_exports3.string(),
       qaRunStepId: external_exports3.string().optional(),
       severity: external_exports3.enum(["BLOCKER", "MAJOR", "MINOR", "INFO"]),
@@ -39076,7 +39656,7 @@ server.tool(
       verification_tokens: verificationTokensField
     }).strict();
     try {
-      const validated = ParamsSchema17.parse(params);
+      const validated = ParamsSchema18.parse(params);
       const { id, verification_tokens, summary, details, ...rest } = validated;
       const detailsWithTokens = details !== void 0 ? prependTokensHeader(details, verification_tokens) : void 0;
       const summaryWithTokens = details === void 0 ? prependTokensHeader(summary, verification_tokens) : summary;
@@ -39100,15 +39680,17 @@ server.tool(
     }
   }
 );
-server.tool(
+server.registerTool(
   "ihub_update_task_status",
-  'Update a task status with optional idempotency-key dedup. When idempotencyKey is provided, repeated calls return {kind:"idempotent_replay"} instead of re-applying; replaying the same key with a different status returns 409 IDEMPOTENCY_CONFLICT.',
   {
-    id: external_exports3.string().describe("Task ID"),
-    status: external_exports3.enum(["INBOX", "BACKLOG", "IN_PROGRESS", "DONE", "ARCHIVED"]).describe("Target task status"),
-    idempotencyKey: external_exports3.string().optional().describe(
-      "Optional idempotency key. Same (taskId, idempotencyKey) pair always resolves to the same outcome."
-    )
+    description: 'Update a task status with optional idempotency-key dedup. When idempotencyKey is provided, repeated calls return {kind:"idempotent_replay"} instead of re-applying; replaying the same key with a different status returns 409 IDEMPOTENCY_CONFLICT.',
+    inputSchema: external_exports3.object({
+      id: external_exports3.string().describe("Task ID"),
+      status: external_exports3.enum(["INBOX", "BACKLOG", "IN_PROGRESS", "DONE", "ARCHIVED"]).describe("Target task status"),
+      idempotencyKey: external_exports3.string().optional().describe(
+        "Optional idempotency key. Same (taskId, idempotencyKey) pair always resolves to the same outcome."
+      )
+    }).strict()
   },
   async (params) => strictApply(
     external_exports3.object({
@@ -39128,14 +39710,16 @@ var taskAckInputSchema = external_exports3.object({
 }).strict().refine((v) => Boolean(v.taskId) !== Boolean(v.ticketId), {
   message: "exactly one of taskId | ticketId is required"
 });
-server.tool(
+server.registerTool(
   "task_ack",
-  "Acknowledge active TaskAckSession for current Claude Code session. Pass EITHER taskId (phase task) OR ticketId (standalone ticket \u2014 TKT-0233), never both. Invokes POST /api/v1/tasks/:id/ack or POST /api/v1/tickets/:id/ack (SPEC-0080 S6 Sprint C EP-2). Server derives ackMode from Tenant.ackTaskMode snapshot \u2014 no client-side mode override. Upserts TaskAckSession per (sessionId, tenantId).",
   {
-    taskId: external_exports3.string().optional().describe("Task ID (cuid) to acknowledge. Mutually exclusive with ticketId."),
-    ticketId: external_exports3.string().optional().describe("Ticket ID (cuid) to acknowledge when the work item is a standalone ticket. Mutually exclusive with taskId."),
-    sessionId: external_exports3.string().min(1).max(64).describe("Claude Code session ID (1-64 chars per AckTaskDto bounds)"),
-    cwd: external_exports3.string().min(1).max(500).describe("Working directory snapshot at ack time (1-500 chars per AckTaskDto bounds)")
+    description: "Acknowledge active TaskAckSession for current Claude Code session. Pass EITHER taskId (phase task) OR ticketId (standalone ticket \u2014 TKT-0233), never both. Invokes POST /api/v1/tasks/:id/ack or POST /api/v1/tickets/:id/ack (SPEC-0080 S6 Sprint C EP-2). Server derives ackMode from Tenant.ackTaskMode snapshot \u2014 no client-side mode override. Upserts TaskAckSession per (sessionId, tenantId).",
+    inputSchema: external_exports3.object({
+      taskId: external_exports3.string().optional().describe("Task ID (cuid) to acknowledge. Mutually exclusive with ticketId."),
+      ticketId: external_exports3.string().optional().describe("Ticket ID (cuid) to acknowledge when the work item is a standalone ticket. Mutually exclusive with taskId."),
+      sessionId: external_exports3.string().min(1).max(64).describe("Claude Code session ID (1-64 chars per AckTaskDto bounds)"),
+      cwd: external_exports3.string().min(1).max(500).describe("Working directory snapshot at ack time (1-500 chars per AckTaskDto bounds)")
+    }).strict()
   },
   async (params) => strictApply(
     taskAckInputSchema,
@@ -39161,13 +39745,15 @@ var phaseReopenRejectInputSchema = external_exports3.object({
   requestId: external_exports3.string(),
   rejectionReason: external_exports3.string().max(2e3).optional()
 }).strict();
-server.tool(
+server.registerTool(
   "phase_reopen_request",
-  "Request formal reopen of a COMPLETED or SKIPPED phase (TKT-0019 Policy D3, 4-eyes accountability). Creates PhaseReopenRequest PENDING_APPROVAL. A second user with permission phase.reopen.approve must call phase_reopen_approve before any phase mutation. Service-layer rejects with 409 if another request is already pending.",
   {
-    specId: external_exports3.string().describe("Spec ID (cuid)"),
-    phaseId: external_exports3.string().describe("SpecPhase ID (cuid)"),
-    reason: external_exports3.string().min(10).describe("Justification for the reopen (min 10 chars). Persisted on PhaseReopenRequest.reason.")
+    description: "Request formal reopen of a COMPLETED or SKIPPED phase (TKT-0019 Policy D3, 4-eyes accountability). Creates PhaseReopenRequest PENDING_APPROVAL. A second user with permission phase.reopen.approve must call phase_reopen_approve before any phase mutation. Service-layer rejects with 409 if another request is already pending.",
+    inputSchema: external_exports3.object({
+      specId: external_exports3.string().describe("Spec ID (cuid)"),
+      phaseId: external_exports3.string().describe("SpecPhase ID (cuid)"),
+      reason: external_exports3.string().min(10).describe("Justification for the reopen (min 10 chars). Persisted on PhaseReopenRequest.reason.")
+    }).strict()
   },
   async (params) => strictApply(
     phaseReopenRequestInputSchema,
@@ -39175,15 +39761,17 @@ server.tool(
     ({ specId, phaseId, reason }) => apiClient.post(`/specs/${specId}/phases/${phaseId}/reopen-request`, { reason })
   )
 );
-server.tool(
+server.registerTool(
   "phase_reopen_approve",
-  "Approve a PENDING reopen request (Sub-A 4-eyes). Atomic transaction: marks request APPROVED, creates PhaseReopenRecord, transits phase COMPLETED/SKIPPED \u2192 IN_PROGRESS, writes PhaseStateHistory row with trigger=reopen-approved. Self-approval blocked at service layer (currentUser != requester). Permission required: phase.reopen.approve (APPROVER / SENIOR_ARCHITECT / TENANT_ADMIN). SPEC-0089 v0.3.1: verification_tokens prepended to `comment` as `## Verification` table when present (state transition is a verdict). Strict-enforced post MCP_SERVER_RELEASE >= 0.2.0.",
   {
-    specId: external_exports3.string(),
-    phaseId: external_exports3.string(),
-    requestId: external_exports3.string().describe("PhaseReopenRequest cuid to approve"),
-    comment: external_exports3.string().max(2e3).optional().describe("Optional approver comment"),
-    verification_tokens: verificationTokensField
+    description: "Approve a PENDING reopen request (Sub-A 4-eyes). Atomic transaction: marks request APPROVED, creates PhaseReopenRecord, transits phase COMPLETED/SKIPPED \u2192 IN_PROGRESS, writes PhaseStateHistory row with trigger=reopen-approved. Self-approval blocked at service layer (currentUser != requester). Permission required: phase.reopen.approve (APPROVER / SENIOR_ARCHITECT / TENANT_ADMIN). SPEC-0089 v0.3.1: verification_tokens prepended to `comment` as `## Verification` table when present (state transition is a verdict). Strict-enforced post MCP_SERVER_RELEASE >= 0.2.0.",
+    inputSchema: external_exports3.object({
+      specId: external_exports3.string(),
+      phaseId: external_exports3.string(),
+      requestId: external_exports3.string().describe("PhaseReopenRequest cuid to approve"),
+      comment: external_exports3.string().max(2e3).optional().describe("Optional approver comment"),
+      verification_tokens: verificationTokensField
+    }).strict()
   },
   async (params) => {
     try {
@@ -39209,14 +39797,16 @@ server.tool(
     }
   }
 );
-server.tool(
+server.registerTool(
   "phase_reopen_reject",
-  "Reject a PENDING reopen request. Self-withdrawal by requester allowed (rejection is not a unilateral state change \u2014 phase status is NOT transitioned). Marks request REJECTED + optional rejectionReason.",
   {
-    specId: external_exports3.string(),
-    phaseId: external_exports3.string(),
-    requestId: external_exports3.string().describe("PhaseReopenRequest cuid to reject"),
-    rejectionReason: external_exports3.string().max(2e3).optional().describe("Optional reason persisted on PhaseReopenRequest.rejectionReason")
+    description: "Reject a PENDING reopen request. Self-withdrawal by requester allowed (rejection is not a unilateral state change \u2014 phase status is NOT transitioned). Marks request REJECTED + optional rejectionReason.",
+    inputSchema: external_exports3.object({
+      specId: external_exports3.string(),
+      phaseId: external_exports3.string(),
+      requestId: external_exports3.string().describe("PhaseReopenRequest cuid to reject"),
+      rejectionReason: external_exports3.string().max(2e3).optional().describe("Optional reason persisted on PhaseReopenRequest.rejectionReason")
+    }).strict()
   },
   async (params) => strictApply(
     phaseReopenRejectInputSchema,
@@ -39227,16 +39817,18 @@ server.tool(
     )
   )
 );
-server.tool(
+server.registerTool(
   "phase_reopen_list",
-  "List historical reopen requests for a phase. Optional filters: status, requestedById. Standard pagination (limit \u2264 200). Includes requestedBy + approvedBy + reopenRecord for navigable audit. Idempotent read \u2014 none category, no token requirement, no strict gate.",
   {
-    specId: external_exports3.string(),
-    phaseId: external_exports3.string(),
-    status: external_exports3.enum(["PENDING_APPROVAL", "APPROVED", "REJECTED"]).optional(),
-    requestedById: external_exports3.string().optional(),
-    limit: external_exports3.number().optional(),
-    offset: external_exports3.number().optional()
+    description: "List historical reopen requests for a phase. Optional filters: status, requestedById. Standard pagination (limit \u2264 200). Includes requestedBy + approvedBy + reopenRecord for navigable audit. Idempotent read \u2014 none category, no token requirement, no strict gate.",
+    inputSchema: external_exports3.object({
+      specId: external_exports3.string(),
+      phaseId: external_exports3.string(),
+      status: external_exports3.enum(["PENDING_APPROVAL", "APPROVED", "REJECTED"]).optional(),
+      requestedById: external_exports3.string().optional(),
+      limit: external_exports3.number().optional(),
+      offset: external_exports3.number().optional()
+    }).strict()
   },
   async (params) => {
     const qs = new URLSearchParams();
@@ -39249,12 +39841,14 @@ server.tool(
     return formatRead(result);
   }
 );
-server.tool(
+server.registerTool(
   "act_as_role",
-  "Operator override (ADR-004). Issues a SHORT-LIVED, SINGLE-USE act_as override grant with a MANDATORY audit row (actor + assumed role + reason + timestamp; the consumed action is stamped onto the row at use). Requires a session signed as OPERATOR (rbac.act_as is seeded to OPERATOR only). The grant is attached automatically as x-act-as-grant on subsequent calls and the backend PermissionGuard consumes it atomically on its deny path \u2014 reuse or out-of-window is rejected with 403. Never a silent shortcut: no reason, no grant.",
   {
-    role: external_exports3.enum(["ENGINEERING", "ADVERSARIAL", "CC_DEV", "DISCOVERY", "TESTER", "OPERATOR"]).describe("SDD role to assume for the next gated action"),
-    reason: external_exports3.string().min(1).describe("Mandatory non-empty justification \u2014 recorded verbatim in the audit row")
+    description: "Operator override (ADR-004). Issues a SHORT-LIVED, SINGLE-USE act_as override grant with a MANDATORY audit row (actor + assumed role + reason + timestamp; the consumed action is stamped onto the row at use). Requires a session signed as OPERATOR (rbac.act_as is seeded to OPERATOR only). The grant is attached automatically as x-act-as-grant on subsequent calls and the backend PermissionGuard consumes it atomically on its deny path \u2014 reuse or out-of-window is rejected with 403. Never a silent shortcut: no reason, no grant.",
+    inputSchema: external_exports3.object({
+      role: external_exports3.enum(["ENGINEERING", "ADVERSARIAL", "CC_DEV", "DISCOVERY", "TESTER", "OPERATOR"]).describe("SDD role to assume for the next gated action"),
+      reason: external_exports3.string().min(1).describe("Mandatory non-empty justification \u2014 recorded verbatim in the audit row")
+    }).strict()
   },
   async (params) => {
     const result = await apiClient.post("/rbac/act-as-role", { role: params.role, reason: params.reason });
@@ -39279,122 +39873,270 @@ server.tool(
   }
 );
 function registerTypedTools(catalog) {
-  server.tool("spec_create", SPEC_CREATE_DESCRIPTION, specCreateShape(catalog), makeSpecCreateHandler(apiClient, catalog));
-  server.tool("spec_update", SPEC_UPDATE_DESCRIPTION, specUpdateShape(catalog), makeSpecUpdateHandler(apiClient, catalog));
-  server.tool(
+  server.registerTool(
+    "spec_create",
+    {
+      description: SPEC_CREATE_DESCRIPTION,
+      inputSchema: external_exports3.object(specCreateShape(catalog)).strict()
+    },
+    makeSpecCreateHandler(apiClient, catalog)
+  );
+  server.registerTool(
+    "spec_update",
+    {
+      description: SPEC_UPDATE_DESCRIPTION,
+      inputSchema: external_exports3.object(specUpdateShape(catalog)).strict()
+    },
+    makeSpecUpdateHandler(apiClient, catalog)
+  );
+  server.registerTool(
     "spec_set_taxonomy",
-    SPEC_SET_TAXONOMY_DESCRIPTION,
-    specSetTaxonomyShape(catalog),
+    {
+      description: SPEC_SET_TAXONOMY_DESCRIPTION,
+      inputSchema: external_exports3.object(specSetTaxonomyShape(catalog)).strict()
+    },
     makeSpecSetTaxonomyHandler(apiClient, catalog)
   );
-  server.tool("spec_comment", SPEC_COMMENT_DESCRIPTION, specCommentShape(catalog), makeSpecCommentHandler(apiClient, catalog));
-  server.tool(
+  server.registerTool(
+    "spec_comment",
+    {
+      description: SPEC_COMMENT_DESCRIPTION,
+      inputSchema: external_exports3.object(specCommentShape(catalog)).strict()
+    },
+    makeSpecCommentHandler(apiClient, catalog)
+  );
+  server.registerTool(
     "spec_log_decision",
-    SPEC_LOG_DECISION_DESCRIPTION,
-    specLogDecisionShape(catalog),
+    {
+      description: SPEC_LOG_DECISION_DESCRIPTION,
+      inputSchema: external_exports3.object(specLogDecisionShape(catalog)).strict()
+    },
     makeSpecLogDecisionHandler(apiClient, catalog)
   );
-  server.tool(
+  server.registerTool(
     "spec_log_bugfix",
-    SPEC_LOG_BUGFIX_DESCRIPTION,
-    specLogBugfixShape(catalog),
+    {
+      description: SPEC_LOG_BUGFIX_DESCRIPTION,
+      inputSchema: external_exports3.object(specLogBugfixShape(catalog)).strict()
+    },
     makeSpecLogBugfixHandler(apiClient, catalog)
   );
-  server.tool(
+  server.registerTool(
     "spec_adversarial_reject",
-    SPEC_ADVERSARIAL_REJECT_DESCRIPTION,
-    specAdversarialRejectShape(catalog),
+    {
+      description: SPEC_ADVERSARIAL_REJECT_DESCRIPTION,
+      inputSchema: external_exports3.object(specAdversarialRejectShape(catalog)).strict()
+    },
     makeSpecAdversarialRejectHandler(apiClient, catalog)
   );
-  server.tool("spec_add_phase", SPEC_ADD_PHASE_DESCRIPTION, specAddPhaseShape(catalog), makeSpecAddPhaseHandler(apiClient, catalog));
-  server.tool(
+  server.registerTool(
+    "spec_add_phase",
+    {
+      description: SPEC_ADD_PHASE_DESCRIPTION,
+      inputSchema: external_exports3.object(specAddPhaseShape(catalog)).strict()
+    },
+    makeSpecAddPhaseHandler(apiClient, catalog)
+  );
+  server.registerTool(
+    "spec_instantiate_phases",
+    {
+      description: SPEC_INSTANTIATE_PHASES_DESCRIPTION,
+      inputSchema: external_exports3.object(specInstantiatePhasesShape(catalog)).strict()
+    },
+    makeSpecInstantiatePhasesHandler(apiClient, catalog)
+  );
+  server.registerTool(
+    "spec_request_operator_input",
+    {
+      description: SPEC_REQUEST_OPERATOR_INPUT_DESCRIPTION,
+      inputSchema: external_exports3.object(specRequestOperatorInputShape(catalog)).strict()
+    },
+    makeSpecRequestOperatorInputHandler(apiClient, catalog)
+  );
+  server.registerTool(
     "spec_update_phase",
-    SPEC_UPDATE_PHASE_DESCRIPTION,
-    specUpdatePhaseShape(catalog),
+    {
+      description: SPEC_UPDATE_PHASE_DESCRIPTION,
+      inputSchema: external_exports3.object(specUpdatePhaseShape(catalog)).strict()
+    },
     makeSpecUpdatePhaseHandler(apiClient, catalog)
   );
-  server.tool(
+  server.registerTool(
     "spec_create_task",
-    SPEC_CREATE_TASK_DESCRIPTION,
-    specCreateTaskShape(catalog),
+    {
+      description: SPEC_CREATE_TASK_DESCRIPTION,
+      inputSchema: external_exports3.object(specCreateTaskShape(catalog)).strict()
+    },
     makeSpecCreateTaskHandler(apiClient, catalog)
   );
-  server.tool(
+  server.registerTool(
     "spec_set_documentation",
-    SPEC_SET_DOCUMENTATION_DESCRIPTION,
-    specSetDocumentationShape(catalog),
+    {
+      description: SPEC_SET_DOCUMENTATION_DESCRIPTION,
+      inputSchema: external_exports3.object(specSetDocumentationShape(catalog)).strict()
+    },
     makeSpecSetDocumentationHandler(apiClient, catalog)
   );
-  server.tool(
+  server.registerTool(
     "spec_emit_resolution",
-    SPEC_EMIT_RESOLUTION_DESCRIPTION,
-    specEmitResolutionShape(catalog),
+    {
+      description: SPEC_EMIT_RESOLUTION_DESCRIPTION,
+      inputSchema: external_exports3.object(specEmitResolutionShape(catalog)).strict()
+    },
     makeSpecEmitResolutionHandler(apiClient, catalog)
   );
-  server.tool(
+  server.registerTool(
     "spec_test_case_add",
-    SPEC_TEST_CASE_ADD_DESCRIPTION,
-    specTestCaseAddShape(catalog),
+    {
+      description: SPEC_TEST_CASE_ADD_DESCRIPTION,
+      inputSchema: external_exports3.object(specTestCaseAddShape(catalog)).strict()
+    },
     makeSpecTestCaseAddHandler(apiClient, catalog)
   );
-  server.tool(
+  server.registerTool(
     "spec_test_case_set_result",
-    SPEC_TEST_CASE_SET_RESULT_DESCRIPTION,
-    specTestCaseSetResultShape(catalog),
+    {
+      description: SPEC_TEST_CASE_SET_RESULT_DESCRIPTION,
+      inputSchema: external_exports3.object(specTestCaseSetResultShape(catalog)).strict()
+    },
     makeSpecTestCaseSetResultHandler(apiClient, catalog)
   );
-  server.tool(
+  server.registerTool(
     "spec_test_case_promote",
-    SPEC_TEST_CASE_PROMOTE_DESCRIPTION,
-    specTestCasePromoteShape(catalog),
+    {
+      description: SPEC_TEST_CASE_PROMOTE_DESCRIPTION,
+      inputSchema: external_exports3.object(specTestCasePromoteShape(catalog)).strict()
+    },
     makeSpecTestCasePromoteHandler(apiClient, catalog)
   );
-  server.tool(
+  server.registerTool(
     "spec_test_case_verify",
-    SPEC_TEST_CASE_VERIFY_DESCRIPTION,
-    specTestCaseVerifyShape(catalog),
+    {
+      description: SPEC_TEST_CASE_VERIFY_DESCRIPTION,
+      inputSchema: external_exports3.object(specTestCaseVerifyShape(catalog)).strict()
+    },
     makeSpecTestCaseVerifyHandler(apiClient, catalog)
   );
-  server.tool(
+  server.registerTool(
     "spec_test_case_supersede",
-    SPEC_TEST_CASE_SUPERSEDE_DESCRIPTION,
-    specTestCaseSupersedeShape(catalog),
+    {
+      description: SPEC_TEST_CASE_SUPERSEDE_DESCRIPTION,
+      inputSchema: external_exports3.object(specTestCaseSupersedeShape(catalog)).strict()
+    },
     makeSpecTestCaseSupersedeHandler(apiClient, catalog)
   );
-  server.tool(
+  server.registerTool(
     "spec_phase_set_canonical_contract",
-    SPEC_PHASE_SET_CANONICAL_CONTRACT_DESCRIPTION,
-    specPhaseSetCanonicalContractShape(catalog),
+    {
+      description: SPEC_PHASE_SET_CANONICAL_CONTRACT_DESCRIPTION,
+      inputSchema: external_exports3.object(specPhaseSetCanonicalContractShape(catalog)).strict()
+    },
     makeSpecPhaseSetCanonicalContractHandler(apiClient, catalog)
   );
-  server.tool("phase_closeout", PHASE_CLOSEOUT_DESCRIPTION, phaseCloseoutShape(catalog), makePhaseCloseoutHandler(apiClient, catalog));
-  server.tool("spec_closeout", SPEC_CLOSEOUT_DESCRIPTION, specCloseoutShape(catalog), makeSpecCloseoutHandler(apiClient, catalog));
-  server.tool(
+  server.registerTool(
+    "phase_closeout",
+    {
+      description: PHASE_CLOSEOUT_DESCRIPTION,
+      inputSchema: external_exports3.object(phaseCloseoutShape(catalog)).strict()
+    },
+    makePhaseCloseoutHandler(apiClient, catalog)
+  );
+  server.registerTool(
+    "spec_closeout",
+    {
+      description: SPEC_CLOSEOUT_DESCRIPTION,
+      inputSchema: external_exports3.object(specCloseoutShape(catalog)).strict()
+    },
+    makeSpecCloseoutHandler(apiClient, catalog)
+  );
+  server.registerTool(
     "future_promise_create",
-    FUTURE_PROMISE_CREATE_DESCRIPTION,
-    futurePromiseCreateShape(catalog),
+    {
+      description: FUTURE_PROMISE_CREATE_DESCRIPTION,
+      inputSchema: external_exports3.object(futurePromiseCreateShape(catalog)).strict()
+    },
     makeFuturePromiseCreateHandler(apiClient, catalog)
   );
-  server.tool(
+  server.registerTool(
     "future_promise_update",
-    FUTURE_PROMISE_UPDATE_DESCRIPTION,
-    futurePromiseUpdateShape(catalog),
+    {
+      description: FUTURE_PROMISE_UPDATE_DESCRIPTION,
+      inputSchema: external_exports3.object(futurePromiseUpdateShape(catalog)).strict()
+    },
     makeFuturePromiseUpdateHandler(apiClient, catalog)
   );
-  server.tool(
+  server.registerTool(
     "future_promise_promote",
-    FUTURE_PROMISE_PROMOTE_DESCRIPTION,
-    futurePromisePromoteShape(catalog),
+    {
+      description: FUTURE_PROMISE_PROMOTE_DESCRIPTION,
+      inputSchema: external_exports3.object(futurePromisePromoteShape(catalog)).strict()
+    },
     makeFuturePromisePromoteHandler(apiClient, catalog)
   );
-  server.tool("decision_create", DECISION_CREATE_DESCRIPTION, decisionCreateShape(catalog), makeDecisionCreateHandler(apiClient, catalog));
-  server.tool("decision_update", DECISION_UPDATE_DESCRIPTION, decisionUpdateShape(catalog), makeDecisionUpdateHandler(apiClient, catalog));
-  server.tool("meeting_create", MEETING_CREATE_DESCRIPTION, meetingCreateShape(catalog), makeMeetingCreateHandler(apiClient, catalog));
-  server.tool("meeting_update", MEETING_UPDATE_DESCRIPTION, meetingUpdateShape(catalog), makeMeetingUpdateHandler(apiClient, catalog));
-  server.tool("qa_spec_update", QA_SPEC_UPDATE_DESCRIPTION, qaSpecUpdateShape(catalog), makeQaSpecUpdateHandler(apiClient, catalog));
-  server.tool("qa_spec_reject", QA_SPEC_REJECT_DESCRIPTION, qaSpecRejectShape(catalog), makeQaSpecRejectHandler(apiClient, catalog));
-  server.tool("qa_run_complete", QA_RUN_COMPLETE_DESCRIPTION, qaRunCompleteShape(catalog), makeQaRunCompleteHandler(apiClient, catalog));
-  server.tool("update_task", UPDATE_TASK_DESCRIPTION, updateTaskShape(catalog), makeUpdateTaskHandler(apiClient, catalog));
+  server.registerTool(
+    "decision_create",
+    {
+      description: DECISION_CREATE_DESCRIPTION,
+      inputSchema: external_exports3.object(decisionCreateShape(catalog)).strict()
+    },
+    makeDecisionCreateHandler(apiClient, catalog)
+  );
+  server.registerTool(
+    "decision_update",
+    {
+      description: DECISION_UPDATE_DESCRIPTION,
+      inputSchema: external_exports3.object(decisionUpdateShape(catalog)).strict()
+    },
+    makeDecisionUpdateHandler(apiClient, catalog)
+  );
+  server.registerTool(
+    "meeting_create",
+    {
+      description: MEETING_CREATE_DESCRIPTION,
+      inputSchema: external_exports3.object(meetingCreateShape(catalog)).strict()
+    },
+    makeMeetingCreateHandler(apiClient, catalog)
+  );
+  server.registerTool(
+    "meeting_update",
+    {
+      description: MEETING_UPDATE_DESCRIPTION,
+      inputSchema: external_exports3.object(meetingUpdateShape(catalog)).strict()
+    },
+    makeMeetingUpdateHandler(apiClient, catalog)
+  );
+  server.registerTool(
+    "qa_spec_update",
+    {
+      description: QA_SPEC_UPDATE_DESCRIPTION,
+      inputSchema: external_exports3.object(qaSpecUpdateShape(catalog)).strict()
+    },
+    makeQaSpecUpdateHandler(apiClient, catalog)
+  );
+  server.registerTool(
+    "qa_spec_reject",
+    {
+      description: QA_SPEC_REJECT_DESCRIPTION,
+      inputSchema: external_exports3.object(qaSpecRejectShape(catalog)).strict()
+    },
+    makeQaSpecRejectHandler(apiClient, catalog)
+  );
+  server.registerTool(
+    "qa_run_complete",
+    {
+      description: QA_RUN_COMPLETE_DESCRIPTION,
+      inputSchema: external_exports3.object(qaRunCompleteShape(catalog)).strict()
+    },
+    makeQaRunCompleteHandler(apiClient, catalog)
+  );
+  server.registerTool(
+    "update_task",
+    {
+      description: UPDATE_TASK_DESCRIPTION,
+      inputSchema: external_exports3.object(updateTaskShape(catalog)).strict()
+    },
+    makeUpdateTaskHandler(apiClient, catalog)
+  );
 }
 async function main() {
   validateRoleEnv();

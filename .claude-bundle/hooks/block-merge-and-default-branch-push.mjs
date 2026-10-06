@@ -252,7 +252,6 @@ const PUSH_VALUE_FLAGS = new Set([
   '--exec',
   '--push-option',
   '-o',
-  '--force-with-lease',
   '--recurse-submodules',
   '--signed',
 ]);
