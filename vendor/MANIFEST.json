@@ -29,12 +29,12 @@
       "name": "integra-hub-vscode",
       "file": "integra-hub-vscode.vsix",
       "artifactKind": "zip",
-      "version": "0.6.1",
+      "version": "0.6.2",
       "sourceRepo": "IntegraSoftwareERP/integra-hub-vscode",
       "sourcePath": ".",
-      "sourceSha": "e79fb9f35e1d697ecfec96dc7612124e2e7286c3",
-      "packageSha256": "197a56ae57b88c5059897dfadc9f53ec74e7ff8f5d70d53fd490d08c1d129f67",
-      "contentSha256": "d33ce9b77b978a9287c1e006cbe6fcb6e7d0b1bc9708f2b8e852ac9574ee0651",
+      "sourceSha": "b39e8167ef046a9a2df97c2ce3c272d7a95c52d6",
+      "packageSha256": "d324635aaa7c71d12c6e6b24429e98e5218ee3b7c26fa67f8e1dfaec70f59a14",
+      "contentSha256": "28aa8a7907b437f8d0ea4c9aaacb1c302a9211e03617298f70293a345dac18dc",
       "reproducibility": "vsce NO es determinista: dos corridas del commit dcb3790 dieron dos packageSha256 distintos (952d5b3f... y 4fdc4fd8...) con el mismo contenido — las dos dan el mismo contentSha256 797c0cd9... VERIFICADO 2026-08-10 empaquetando dos veces desde dcb3790, que reproduce lo medido el 2026-07-31 sobre 7c58a55 (tres corridas, tres packageSha256, un solo contentSha256)."
     },
     {

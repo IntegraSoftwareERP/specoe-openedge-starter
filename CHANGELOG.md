@@ -2,6 +2,10 @@
 
 All notable changes to this project. Automatic — regenerado por `./scripts/changelog.sh`.
 
+## 0.2.41 - 2026-10-06 (plugin 0.6.2: el aviso de actualización llega a los rooms por el MCP y los hooks nuevos)
+
+Re-vendoriza el plugin VSCode (`vendor/integra-hub-vscode.vsix`) en la versión 0.6.2, construida desde `b39e8167`. No trae cambios de código: se publica para que el plugin avise a los devs del bundle del MCP y de los dos hooks que entraron en el 0.2.40, porque el aviso se dispara sólo cuando cambia el `.vsix` (TKT-0448). sha256 del paquete: `d324635a`.
+
 ## 0.2.40 - 2026-10-06 (re-vendoriza el MCP del Hub y dos hooks: toda tool rechaza la clave que no declara)
 
 Re-vendoriza el bundle del MCP del Hub (`vendor/integra-hub-mcp.mjs`) desde `b474940b`, el master de integra-hub con TKT-0480. Las 224 tools se registran ahora con un esquema estricto: una clave que la tool no declara devuelve `Input validation error` (`unrecognized_keys`) y no llega al backend; antes el SDK la descartaba sin aviso y la tool corría con los valores por defecto (`ihub_add_comment` con `interno: true` salía con `internal: false`). Los parámetros declarados, los nombres y las descripciones no cambian. Build reproducible: dos corridas dieron el mismo sha256 (`3cd4e9c0`). La versión del paquete sigue en 0.1.2.
