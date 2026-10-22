@@ -54,7 +54,8 @@
  * arrancar una sesion es peor que el problema que reporta.
  *
  * Traer `integra-hub-auth.mjs` a una fuente versionada es trabajo aparte y toca el canal de
- * SPEC-0005: NO entra en TKT-0389, y queda nombrado acá para que no se pierda.
+ * SPEC-0005: NO entra en TKT-0389, y queda nombrado acá para que no se pierda. (TKT-0498 lo
+ * versiono en `hooks/` y, a la vez, este hook dejo de usarlo: ver el bloque de TKT-0498.)
  *
  * ── TKT-0453: el canal de la maquina del dev ────────────────────────────────────────
  *
@@ -79,6 +80,21 @@
  *
  * Con este orden el archivo es EL MISMO en los dos canales de distribucion, y el starter lo
  * vendoriza sin adaptarlo: una copia adaptada es la que se queda atras sin que nadie lo vea.
+ *
+ * ── TKT-0498: el contexto es del TENANT del room, o no hay contexto ─────────────────
+ *
+ * El orden de arriba ya no existe. Medido el 2026-10-16 en el room OPERATOR de Integra ERP: este
+ * hook le sirvio el INFRA_CONTEXT de integra-piloto, porque `integra-hub-auth.mjs` loguea la cuenta
+ * por defecto de la maquina sin `tenantId`. Ahora:
+ *
+ *  1. El UNICO canal es `hub-channel.mjs`, que habla con la identidad y el tenant que declara el
+ *     room y, si el room no la declara, no llama. `integra-hub-auth.mjs` ya no se carga: caer a
+ *     el era caer a otra cuenta. `install.mjs` instala `hub-channel.mjs` en la maquina del
+ *     Operador, asi que el canal ya no falta en ninguna de las dos.
+ *  2. El cache es POR TENANT (la `cacheKey` del room: URL + tenant). El cache unico servia 24
+ *     horas el contexto del ultimo tenant que lo refresco a cualquier room de la maquina.
+ *  3. Un room sin identidad declarada no recibe NADA, ni siquiera el cache: no se sabe de que
+ *     tenant es, y servir el de otro es el defecto.
  *
  * ── Dos cosas que este hook NO hace, a proposito ────────────────────────────────────
  *
@@ -137,24 +153,52 @@ async function readStdin() {
   });
 }
 
+/**
+ * El cache entero: `{ tenants: { <cacheKey>: { tenant, fetchedAt, entries } } }`. La forma de
+ * antes de TKT-0498 (`{ fetchedAt, entries }` sueltos) no se lee: era de la maquina, no del tenant.
+ */
 async function loadCache() {
   try {
-    return JSON.parse(await readFile(CACHE_FILE, 'utf8'));
+    const raw = JSON.parse(await readFile(CACHE_FILE, 'utf8'));
+    return raw && typeof raw.tenants === 'object' && raw.tenants ? raw : { tenants: {} };
   } catch {
-    return null;
+    return { tenants: {} };
   }
 }
 
-async function saveCache(entries) {
+/** La entrada de cache de UN tenant, o null. */
+export function cacheDelTenant(cache, cacheKey) {
+  if (!cache || !cache.tenants || !cacheKey) return null;
+  return cache.tenants[cacheKey] || null;
+}
+
+async function saveCache(cache, identidad, entries) {
   try {
+    const next = { tenants: { ...(cache && cache.tenants) } };
+    next.tenants[identidad.cacheKey] = {
+      tenant: identidad.tenantLabel,
+      fetchedAt: new Date().toISOString(),
+      entries,
+    };
     await mkdir(dirname(CACHE_FILE), { recursive: true });
-    await writeFile(
-      CACHE_FILE,
-      JSON.stringify({ fetchedAt: new Date().toISOString(), entries }, null, 2),
-      { mode: 0o600 },
-    );
+    await writeFile(CACHE_FILE, JSON.stringify(next, null, 2), { mode: 0o600 });
   } catch {
     // El cache es una comodidad: no poder escribirlo no cambia lo que ya se sirvio.
+  }
+}
+
+/**
+ * La identidad que declara el room, SIN red (`resolveRoomIdentity` de hub-channel.mjs). `null` si
+ * el canal no esta o el room no declara identidad con URL: en ese caso no se sirve nada.
+ */
+export async function identidadDelRoom(cwd, { cargarCanal = () => import('./hub-channel.mjs') } = {}) {
+  try {
+    const canal = await cargarCanal();
+    if (!canal || typeof canal.resolveRoomIdentity !== 'function') return null;
+    const identidad = await canal.resolveRoomIdentity({ cwd });
+    return identidad && identidad.ok && identidad.cacheKey ? identidad : null;
+  } catch {
+    return null;
   }
 }
 
@@ -169,17 +213,13 @@ function cacheVigente(cache) {
  * Hub: la diferencia importa, porque `[]` es un tenant sin nada cargado (estado legitimo,
  * no hay nada que servir) y `null` es "no se pudo saber" (hay que caer al cache).
  *
- * Los dos cargadores son parametro por la misma razon que antes lo era el de auth: la
- * conversacion real con el Hub no se puede medir en CI, y el seam permite medir cada rama del
- * orden de canales (ver TKT-0453 arriba) sin inventar credenciales.
+ * El cargador del canal es parametro: la conversacion real con el Hub no se puede medir en CI, y
+ * el seam permite medir cada rama sin inventar credenciales. TKT-0498: ya no hay cargador de
+ * `integra-hub-auth.mjs` — es la cuenta por defecto de la maquina, no la del room.
  */
 export async function traerDelHub(
   deadline,
-  {
-    cwd = process.cwd(),
-    cargarCanal = () => import('./hub-channel.mjs'),
-    cargarAuth = () => import('./integra-hub-auth.mjs'),
-  } = {},
+  { cwd = process.cwd(), cargarCanal = () => import('./hub-channel.mjs') } = {},
 ) {
   // El deadline se mira ANTES de cargar cualquier modulo: el import dinamico tiene costo
   // (resuelve del disco y evalua el modulo) y gastarlo cuando ya no queda ventana para la
@@ -191,7 +231,7 @@ export async function traerDelHub(
   const controller = new AbortController();
   const t = setTimeout(() => controller.abort(), deadline - Date.now());
   try {
-    const pedir = await resolverFetch({ cwd, cargarCanal, cargarAuth, signal: controller.signal });
+    const pedir = await resolverFetch({ cwd, cargarCanal, signal: controller.signal });
     if (!pedir) return null;
 
     // Se recalcula: resolver el canal pudo consumir la ventana entera.
@@ -209,34 +249,21 @@ export async function traerDelHub(
 }
 
 /**
- * Devuelve la funcion con la que se le habla al Hub (path relativo + init, la forma de
- * `hubFetch`), o `null` si no hay canal. El orden y por que esta en el encabezado (TKT-0453).
- *
- * "No esta" es: el import falla, o el modulo no exporta `resolveHubChannel`. Un
- * `hub-channel.mjs` sin esa funcion no es un canal, es una instalacion a medias, y caer al
- * modulo del Operador no cuesta nada.
+ * Devuelve la funcion con la que se le habla al Hub (path relativo + init), o `null` si no hay
+ * canal. TKT-0498: el unico canal es `hub-channel.mjs`; si no esta, o no exporta
+ * `resolveHubChannel`, o no resuelve la identidad del room, no hay contexto — y eso NO rompe el
+ * arranque.
  */
-async function resolverFetch({ cwd, cargarCanal, cargarAuth, signal }) {
+async function resolverFetch({ cwd, cargarCanal, signal }) {
   let canal = null;
   try {
     canal = await cargarCanal();
   } catch {
-    canal = null;
-  }
-
-  if (canal && typeof canal.resolveHubChannel === 'function') {
-    const resuelto = await canal.resolveHubChannel({ cwd, signal });
-    return resuelto && resuelto.ok && typeof resuelto.fetch === 'function' ? resuelto.fetch : null;
-  }
-
-  try {
-    const auth = await cargarAuth();
-    return auth && typeof auth.hubFetch === 'function' ? auth.hubFetch : null;
-  } catch {
-    // Ver "LIMITACION CONOCIDA" arriba: sin ningun canal no hay contexto, y eso NO rompe el
-    // arranque.
     return null;
   }
+  if (!canal || typeof canal.resolveHubChannel !== 'function') return null;
+  const resuelto = await canal.resolveHubChannel({ cwd, signal });
+  return resuelto && resuelto.ok && typeof resuelto.fetch === 'function' ? resuelto.fetch : null;
 }
 
 /** Dias enteros desde una fecha ISO, o `null` si no se puede leer. */
@@ -326,22 +353,29 @@ async function main() {
   // `clear` SI lo vuelve a servir — el contexto se limpio y hay que reponerlo.
   if (source === 'resume' || source === 'compact') process.exit(0);
 
+  // El cwd del stdin y no el del proceso: `hub-channel.mjs` lee la identidad del room de su
+  // config (con CLAUDE_PROJECT_DIR primero), igual que `ack-task-session-init`.
+  const cwd = stdinJson.cwd || process.cwd();
+
+  // TKT-0498 — sin identidad del room no se sirve nada, ni el cache: no se sabe de que tenant es.
+  const identidad = await identidadDelRoom(cwd);
+  if (!identidad) process.exit(0);
+
   const cache = await loadCache();
+  const delTenant = cacheDelTenant(cache, identidad.cacheKey);
   let entries = null;
 
-  if (source !== 'clear' && cacheVigente(cache)) {
-    entries = cache.entries;
+  if (source !== 'clear' && cacheVigente(delTenant)) {
+    entries = delTenant.entries;
   } else {
-    // El cwd del stdin y no el del proceso: `hub-channel.mjs` lee la URL del Hub del
-    // `project.config.yaml` del room, igual que `ack-task-session-init`.
-    entries = await traerDelHub(deadline, { cwd: stdinJson.cwd || process.cwd() });
+    entries = await traerDelHub(deadline, { cwd });
     if (entries !== null) {
-      await saveCache(entries);
-    } else if (cache && Array.isArray(cache.entries)) {
-      // No se pudo hablar con el Hub: se sirve el cache aunque este vencido. Un contexto
-      // viejo con su fecha a la vista es mas util que ninguno — y las fechas de
+      await saveCache(cache, identidad, entries);
+    } else if (delTenant && Array.isArray(delTenant.entries)) {
+      // No se pudo hablar con el Hub: se sirve el cache DEL MISMO TENANT aunque este vencido.
+      // Un contexto viejo con su fecha a la vista es mas util que ninguno — y las fechas de
       // `ultimaVerificacion` viajan en el propio bloque, asi que no miente.
-      entries = cache.entries;
+      entries = delTenant.entries;
     }
   }
 

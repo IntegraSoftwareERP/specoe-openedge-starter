@@ -34,19 +34,24 @@ const execFileAsync = promisify(execFile);
 // TKT-0321 — la dependencia pasa a ser `hub-channel.mjs`. Antes era `integra-hub-auth.mjs`
 // directo, que en la maquina de un dev de tenant NO existe (lo saco del bundle del starter el
 // commit 9e5d2f9, TKT-0190) y, cuando existe como residuo de un starter viejo, no tiene
-// credenciales que resolver. El canal prueba legacy y despues SDD, y distingue "no hay identidad"
-// de "el Hub no responde" — que es lo que este hook confundia.
+// credenciales que resolver. El canal distingue "no hay identidad" de "el Hub no responde" — que es
+// lo que este hook confundia. TKT-0498: y habla SOLO con la identidad y el tenant que declara el
+// room (ver el encabezado de hub-channel.mjs); sin declaracion no llama al Hub.
 let resolveHubChannel;
-let resolveHubUrl;
 let noChannelMessage;
+let decodeJwtPayload;
 try {
   const mod = await import('./hub-channel.mjs');
   resolveHubChannel = mod.resolveHubChannel;
-  resolveHubUrl = mod.resolveHubUrl;
   noChannelMessage = mod.noChannelMessage;
-  if (typeof resolveHubChannel !== 'function' || typeof noChannelMessage !== 'function') {
+  decodeJwtPayload = mod.decodeJwtPayload;
+  if (
+    typeof resolveHubChannel !== 'function' ||
+    typeof noChannelMessage !== 'function' ||
+    typeof decodeJwtPayload !== 'function'
+  ) {
     process.stderr.write(
-      'ack-task-session-init: hub-channel.mjs no exporta resolveHubChannel/noChannelMessage — la instalacion del bundle quedo a medias. Corre ./specoe-setup-host.sh. Blocking until resolved.\n',
+      'ack-task-session-init: hub-channel.mjs no exporta resolveHubChannel/noChannelMessage/decodeJwtPayload — la instalacion del bundle quedo a medias. Corre ./specoe-setup-host.sh. Blocking until resolved.\n',
     );
     process.exit(2);
   }
@@ -332,15 +337,12 @@ async function resolveSddIdentity() {
 //
 // Devuelve el mismo shape que safeHubFetch, mas `fallback: true` cuando el
 // llamador tiene que caer al camino sin identidad.
-async function fetchPendingAsSddSession(identity, url, deadline, cwd) {
+async function fetchPendingAsSddSession(identity, url, deadline) {
   const { role, token, machineId, fingerprint } = identity;
   // TKT-0321 — la base salia de `credentials.mjs::getCredentials()`, que en la maquina de un dev
-  // de tenant TIRA: ese modulo lee el email/password de SPEC-0005 y el login SDD del starter
-  // nunca los escribe. O sea que el camino de identidad SDD moria por falta de la URL
-  // justamente en la unica maquina que solo tiene identidad SDD, y caia al fallback sin decir
-  // por que. Ahora la URL la resuelve el canal, con la misma precedencia que el hook de licencia
-  // del starter: env > hub.api-url del room > credentials.mjs.
-  const { url: hubUrl } = await resolveHubUrl(cwd);
+  // de tenant TIRA. TKT-0498 — sale del canal: es la URL del room, la misma contra la que se
+  // abrio la sesion del tenant declarado.
+  const hubUrl = channel.hubUrl;
   if (!hubUrl) return { ok: false, kind: 'no-hub-url', fallback: true };
 
   const derived = await runWithDeadline(deadline, (signal) =>
@@ -364,6 +366,12 @@ async function fetchPendingAsSddSession(identity, url, deadline, cwd) {
   const accessToken = derived.ok && derived.data ? derived.data.accessToken : null;
   if (!accessToken) {
     return { ok: false, kind: derived.kind || 'no-access-token', fallback: true };
+  }
+  // TKT-0498 — el material de este camino se lee con los nombres FIJOS del keyring (el patron
+  // latente del MCP en modo USER, fuera del alcance del ticket) y no dice de que tenant es. Lo
+  // dice el JWT derivado: si no es el del room, la sesion se descarta y el GET no sale con ella.
+  if (decodeJwtPayload(accessToken)?.tenantId !== channel.tenantId) {
+    return { ok: false, kind: 'tenant-mismatch', fallback: true };
   }
 
   const machineHeader = `${machineId}.${Buffer.from(
@@ -396,7 +404,16 @@ async function fetchPendingTasks(cwd, deadline) {
   const url = `/tasks/pending?cwd=${encodeURIComponent(cwd)}`;
   // La identidad SDD va SOLO en esta llamada: ni /tenants/me/policy, ni
   // /task-ack-session/active, ni /telemetry/event la llevan.
-  const identity = await resolveSddIdentity();
+  //
+  // TKT-0498 — y solo cuando puede ser del tenant del room:
+  //  - con canal SDD el canal YA firma con rol y equipo: este camino aparte sobra;
+  //  - con canal personal, solo si la sesion declara actuar en ESE tenant
+  //    (`INTEGRA_ACT_AS_TENANT`, Tenant.id, lo exporta el launcher del room junto con el rol).
+  //    Una ventana que heredo el entorno de un room de otro tenant no deriva nada. El claim del
+  //    JWT derivado se verifica igual (ver fetchPendingAsSddSession).
+  const actuaEnElTenant =
+    channel.kind === 'personal' && process.env.INTEGRA_ACT_AS_TENANT === channel.tenantId;
+  const identity = actuaEnElTenant ? await resolveSddIdentity() : null;
   // TKT-0290: el camino con identidad corre contra deadline − reserva; el
   // fallback, contra el deadline completo. Los DOS puntos de rechazo (POST de
   // derivacion y GET con sesion) quedan cubiertos porque el recorte abarca a
@@ -404,7 +421,7 @@ async function fetchPendingTasks(cwd, deadline) {
   // reserva, la derivacion devuelve timeout inmediato con fallback:true y el
   // GET sin identidad sale con lo que reste — degrada, no bloquea.
   let result = identity
-    ? await fetchPendingAsSddSession(identity, url, deadline - FALLBACK_RESERVE_MS, cwd)
+    ? await fetchPendingAsSddSession(identity, url, deadline - FALLBACK_RESERVE_MS)
     : null;
   // FAIL-OPEN MITAD (2) — por RECHAZO, no resoluble antes de mandar: el material
   // PRESENTE puede no verificar (token revocado, equipo no re-enrolado, drift
@@ -490,14 +507,22 @@ async function main() {
     cache = { policy: null, activeSession: null };
   }
 
+  // TKT-0498 — la policy es del TENANT (`Tenant.ackTaskMode`): se cachea por tenant del room en
+  // `policies[<cacheKey>]`. El `policy` suelto de antes era de la maquina, o sea del ultimo
+  // tenant que la refresco, y un room de otro tenant la heredaba 24 horas. No se lee mas.
+  const policyKey = channel.cacheKey;
+  if (!cache.policies || typeof cache.policies !== 'object') cache.policies = {};
+  let policy = policyKey ? cache.policies[policyKey] || null : null;
+
   // Refresh policy if missing or expired (24h TTL grace).
   const policyExpired =
-    !cache.policy ||
-    !cache.policy.expiresAt ||
-    new Date(cache.policy.expiresAt).getTime() <= Date.now();
+    !policy || !policy.expiresAt || new Date(policy.expiresAt).getTime() <= Date.now();
   if (policyExpired) {
     const fresh = await refreshPolicy(deadline);
-    if (fresh) cache.policy = fresh;
+    if (fresh) {
+      policy = fresh;
+      if (policyKey) cache.policies[policyKey] = fresh;
+    }
     // If refresh fails (Sprint C 404 / network / timeout): keep stale cache.
   }
 
@@ -529,7 +554,7 @@ async function main() {
   }
 
   // Telemetry event ACK_TASK_LOAD — graceful 404 fallback to local JSONL.
-  const policyMode = (cache.policy && cache.policy.ackTaskMode) || 'HARD_BLOCK';
+  const policyMode = (policy && policy.ackTaskMode) || 'HARD_BLOCK';
   postTelemetryEvent(
     {
       sessionId: sessionId || '',
@@ -546,7 +571,7 @@ async function main() {
   // Show prompt only if (a) NO active ack-task session AND (b) pending tasks detected.
   let additionalContext = null;
   if (!cache.activeSession && pendingResult.tasks && pendingResult.tasks.length > 0) {
-    additionalContext = buildPrompt(pendingResult.tasks, cache.policy);
+    additionalContext = buildPrompt(pendingResult.tasks, policy);
   } else if (
     cache.activeSession &&
     (cache.activeSession.taskId || cache.activeSession.ticketId)

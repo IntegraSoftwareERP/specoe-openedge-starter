@@ -2,6 +2,12 @@
 
 All notable changes to this project. Automatic — regenerado por `./scripts/changelog.sh`.
 
+## 0.2.42 - 2026-10-22 (re-vendoriza el MCP del Hub: varias consultas al Operador abiertas por SPEC)
+
+Re-vendoriza el bundle del MCP del Hub (`vendor/integra-hub-mcp.mjs`) desde `749dca65`, el master de integra-hub con TKT-0513. `spec_request_operator_input` y `spec_operator_input_list` ahora dicen que una SPEC puede tener varias consultas al Operador abiertas a la vez, cada una de una decisión, que el rechazo nombra todas las pendientes y que la lectura devuelve `pendingIds`. Trae además los cambios del MCP desde `b474940b`: runner y adapter de Codex, las tools `migracion_rapida_*` y `work_item_execution_continuity`. Build reproducible: dos corridas dieron el mismo sha256 (`368ac2f1`). La versión del paquete sigue en 0.1.2.
+
+Re-vendoriza también los cinco hooks que `check-hooks-parity.sh` marcó atrasados, copiados byte a byte desde `749dca65`: `hub-channel`, `ack-task-session-init`, `ack-task-enforcer`, `hooks-audit` e `infra-context-session-init`. Traen TKT-0498 (integra-hub #873): los hooks hablan con el Hub sólo con la identidad que declara el room, `specoe.tenant` en el room SpecOE (la escribe el login SDD del starter), y si el room no la declara el canal falla cerrado y el gate de ack-task bloquea. `telemetry-session.mjs` y los dos `notify-telegram-*.ps1`, que el instalador del Hub instala, quedan excluidos de la paridad: son de la máquina del Operador.
+
 ## 0.2.41 - 2026-10-06 (plugin 0.6.2: el aviso de actualización llega a los rooms por el MCP y los hooks nuevos)
 
 Re-vendoriza el plugin VSCode (`vendor/integra-hub-vscode.vsix`) en la versión 0.6.2, construida desde `b39e8167`. No trae cambios de código: se publica para que el plugin avise a los devs del bundle del MCP y de los dos hooks que entraron en el 0.2.40, porque el aviso se dispara sólo cuando cambia el `.vsix` (TKT-0448). sha256 del paquete: `d324635a`.

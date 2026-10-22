@@ -185,8 +185,13 @@ export function diagnosticar(
   // ¿El repo de origen tiene una versión más nueva? Sólo si ese checkout sigue
   // existiendo: es una comodidad, no una condición. El canal B no lo declara —
   // el dev no tiene el repo de origen.
-  if (sourceDir) {
-    const enRepo = join(sourceDir, hook.name);
+  //
+  // TKT-0498 — la carpeta de origen puede venir POR ENTRADA (`hook.sourceDir`): install.mjs
+  // instala también archivos cuya fuente es `.claude-bundle/hooks/` (hub-channel.mjs,
+  // ack-task-session-init.mjs), y compararlos contra `hooks/` no encontraba nada.
+  const origen = hook.sourceDir || sourceDir;
+  if (origen) {
+    const enRepo = join(origen, hook.name);
     if (hay(enRepo)) {
       const shaRepo = shaDe(enRepo);
       if (shaRepo !== shaReal) {
@@ -269,6 +274,12 @@ export function auditar({
     const r = leerJson(manifestPath);
     if (!r.ok) return [`[hooks-audit] el manifiesto existe pero no se pudo leer: ${r.error}`];
     hooksInstall = Array.isArray(r.valor.hooks) ? r.valor.hooks : [];
+    // TKT-0498 — los MÓDULOS del canal A (hub-channel.mjs, integra-hub-auth.mjs) viajan en
+    // `modules[]`: se auditan instalados y al día, no cableados — igual que el `role: "module"`
+    // del vendor MANIFEST (TKT-0453). Sin esto, el canal A que los instala no los contaba.
+    if (Array.isArray(r.valor.modules)) {
+      hooksInstall = [...hooksInstall, ...r.valor.modules.map((m) => ({ ...m, modulo: true }))];
+    }
     source = r.valor.source;
   }
 

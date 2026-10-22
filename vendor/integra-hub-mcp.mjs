@@ -2234,8 +2234,8 @@ var require_resolve = __commonJS({
       }
       return count;
     }
-    function getFullPath(resolver, id = "", normalize) {
-      if (normalize !== false)
+    function getFullPath(resolver, id = "", normalize2) {
+      if (normalize2 !== false)
         id = normalizeId(id);
       const p = resolver.parse(id);
       return _getFullPath(resolver, p);
@@ -3575,7 +3575,7 @@ var require_fast_uri = __commonJS({
     "use strict";
     var { normalizeIPv6, removeDotSegments, recomposeAuthority, normalizeComponentEncoding, isIPv4, nonSimpleDomain } = require_utils();
     var { SCHEMES, getSchemeHandler } = require_schemes();
-    function normalize(uri, options) {
+    function normalize2(uri, options) {
       if (typeof uri === "string") {
         uri = /** @type {T} */
         serialize(parse3(uri, options), options);
@@ -3811,7 +3811,7 @@ var require_fast_uri = __commonJS({
     }
     var fastUri = {
       SCHEMES,
-      normalize,
+      normalize: normalize2,
       resolve: resolve2,
       resolveComponent,
       equal,
@@ -4235,8 +4235,8 @@ var require_core = __commonJS({
         for (const jsonPointer of keywordsJsonPointers) {
           const segments = jsonPointer.split("/").slice(1);
           let keywords = metaSchema;
-          for (const seg3 of segments)
-            keywords = keywords[seg3];
+          for (const seg4 of segments)
+            keywords = keywords[seg4];
           for (const key in rules) {
             const rule = rules[key];
             if (typeof rule != "object")
@@ -14333,18 +14333,18 @@ function treeifyError(error48, mapper = (issue2) => issue2.message) {
 }
 function toDotPath(_path) {
   const segs = [];
-  const path3 = _path.map((seg3) => typeof seg3 === "object" ? seg3.key : seg3);
-  for (const seg3 of path3) {
-    if (typeof seg3 === "number")
-      segs.push(`[${seg3}]`);
-    else if (typeof seg3 === "symbol")
-      segs.push(`[${JSON.stringify(String(seg3))}]`);
-    else if (/[^\w$]/.test(seg3))
-      segs.push(`[${JSON.stringify(seg3)}]`);
+  const path3 = _path.map((seg4) => typeof seg4 === "object" ? seg4.key : seg4);
+  for (const seg4 of path3) {
+    if (typeof seg4 === "number")
+      segs.push(`[${seg4}]`);
+    else if (typeof seg4 === "symbol")
+      segs.push(`[${JSON.stringify(String(seg4))}]`);
+    else if (/[^\w$]/.test(seg4))
+      segs.push(`[${JSON.stringify(seg4)}]`);
     else {
       if (segs.length)
         segs.push(".");
-      segs.push(seg3);
+      segs.push(seg4);
     }
   }
   return segs.join("");
@@ -32800,6 +32800,27 @@ var HubNetworkError = class extends Error {
   }
 };
 
+// src/execution-context.ts
+var WORK_EXECUTION_HEADER = "x-work-execution";
+function normalize(value) {
+  const v = (value ?? "").trim();
+  return v === "" ? void 0 : v;
+}
+var current = normalize(process.env.INTEGRA_WORK_EXECUTION);
+function getWorkExecutionCredential() {
+  return current;
+}
+function setWorkExecutionCredential(credential) {
+  current = normalize(credential);
+}
+function clearWorkExecutionCredential() {
+  current = void 0;
+}
+
+// src/executor-identity.ts
+init_act_as();
+import { createHmac as createHmac2 } from "node:crypto";
+
 // src/sdd-identity.ts
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
@@ -32935,12 +32956,132 @@ async function buildSddIdentityHeaders(role = process.env.INTEGRA_SDD_ROLE, deps
       "[mcp-server] modo USER sin INTEGRA_SDD_ROLE: el rol de la carpeta es obligatorio para declarar x-sdd-role (fail-CLOSED, SPEC-0157 P2)."
     );
   }
-  const { machineId } = await resolveSddIdentity(deps.loader, deps.hookUrl);
+  const machineId = deps.machineId ?? (await resolveSddIdentity(deps.loader, deps.hookUrl)).machineId;
   const fingerprint = await collectSddFingerprint();
   const encoded = Buffer.from(JSON.stringify(fingerprint)).toString("base64url");
   return {
     [SDD_ROLE_HEADER]: role,
     [SDD_MACHINE_HEADER]: `${machineId}.${encoded}`
+  };
+}
+
+// src/executor-identity.ts
+var EXECUTOR_SECRET_SERVICE = "integra-executor";
+var EXECUTOR_SESSION_PATH = "/auth/executor/session";
+var SESSION_RENEW_SKEW_MS2 = 3e4;
+function executorIdFromEnv(env = process.env) {
+  return (env.INTEGRA_EXECUTOR_ID ?? "").trim();
+}
+function isExecutorMode(env = process.env) {
+  return executorIdFromEnv(env) !== "";
+}
+function requireExecutorId() {
+  const id = executorIdFromEnv();
+  if (!id) {
+    throw new Error("[mcp-server] modo ejecutor sin INTEGRA_EXECUTOR_ID.");
+  }
+  return id;
+}
+async function loadChannel(deps) {
+  const loader = deps.loader ?? ((u) => import(u));
+  return loader(deps.hookUrl ?? secretsHookUrl());
+}
+var secretCache;
+async function resolveExecutorSecret(deps = {}) {
+  if (secretCache) return secretCache;
+  const executorId = requireExecutorId();
+  let value = null;
+  try {
+    const mod = await loadChannel(deps);
+    value = await mod.getSecret(EXECUTOR_SECRET_SERVICE, executorId);
+  } catch {
+    value = null;
+  }
+  if (!value) {
+    throw new Error(
+      `[mcp-server] modo ejecutor sin secreto: falta (${EXECUTOR_SECRET_SERVICE}, ${executorId}) en el canal de secretos (SPEC-0137). El MCP no usa otro material en este modo (SPEC-0241 ADR-004); fail-CLOSED, no hay fallback.`
+    );
+  }
+  secretCache = value;
+  return secretCache;
+}
+function hmacHex(secret, payload) {
+  return createHmac2("sha256", secret).update(payload).digest("hex");
+}
+var machineIdCache;
+async function resolveExecutorMachineId(deps = {}) {
+  if (machineIdCache) return machineIdCache;
+  let value = null;
+  try {
+    const mod = await loadChannel(deps);
+    value = await mod.getSecret(SDD_IDENTITY_SERVICE, SDD_IDENTITY_MACHINE_NAME);
+  } catch {
+    value = null;
+  }
+  if (!value) {
+    throw new Error(
+      `[mcp-server] modo ejecutor en tenant USER sin equipo: falta ${SDD_IDENTITY_SERVICE}/${SDD_IDENTITY_MACHINE_NAME} en el canal de secretos. La identidad del ejecutor est\xE1 atada a un equipo enrolado (SPEC-0241 ADR-004); fail-CLOSED.`
+    );
+  }
+  machineIdCache = value;
+  return machineIdCache;
+}
+var sessionCache2;
+async function resolveExecutorSessionToken(deps = {}) {
+  const now = deps.now ?? Date.now;
+  if (sessionCache2 && now() < sessionCache2.expiresAtMs - SESSION_RENEW_SKEW_MS2) {
+    return sessionCache2.accessToken;
+  }
+  const apiBase = deps.apiBase ?? process.env.INTEGRA_HUB_API_URL ?? "http://localhost:3000/api/v1";
+  const fetchImpl = deps.fetchImpl ?? fetch;
+  const executorId = requireExecutorId();
+  const secret = await resolveExecutorSecret(deps);
+  const timestamp = now();
+  const body = {
+    executorId,
+    timestamp,
+    signature: hmacHex(secret, `session.${executorId}.${timestamp}`)
+  };
+  if (isUserIdentityMode()) {
+    body.machineId = await resolveExecutorMachineId(deps);
+    body.fingerprint = await collectSddFingerprint();
+  }
+  const res = await fetchImpl(`${apiBase}${EXECUTOR_SESSION_PATH}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) {
+    throw new Error(
+      `[mcp-server] derivaci\xF3n de sesi\xF3n del ejecutor fall\xF3: ${res.status} ${await res.text()}`
+    );
+  }
+  const data = await res.json();
+  sessionCache2 = { accessToken: data.accessToken, expiresAtMs: now() + data.expiresIn * 1e3 };
+  return sessionCache2.accessToken;
+}
+function invalidateExecutorSession() {
+  sessionCache2 = void 0;
+}
+async function buildExecutorRoleHeaders(role = process.env.INTEGRA_SDD_ROLE, now = Date.now(), tenantId = process.env.INTEGRA_ACT_AS_TENANT, deps = {}) {
+  if (!role) {
+    throw new Error("[mcp-server] modo ejecutor sin INTEGRA_SDD_ROLE: el runner tiene que declarar su rol.");
+  }
+  if (isUserIdentityMode()) {
+    return buildSddIdentityHeaders(role, { machineId: await resolveExecutorMachineId(deps) });
+  }
+  if (!tenantId) {
+    throw new Error(
+      "[mcp-server] modo ejecutor sin INTEGRA_ACT_AS_TENANT: la firma de rol del ejecutor liga el tenant."
+    );
+  }
+  const executorId = requireExecutorId();
+  const secret = await resolveExecutorSecret(deps);
+  const ts = String(now);
+  const sig = hmacHex(secret, `${role}.${tenantId}.${executorId}.${ts}`);
+  return {
+    [ACT_AS_HEADER]: `${role}.${ts}.${sig}`,
+    [ACT_AS_TENANT_HEADER]: tenantId
   };
 }
 
@@ -32999,6 +33140,12 @@ async function authenticate() {
   accessToken = data.accessToken;
 }
 async function resolveAuthMaterial() {
+  if (isExecutorMode()) {
+    return {
+      bearer: await resolveExecutorSessionToken(),
+      roleHeaders: await buildExecutorRoleHeaders()
+    };
+  }
   if (isUserIdentityMode()) {
     return {
       bearer: await resolveSddSessionToken(),
@@ -33020,6 +33167,10 @@ async function resolveAuthMaterial() {
   };
 }
 async function refreshAuthAfter401() {
+  if (isExecutorMode()) {
+    invalidateExecutorSession();
+    return;
+  }
   if (isUserIdentityMode()) {
     invalidateSddSession();
     return;
@@ -33027,20 +33178,32 @@ async function refreshAuthAfter401() {
   accessToken = null;
   await authenticate();
 }
-async function request(method, path3, body) {
+function retryAfter401(attempt) {
+  return !(isExecutorMode() && attempt > 0);
+}
+var READ_METHODS = /* @__PURE__ */ new Set(["GET", "HEAD"]);
+function workExecutionHeaders(method) {
+  if (!isExecutorMode()) return {};
+  const credential = getWorkExecutionCredential();
+  if (!credential) return {};
+  if (method !== null && READ_METHODS.has(method.toUpperCase())) return {};
+  return { [WORK_EXECUTION_HEADER]: credential };
+}
+async function request(method, path3, body, attempt = 0) {
   const { bearer, roleHeaders } = await resolveAuthMaterial();
   const res = await hubFetch(`${API_BASE}${path3}`, {
     method,
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${bearer}`,
-      ...roleHeaders
+      ...roleHeaders,
+      ...workExecutionHeaders(method)
     },
     body: body ? JSON.stringify(body) : void 0
   });
-  if (res.status === 401) {
+  if (res.status === 401 && retryAfter401(attempt)) {
     await refreshAuthAfter401();
-    return request(method, path3, body);
+    return request(method, path3, body, attempt + 1);
   }
   if (!res.ok) {
     const text = await res.text();
@@ -33049,7 +33212,7 @@ async function request(method, path3, body) {
   if (res.status === 204) return void 0;
   return res.json();
 }
-async function uploadFile(path3, filePath, filename, mimeType) {
+async function uploadFile(path3, filePath, filename, mimeType, attempt = 0) {
   const { bearer, roleHeaders } = await resolveAuthMaterial();
   const { readFileSync: readFileSync3 } = await import("fs");
   const fileBuffer = readFileSync3(filePath);
@@ -33060,13 +33223,14 @@ async function uploadFile(path3, filePath, filename, mimeType) {
     method: "POST",
     headers: {
       Authorization: `Bearer ${bearer}`,
-      ...roleHeaders
+      ...roleHeaders,
+      ...workExecutionHeaders(null)
     },
     body: formData
   });
-  if (res.status === 401) {
+  if (res.status === 401 && retryAfter401(attempt)) {
     await refreshAuthAfter401();
-    return uploadFile(path3, filePath, filename, mimeType);
+    return uploadFile(path3, filePath, filename, mimeType, attempt + 1);
   }
   if (!res.ok) {
     const text = await res.text();
@@ -33406,8 +33570,8 @@ function attachVerification(catalog, values, tokens) {
   );
   if (!target) return { persisted: false, requested: true };
   const evidence = tokensToEvidence(tokens);
-  const current = Array.isArray(target.verification) ? target.verification : [];
-  target.verification = [...current, ...evidence];
+  const current2 = Array.isArray(target.verification) ? target.verification : [];
+  target.verification = [...current2, ...evidence];
   return { persisted: true, requested: true };
 }
 var TOKENS_NOT_PERSISTED_NOTICE = "NOTA: los verification_tokens no se persistieron: ningun valor tipado de este request declara `verification` (o el request no lleva contenido). Sirvieron para el hook de verificacion ejecutable; si tienen que quedar en el Hub, van en un valor cuyo tipo declare `verification`.";
@@ -33430,11 +33594,11 @@ function requireTypeIn(value, allowed, field, why) {
     );
   }
 }
-function typedToolResult(result, notices3 = []) {
+function typedToolResult(result, notices4 = []) {
   return {
     content: [
       { type: "text", text: JSON.stringify(result, null, 2) },
-      ...notices3.map((text) => ({ type: "text", text }))
+      ...notices4.map((text) => ({ type: "text", text }))
     ]
   };
 }
@@ -35759,8 +35923,313 @@ function makeCorpusCurrentGetHandler(client) {
   };
 }
 
+// src/tools/migracion-rapida-tools.ts
+function notices3(t) {
+  return t.requested && !t.persisted ? [TOKENS_NOT_PERSISTED_NOTICE] : [];
+}
+var seg2 = encodeURIComponent;
+var IDENTIDAD = 'Exige la identidad ARQUITECTO firmada en la sesion y la key spec.migracion_rapida, que el tenant le concede a ARQUITECTO por su overlay ("Modo Migracion"); sin ella 403. Opera solo sobre SPECs de Migracion rapida: una SPEC del ciclo SDD rebota 409 SPEC_NO_ES_MIGRACION_RAPIDA.';
+var MR_SPEC_PRIORITY = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
+var MR_TASK_STATUS = ["INBOX", "BACKLOG", "IN_PROGRESS", "DONE", "ARCHIVED"];
+var MR_TASK_PRIORITY = ["NOW", "NEXT", "LATER"];
+var MR_PHASE_STATUS = [
+  "PENDING",
+  "IN_PROGRESS",
+  "REVIEW",
+  "COMPLETED",
+  "BLOCKED",
+  "SKIPPED",
+  "NOT_STARTED",
+  "EXPLORING",
+  "PROPOSING",
+  "SPECIFYING",
+  "DESIGNING",
+  "TASKS_BREAKDOWN",
+  "READY_FOR_APPLY",
+  "APPLYING",
+  "VERIFYING",
+  "ACTIVE",
+  "READY_FOR_VALIDATION"
+];
+function taskShape(catalog) {
+  return {
+    title: external_exports3.string().describe("Titulo de la task (no vacio)."),
+    description: catalog.value("task.description").optional().describe(typedFieldDescription(["task.description"])),
+    status: external_exports3.enum(MR_TASK_STATUS).optional().describe("Estado de la task, sin gates. Omitido: INBOX."),
+    priority: external_exports3.enum(MR_TASK_PRIORITY).optional()
+  };
+}
+var MIGRACION_RAPIDA_SPEC_CREATE_DESCRIPTION = `Alta de una SPEC de Migracion rapida (POST /migracion-rapida/specs) con sus fases y las tasks de cada fase, fuera del ciclo SDD: sin Discovery, Adversarial ni Engineering. Una SPEC por llamada, hasta 100 fases y 200 tasks por fase; todo se valida antes de escribir. Nace en el estado por defecto del tenant y queda a nombre de la persona de la sesion. workspaceId+projectId+moduleId obligatorios, igual que en spec_create. \`description\` es un valor tipado spec.description, cada \`phases[].description\` un specPhase.description y cada \`phases[].tasks[].description\` un task.description: un string plano rebota 422 TYPED_CONTENT_LEGACY_SHAPE. verification_tokens viajan como \`description.verification\`. ${IDENTIDAD}`;
+function migracionRapidaSpecCreateShape(catalog) {
+  return {
+    title: external_exports3.string().describe("Titulo de la SPEC."),
+    description: catalog.value("spec.description").describe(typedFieldDescription(["spec.description"])),
+    priority: external_exports3.enum(MR_SPEC_PRIORITY).optional(),
+    category: external_exports3.string().optional(),
+    tags: external_exports3.array(external_exports3.string()).optional(),
+    clientId: external_exports3.string().optional(),
+    targetDate: external_exports3.string().optional().describe("Fecha objetivo ISO 8601."),
+    workspaceId: external_exports3.string().optional().describe("Workspace. Obligatorio, igual que en spec_create."),
+    projectId: external_exports3.string().optional().describe("Project. Obligatorio, igual que en spec_create."),
+    moduleId: external_exports3.string().optional().describe("Module. Obligatorio, igual que en spec_create."),
+    submoduleId: external_exports3.string().optional().describe("Submodule. Obligatorio si el module tiene submodules."),
+    phases: external_exports3.array(
+      external_exports3.object({
+        name: external_exports3.string(),
+        description: catalog.value("specPhase.description").optional(),
+        tasks: external_exports3.array(external_exports3.object(taskShape(catalog)).strict()).optional().describe("Hasta 200 tasks por fase.")
+      }).strict()
+    ).optional().describe("Fases en orden (sortOrder 1, 2, ...), cada una con sus tasks. Hasta 100."),
+    verification_tokens: verificationTokensField
+  };
+}
+function makeMigracionRapidaSpecCreateHandler(client, catalog) {
+  const ParamsSchema18 = external_exports3.object(migracionRapidaSpecCreateShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema18, params, async ({ verification_tokens, ...body }) => {
+    const tokens = attachVerification(catalog, [body.description], verification_tokens);
+    const spec = await client.post("/migracion-rapida/specs", body);
+    return typedToolResult(spec, notices3(tokens));
+  });
+}
+var MIGRACION_RAPIDA_SPEC_UPDATE_DESCRIPTION = `Modifica una SPEC de Migracion rapida (PATCH /migracion-rapida/specs/:specId): titulo, descripcion, prioridad, categoria, tags, fecha objetivo y estado. \`state\` es el NOMBRE de un estado activo del catalogo del tenant (ej. IN_PROGRESS, COMPLETED) y se fija sin maquina de estados ni gates SDD; uno inexistente rebota 422 MIGRACION_RAPIDA_ESTADO_INEXISTENTE. Mover el estado es una transicion: verification_tokens obligatorio con \`state\` una vez MCP_SERVER_RELEASE >= 0.2.0. \`description\` es un valor tipado spec.description; los tokens viajan como su \`verification\`. ${IDENTIDAD}`;
+function migracionRapidaSpecUpdateShape(catalog) {
+  return {
+    specId: external_exports3.string().describe("Spec.id (cuid) de la SPEC de Migracion rapida."),
+    title: external_exports3.string().optional(),
+    description: catalog.value("spec.description").optional().describe(typedFieldDescription(["spec.description"])),
+    priority: external_exports3.enum(MR_SPEC_PRIORITY).optional(),
+    category: external_exports3.string().optional(),
+    tags: external_exports3.array(external_exports3.string()).optional(),
+    targetDate: external_exports3.string().optional().describe("Fecha objetivo ISO 8601."),
+    state: external_exports3.string().optional().describe("Nombre de un estado activo del catalogo del tenant."),
+    verification_tokens: tokensSchema.nullable().optional()
+  };
+}
+function makeMigracionRapidaSpecUpdateHandler(client, catalog) {
+  const ParamsSchema18 = external_exports3.object(migracionRapidaSpecUpdateShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema18, params, async ({ specId, verification_tokens, ...body }) => {
+    if (isStrictPeriod && body.state && !verification_tokens) {
+      return typedToolError(
+        "Schema validation failed: verification_tokens object required when state is set (state transition) post MCP_SERVER_RELEASE>=0.2.0."
+      );
+    }
+    const tokens = attachVerification(catalog, [body.description], verification_tokens);
+    const spec = await client.patch(`/migracion-rapida/specs/${seg2(specId)}`, body);
+    return typedToolResult(spec, notices3(tokens));
+  });
+}
+var MIGRACION_RAPIDA_PHASE_ADD_DESCRIPTION = `Agrega una fase a una SPEC de Migracion rapida (POST /migracion-rapida/specs/:specId/phases), con sus tasks. Sin sortOrder va al final. \`description\` es un valor tipado specPhase.description y cada \`tasks[].description\` un task.description. Ninguno de los dos declara \`verification\`: los verification_tokens se validan y no se persisten (la respuesta lo avisa). ${IDENTIDAD}`;
+function migracionRapidaPhaseAddShape(catalog) {
+  return {
+    specId: external_exports3.string().describe("Spec.id (cuid) de la SPEC de Migracion rapida."),
+    name: external_exports3.string().describe("Nombre de la fase."),
+    description: catalog.value("specPhase.description").optional().describe(typedFieldDescription(["specPhase.description"])),
+    sortOrder: external_exports3.number().int().optional().describe("Orden (>= 1). Omitido: al final."),
+    tasks: external_exports3.array(external_exports3.object(taskShape(catalog)).strict()).optional().describe("Hasta 200 tasks."),
+    verification_tokens: verificationTokensField
+  };
+}
+function makeMigracionRapidaPhaseAddHandler(client, catalog) {
+  const ParamsSchema18 = external_exports3.object(migracionRapidaPhaseAddShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema18, params, async ({ specId, verification_tokens, ...body }) => {
+    const tokens = attachVerification(catalog, [body.description], verification_tokens);
+    const spec = await client.post(`/migracion-rapida/specs/${seg2(specId)}/phases`, body);
+    return typedToolResult(spec, notices3(tokens));
+  });
+}
+var MIGRACION_RAPIDA_PHASE_UPDATE_DESCRIPTION = `Modifica una fase de una SPEC de Migracion rapida (PATCH /migracion-rapida/specs/:specId/phases/:phaseId): nombre, descripcion, orden y estado. El estado se fija sin gates: salir de PENDING/NOT_STARTED estampa startedAt; COMPLETED o SKIPPED estampan completedAt y cualquier otro lo limpia. Mover el estado es una transicion: verification_tokens obligatorio con \`status\` una vez MCP_SERVER_RELEASE >= 0.2.0. \`description\` es un valor tipado specPhase.description, que no declara \`verification\`: los tokens se validan y no se persisten. ${IDENTIDAD}`;
+function migracionRapidaPhaseUpdateShape(catalog) {
+  return {
+    specId: external_exports3.string().describe("Spec.id (cuid) de la SPEC de Migracion rapida."),
+    phaseId: external_exports3.string().describe("SpecPhase.id (cuid) de una fase de esa SPEC."),
+    name: external_exports3.string().optional(),
+    description: catalog.value("specPhase.description").optional().describe(typedFieldDescription(["specPhase.description"])),
+    sortOrder: external_exports3.number().int().optional().describe("Orden (>= 1)."),
+    status: external_exports3.enum(MR_PHASE_STATUS).optional().describe("Estado de la fase, sin gates."),
+    verification_tokens: tokensSchema.nullable().optional()
+  };
+}
+function makeMigracionRapidaPhaseUpdateHandler(client, catalog) {
+  const ParamsSchema18 = external_exports3.object(migracionRapidaPhaseUpdateShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema18, params, async ({ specId, phaseId, verification_tokens, ...body }) => {
+    if (isStrictPeriod && body.status && !verification_tokens) {
+      return typedToolError(
+        "Schema validation failed: verification_tokens object required when status is set (phase transition) post MCP_SERVER_RELEASE>=0.2.0."
+      );
+    }
+    const tokens = attachVerification(catalog, [body.description], verification_tokens);
+    const spec = await client.patch(`/migracion-rapida/specs/${seg2(specId)}/phases/${seg2(phaseId)}`, body);
+    return typedToolResult(spec, notices3(tokens));
+  });
+}
+var MIGRACION_RAPIDA_TASK_ADD_DESCRIPTION = `Agrega una task a una fase de una SPEC de Migracion rapida (POST /migracion-rapida/specs/:specId/phases/:phaseId/tasks). Nace sin owner y con el estado que se pase (INBOX si se omite). \`description\` es un valor tipado task.description, que no declara \`verification\`: los verification_tokens se validan y no se persisten. ${IDENTIDAD}`;
+function migracionRapidaTaskAddShape(catalog) {
+  return {
+    specId: external_exports3.string().describe("Spec.id (cuid) de la SPEC de Migracion rapida."),
+    phaseId: external_exports3.string().describe("SpecPhase.id (cuid) de una fase de esa SPEC."),
+    // Campos escritos uno por uno y no con `...taskShape(catalog)`: el ratchet DTO-vs-schema lee el
+    // literal por AST y no sigue el spread.
+    title: external_exports3.string().describe("Titulo de la task (no vacio)."),
+    description: catalog.value("task.description").optional().describe(typedFieldDescription(["task.description"])),
+    status: external_exports3.enum(MR_TASK_STATUS).optional().describe("Estado de la task, sin gates. Omitido: INBOX."),
+    priority: external_exports3.enum(MR_TASK_PRIORITY).optional(),
+    verification_tokens: verificationTokensField
+  };
+}
+function makeMigracionRapidaTaskAddHandler(client, catalog) {
+  const ParamsSchema18 = external_exports3.object(migracionRapidaTaskAddShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema18, params, async ({ specId, phaseId, verification_tokens, ...body }) => {
+    const tokens = attachVerification(catalog, [body.description], verification_tokens);
+    const task = await client.post(`/migracion-rapida/specs/${seg2(specId)}/phases/${seg2(phaseId)}/tasks`, body);
+    return typedToolResult(task, notices3(tokens));
+  });
+}
+var MIGRACION_RAPIDA_TASK_UPDATE_DESCRIPTION = `Modifica una task de una SPEC de Migracion rapida (PATCH /migracion-rapida/specs/:specId/tasks/:taskId): titulo, descripcion, estado y prioridad. El estado se fija sin el gate de cierre de worktree (DONE incluido). \`description\` es un valor tipado task.description. ${IDENTIDAD}`;
+function migracionRapidaTaskUpdateShape(catalog) {
+  return {
+    specId: external_exports3.string().describe("Spec.id (cuid) de la SPEC de Migracion rapida."),
+    taskId: external_exports3.string().describe("Task.id (cuid) de una task de esa SPEC."),
+    title: external_exports3.string().optional(),
+    description: catalog.value("task.description").optional().describe(typedFieldDescription(["task.description"])),
+    status: external_exports3.enum(MR_TASK_STATUS).optional(),
+    priority: external_exports3.enum(MR_TASK_PRIORITY).optional()
+  };
+}
+function makeMigracionRapidaTaskUpdateHandler(client, catalog) {
+  const ParamsSchema18 = external_exports3.object(migracionRapidaTaskUpdateShape(catalog)).strict();
+  return async (params) => runTypedTool(ParamsSchema18, params, async ({ specId, taskId, ...body }) => {
+    const task = await client.patch(`/migracion-rapida/specs/${seg2(specId)}/tasks/${seg2(taskId)}`, body);
+    return typedToolResult(task);
+  });
+}
+var MIGRACION_RAPIDA_SPEC_LIST_DESCRIPTION = `Lista las SPECs de Migracion rapida del tenant (GET /migracion-rapida/specs), con estado y avance. ${IDENTIDAD}`;
+var MIGRACION_RAPIDA_SPEC_GET_DESCRIPTION = `Una SPEC de Migracion rapida entera (GET /migracion-rapida/specs/:specId): fases en orden con sus links (PR) y sus tasks, cada una con sus links. Es la unica lectura que trae los links de fase. ${IDENTIDAD}`;
+var MIGRACION_RAPIDA_PHASE_DELETE_DESCRIPTION = `Borra una fase de una SPEC de Migracion rapida (DELETE /migracion-rapida/specs/:specId/phases/:phaseId) con sus links y sus tasks. Si otra tabla referencia una task (un ack, por ejemplo) rebota 409 MIGRACION_RAPIDA_BORRADO_CON_HISTORIA. ${IDENTIDAD}`;
+var MIGRACION_RAPIDA_TASK_DELETE_DESCRIPTION = `Borra una task de una SPEC de Migracion rapida (DELETE /migracion-rapida/specs/:specId/tasks/:taskId) con sus links. Si otra tabla la referencia rebota 409 MIGRACION_RAPIDA_BORRADO_CON_HISTORIA. ${IDENTIDAD}`;
+var MIGRACION_RAPIDA_PHASE_LINK_ADD_DESCRIPTION = `Enlaza un PR (o cualquier URL con protocolo) a una fase de una SPEC de Migracion rapida (POST /migracion-rapida/specs/:specId/phases/:phaseId/links). ${IDENTIDAD}`;
+var MIGRACION_RAPIDA_PHASE_LINK_REMOVE_DESCRIPTION = `Quita un link de una fase de una SPEC de Migracion rapida (DELETE /migracion-rapida/specs/:specId/phases/:phaseId/links/:linkId). El linkId sale de migracion_rapida_spec_get. ${IDENTIDAD}`;
+var MIGRACION_RAPIDA_TASK_LINK_ADD_DESCRIPTION = `Enlaza un PR (o cualquier URL con protocolo) a una task de una SPEC de Migracion rapida (POST /migracion-rapida/specs/:specId/tasks/:taskId/links). ${IDENTIDAD}`;
+var MIGRACION_RAPIDA_TASK_LINK_REMOVE_DESCRIPTION = `Quita un link de una task de una SPEC de Migracion rapida (DELETE /migracion-rapida/specs/:specId/tasks/:taskId/links/:linkId). El linkId sale de migracion_rapida_spec_get. ${IDENTIDAD}`;
+var SPEC_ID = external_exports3.string().describe("Spec.id (cuid) de la SPEC de Migracion rapida.");
+var PHASE_ID = external_exports3.string().describe("SpecPhase.id (cuid) de una fase de esa SPEC.");
+var TASK_ID = external_exports3.string().describe("Task.id (cuid) de una task de esa SPEC.");
+var LINK_ID = external_exports3.string().describe("Id (cuid) del link, tal como lo devuelve migracion_rapida_spec_get.");
+var migracionRapidaSpecListSchema = {};
+var migracionRapidaSpecGetSchema = {
+  specId: SPEC_ID
+};
+var migracionRapidaPhaseDeleteSchema = {
+  specId: SPEC_ID,
+  phaseId: PHASE_ID
+};
+var migracionRapidaTaskDeleteSchema = {
+  specId: SPEC_ID,
+  taskId: TASK_ID
+};
+var migracionRapidaPhaseLinkAddSchema = {
+  specId: SPEC_ID,
+  phaseId: PHASE_ID,
+  url: external_exports3.string().describe("URL del PR (con protocolo http/https), hasta 2048."),
+  title: external_exports3.string().describe("Titulo del link (no vacio), hasta 200."),
+  description: external_exports3.string().optional().describe("Contexto del link, hasta 500.")
+};
+var migracionRapidaPhaseLinkRemoveSchema = {
+  specId: SPEC_ID,
+  phaseId: PHASE_ID,
+  linkId: LINK_ID
+};
+var migracionRapidaTaskLinkAddSchema = {
+  specId: SPEC_ID,
+  taskId: TASK_ID,
+  url: external_exports3.string().describe("URL del PR (con protocolo http/https), hasta 2048."),
+  title: external_exports3.string().describe("Titulo del link (no vacio), hasta 200."),
+  description: external_exports3.string().optional().describe("Contexto del link, hasta 500.")
+};
+var migracionRapidaTaskLinkRemoveSchema = {
+  specId: SPEC_ID,
+  taskId: TASK_ID,
+  linkId: LINK_ID
+};
+var MigracionRapidaSpecListParamsSchema = external_exports3.object(migracionRapidaSpecListSchema).strict();
+var MigracionRapidaSpecGetParamsSchema = external_exports3.object(migracionRapidaSpecGetSchema).strict();
+var MigracionRapidaPhaseDeleteParamsSchema = external_exports3.object(migracionRapidaPhaseDeleteSchema).strict();
+var MigracionRapidaTaskDeleteParamsSchema = external_exports3.object(migracionRapidaTaskDeleteSchema).strict();
+var MigracionRapidaPhaseLinkAddParamsSchema = external_exports3.object(migracionRapidaPhaseLinkAddSchema).strict();
+var MigracionRapidaPhaseLinkRemoveParamsSchema = external_exports3.object(migracionRapidaPhaseLinkRemoveSchema).strict();
+var MigracionRapidaTaskLinkAddParamsSchema = external_exports3.object(migracionRapidaTaskLinkAddSchema).strict();
+var MigracionRapidaTaskLinkRemoveParamsSchema = external_exports3.object(migracionRapidaTaskLinkRemoveSchema).strict();
+function schemaError5(issues) {
+  const detail = issues.map((e) => `${e.path?.join(".") || "(root)"}: ${e.message}`).join("; ");
+  return { isError: true, content: [{ type: "text", text: `Schema validation failed: ${detail}` }] };
+}
+function asResult2(result) {
+  return { content: [{ type: "text", text: JSON.stringify(result ?? { ok: true }, null, 2) }] };
+}
+function makeMigracionRapidaSpecListHandler(client) {
+  return async (params) => {
+    const parsed = MigracionRapidaSpecListParamsSchema.safeParse(params ?? {});
+    if (!parsed.success) return schemaError5(parsed.error.issues);
+    return asResult2(await client.get("/migracion-rapida/specs"));
+  };
+}
+function makeMigracionRapidaSpecGetHandler(client) {
+  return async (params) => {
+    const parsed = MigracionRapidaSpecGetParamsSchema.safeParse(params);
+    if (!parsed.success) return schemaError5(parsed.error.issues);
+    return asResult2(await client.get(`/migracion-rapida/specs/${seg2(parsed.data.specId)}`));
+  };
+}
+function makeMigracionRapidaPhaseDeleteHandler(client) {
+  return async (params) => {
+    const parsed = MigracionRapidaPhaseDeleteParamsSchema.safeParse(params);
+    if (!parsed.success) return schemaError5(parsed.error.issues);
+    const { specId, phaseId } = parsed.data;
+    return asResult2(await client.del(`/migracion-rapida/specs/${seg2(specId)}/phases/${seg2(phaseId)}`));
+  };
+}
+function makeMigracionRapidaTaskDeleteHandler(client) {
+  return async (params) => {
+    const parsed = MigracionRapidaTaskDeleteParamsSchema.safeParse(params);
+    if (!parsed.success) return schemaError5(parsed.error.issues);
+    const { specId, taskId } = parsed.data;
+    return asResult2(await client.del(`/migracion-rapida/specs/${seg2(specId)}/tasks/${seg2(taskId)}`));
+  };
+}
+function makeMigracionRapidaPhaseLinkAddHandler(client) {
+  return async (params) => {
+    const parsed = MigracionRapidaPhaseLinkAddParamsSchema.safeParse(params);
+    if (!parsed.success) return schemaError5(parsed.error.issues);
+    const { specId, phaseId, ...body } = parsed.data;
+    return asResult2(await client.post(`/migracion-rapida/specs/${seg2(specId)}/phases/${seg2(phaseId)}/links`, body));
+  };
+}
+function makeMigracionRapidaPhaseLinkRemoveHandler(client) {
+  return async (params) => {
+    const parsed = MigracionRapidaPhaseLinkRemoveParamsSchema.safeParse(params);
+    if (!parsed.success) return schemaError5(parsed.error.issues);
+    const { specId, phaseId, linkId } = parsed.data;
+    return asResult2(await client.del(`/migracion-rapida/specs/${seg2(specId)}/phases/${seg2(phaseId)}/links/${seg2(linkId)}`));
+  };
+}
+function makeMigracionRapidaTaskLinkAddHandler(client) {
+  return async (params) => {
+    const parsed = MigracionRapidaTaskLinkAddParamsSchema.safeParse(params);
+    if (!parsed.success) return schemaError5(parsed.error.issues);
+    const { specId, taskId, ...body } = parsed.data;
+    return asResult2(await client.post(`/migracion-rapida/specs/${seg2(specId)}/tasks/${seg2(taskId)}/links`, body));
+  };
+}
+function makeMigracionRapidaTaskLinkRemoveHandler(client) {
+  return async (params) => {
+    const parsed = MigracionRapidaTaskLinkRemoveParamsSchema.safeParse(params);
+    if (!parsed.success) return schemaError5(parsed.error.issues);
+    const { specId, taskId, linkId } = parsed.data;
+    return asResult2(await client.del(`/migracion-rapida/specs/${seg2(specId)}/tasks/${seg2(taskId)}/links/${seg2(linkId)}`));
+  };
+}
+
 // src/tools/operator-input.ts
-var SPEC_REQUEST_OPERATOR_INPUT_DESCRIPTION = "Pide input al Operador sobre una SPEC y la deja EN ESPERA, SIN castigo: el estado y el contexto de la SPEC NO cambian (mismo stateId, mismo inProgressContext) y tu turno cierra igual. Con la consulta abierta, el gate del dispatcher bloquea TODA transicion de la SPEC salvo BLOCKED y CANCELLED \u2014 el rechazo nombra el cuid de la consulta pendiente. UNA consulta = UNA decision (TKT-0475): `questions` es el valor tipado operatorInput.questions \u2014 `question` (una sola pregunta de decision), `contextSummary` (hasta 500 caracteres), `options` (2 a 4, cada una con id A-D distinto y `text` de hasta 250), `recommendation` { optionId, rationale de hasta 250 } y `evidenceRefs` (hasta 10 Ref). No pegues codigo, resultados de busquedas, inventarios ni respuestas anteriores: una decision previa se cita por Ref OPERATOR_INPUT (el id de una consulta de ESTA SPEC), nunca copiando su contenido. Un string plano rebota 422 TYPED_CONTENT_LEGACY_SHAPE; una recomendacion que no esta entre las opciones o ids de opcion repetidos, 422 TYPED_CONTENT_INVALID; un campo sobre su tope, 422 TYPED_CONTENT_OVER_LIMIT; un Ref OPERATOR_INPUT que no es de esta SPEC, 422 OPERATOR_INPUT_REF_UNKNOWN. El tope cuenta REQUESTS. Devuelve requestsUsed/requestsMax. 422 OPERATOR_INPUT_CAP_REACHED si la SPEC agoto el tope del tenant (sin retroceso de estado; el tope se sube por PATCH /admin/sdd/tenants/:id/operator-input-cap), OPERATOR_INPUT_ALREADY_OPEN si ya hay una abierta. 422 OPERATOR_INPUT_CHANNEL_CLOSED si Adversarial ya aprobo el artefacto en cuestion (el ENGINEERING_PLAN aprobado cierra el canal entero; el DISCOVERY_REPORT aprobado cierra solo los pedidos sobre ese artefacto) \u2014 despues de la aprobacion las salidas son la interfaz del agente o una task pendiente por falta de input. Requiere el permiso spec.request_operator_input (DISCOVERY, ENGINEERING, OPERATOR). La respuesta NO se da por MCP: es acto humano por UI (el Operador elige una opcion).";
+var SPEC_REQUEST_OPERATOR_INPUT_DESCRIPTION = "Pide input al Operador sobre una SPEC y la deja EN ESPERA, SIN castigo: el estado y el contexto de la SPEC NO cambian (mismo stateId, mismo inProgressContext) y tu turno cierra igual. Mientras haya alguna consulta abierta, el gate del dispatcher bloquea TODA transicion de la SPEC salvo BLOCKED y CANCELLED \u2014 el rechazo nombra los cuids de todas las pendientes. Puede haber VARIAS abiertas a la vez (TKT-0513): las decisiones que no dependen entre si se piden juntas, una consulta por decision, sin esperar la respuesta de la anterior; la que depende de otra respuesta se pide despues. UNA consulta = UNA decision (TKT-0475): `questions` es el valor tipado operatorInput.questions \u2014 `question` (una sola pregunta de decision), `contextSummary` (hasta 500 caracteres), `options` (2 a 4, cada una con id A-D distinto y `text` de hasta 250), `recommendation` { optionId, rationale de hasta 250 } y `evidenceRefs` (hasta 10 Ref). No pegues codigo, resultados de busquedas, inventarios ni respuestas anteriores: una decision previa se cita por Ref OPERATOR_INPUT (el id de una consulta de ESTA SPEC), nunca copiando su contenido. Un string plano rebota 422 TYPED_CONTENT_LEGACY_SHAPE; una recomendacion que no esta entre las opciones o ids de opcion repetidos, 422 TYPED_CONTENT_INVALID; un campo sobre su tope, 422 TYPED_CONTENT_OVER_LIMIT; un Ref OPERATOR_INPUT que no es de esta SPEC, 422 OPERATOR_INPUT_REF_UNKNOWN. El tope cuenta REQUESTS: cada consulta gasta uno, aunque salga junto a otras. Devuelve requestsUsed/requestsMax. 422 OPERATOR_INPUT_CAP_REACHED si la SPEC agoto el tope del tenant (sin retroceso de estado; el tope se sube por PATCH /admin/sdd/tenants/:id/operator-input-cap). 422 OPERATOR_INPUT_CHANNEL_CLOSED si Adversarial ya aprobo el artefacto en cuestion (el ENGINEERING_PLAN aprobado cierra el canal entero; el DISCOVERY_REPORT aprobado cierra solo los pedidos sobre ese artefacto) \u2014 despues de la aprobacion las salidas son la interfaz del agente o una task pendiente por falta de input. Requiere el permiso spec.request_operator_input (DISCOVERY, ENGINEERING, OPERATOR). La respuesta NO se da por MCP: es acto humano por UI (el Operador elige una opcion).";
 function specRequestOperatorInputShape(catalog) {
   return {
     specId: external_exports3.string().describe("Spec ID (cuid)"),
@@ -35782,7 +36251,7 @@ var specOperatorInputListSchema = {
   )
 };
 var ListParamsSchema3 = external_exports3.object(specOperatorInputListSchema).strict();
-function schemaError5(issues) {
+function schemaError6(issues) {
   return {
     isError: true,
     content: [
@@ -35808,7 +36277,7 @@ function makeSpecRequestOperatorInputHandler(client, catalog) {
 function makeSpecOperatorInputListHandler(client) {
   return async (params) => {
     const parsed = ListParamsSchema3.safeParse(params);
-    if (!parsed.success) return schemaError5(parsed.error.issues);
+    if (!parsed.success) return schemaError6(parsed.error.issues);
     const { specId, status } = parsed.data;
     const base = `/specs/${encodeURIComponent(specId)}/operator-input`;
     const path3 = status === void 0 ? base : `${base}?status=${status}`;
@@ -35822,6 +36291,7 @@ var WORK_ITEM_TARGET_ROLES = ["DISCOVERY", "ENGINEERING", "ADVERSARIAL", "CC_DEV
 var WORK_ITEM_SUBJECT_TYPES = ["SPEC", "PHASE", "TASK"];
 var WORK_ITEM_STATUSES = ["PENDING", "IN_PROGRESS", "BLOCKED", "FAILED", "DONE", "CANCELLED"];
 var WORK_ITEM_EXECUTION_RESULTS = ["SUCCEEDED", "BLOCKED", "FAILED"];
+var WORK_ITEM_EXECUTION_CONTINUITIES = ["CONTINUED", "RECONSTRUCTED"];
 var WORK_ITEM_ID = external_exports3.string().describe("WorkItem.id (cuid) del trabajo.");
 var workItemCreateSchema = {
   title: external_exports3.string().describe("Que se pide. El backend lo recorta; de 1 a 200 caracteres."),
@@ -35848,12 +36318,34 @@ var workItemGetSchema = {
   workItemId: WORK_ITEM_ID
 };
 var workItemExecutionStartSchema = {
-  workItemId: WORK_ITEM_ID
+  workItemId: WORK_ITEM_ID,
+  capabilities: external_exports3.array(external_exports3.string()).optional().describe(
+    "Capacidades que declara el ejecutor al reclamar: hasta 20 claves unicas, cada una ^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$. Tienen que cubrir todos los requirements del trabajo. Omitido vale []."
+  )
 };
+var workItemExecutionHeartbeatSchema = {
+  workItemId: WORK_ITEM_ID,
+  executionId: external_exports3.string().describe("WorkItemExecution.id (cuid) de la ejecucion vigente del trabajo.")
+};
+var workItemExecutionContinuitySchema = {
+  workItemId: WORK_ITEM_ID,
+  executionId: external_exports3.string().describe("WorkItemExecution.id (cuid) de la ejecucion vigente del trabajo."),
+  mode: external_exports3.enum(WORK_ITEM_EXECUTION_CONTINUITIES).describe(
+    "Como arranco la ejecucion: CONTINUED si siguio el trabajo de la anterior, RECONSTRUCTED si lo rearmo desde el Hub."
+  )
+};
+var BLOCKED_REASON_REGEX = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
+var ISO_WITH_ZONE_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/;
 var workItemExecutionFinishSchema = {
   workItemId: WORK_ITEM_ID,
-  executionId: external_exports3.string().describe("WorkItemExecution.id (cuid) de la ejecucion abierta del trabajo."),
-  result: external_exports3.enum(WORK_ITEM_EXECUTION_RESULTS).describe("Como termino la ejecucion: SUCCEEDED lleva el trabajo a DONE, BLOCKED a BLOCKED y FAILED a FAILED.")
+  executionId: external_exports3.string().describe("WorkItemExecution.id (cuid) de la ejecucion vigente del trabajo."),
+  result: external_exports3.enum(WORK_ITEM_EXECUTION_RESULTS).describe("Como termino la ejecucion: SUCCEEDED lleva el trabajo a DONE, BLOCKED a BLOCKED y FAILED a FAILED."),
+  reason: external_exports3.string().regex(BLOCKED_REASON_REGEX).optional().describe(
+    "Motivo de la ejecucion trabada, solo con result BLOCKED: ^[A-Za-z][A-Za-z0-9_]{0,63}$. usage_limit registra la espera por limite de uso."
+  ),
+  recoverableAt: external_exports3.string().regex(ISO_WITH_ZONE_REGEX).optional().describe(
+    "Momento en que la ejecucion trabada puede volver a intentarse, ISO-8601 con zona (Z o +hh:mm). Solo junto con reason."
+  )
 };
 var workItemCancelSchema = {
   workItemId: WORK_ITEM_ID
@@ -35862,16 +36354,25 @@ var WorkItemCreateParamsSchema = external_exports3.object(workItemCreateSchema).
 var WorkItemListParamsSchema = external_exports3.object(workItemListSchema).strict();
 var WorkItemGetParamsSchema = external_exports3.object(workItemGetSchema).strict();
 var WorkItemExecutionStartParamsSchema = external_exports3.object(workItemExecutionStartSchema).strict();
-var WorkItemExecutionFinishParamsSchema = external_exports3.object(workItemExecutionFinishSchema).strict();
+var WorkItemExecutionHeartbeatParamsSchema = external_exports3.object(workItemExecutionHeartbeatSchema).strict();
+var WorkItemExecutionContinuityParamsSchema = external_exports3.object(workItemExecutionContinuitySchema).strict();
+var WorkItemExecutionFinishParamsSchema = external_exports3.object(workItemExecutionFinishSchema).superRefine((p, ctx) => {
+  if (p.result !== "BLOCKED" && p.reason !== void 0) {
+    ctx.addIssue({ code: "custom", path: ["reason"], message: "reason solo se informa con result BLOCKED" });
+  }
+  if (p.recoverableAt !== void 0 && p.reason === void 0) {
+    ctx.addIssue({ code: "custom", path: ["recoverableAt"], message: "recoverableAt solo se informa junto con reason" });
+  }
+}).strict();
 var WorkItemCancelParamsSchema = external_exports3.object(workItemCancelSchema).strict();
-function schemaError6(issues) {
+function schemaError7(issues) {
   const detail = issues.map((e) => `${e.path?.join(".") || "(root)"}: ${e.message}`).join("; ");
   return { isError: true, content: [{ type: "text", text: `Schema validation failed: ${detail}` }] };
 }
-function asResult2(result) {
+function asResult3(result) {
   return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
 }
-var seg2 = encodeURIComponent;
+var seg3 = encodeURIComponent;
 function queryString2(params) {
   const qs = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
@@ -35883,16 +36384,16 @@ function queryString2(params) {
 function makeWorkItemCreateHandler(client) {
   return async (params) => {
     const parsed = WorkItemCreateParamsSchema.safeParse(params);
-    if (!parsed.success) return schemaError6(parsed.error.issues);
-    return asResult2(await client.post("/work-items", parsed.data));
+    if (!parsed.success) return schemaError7(parsed.error.issues);
+    return asResult3(await client.post("/work-items", parsed.data));
   };
 }
 function makeWorkItemListHandler(client) {
   return async (params) => {
     const parsed = WorkItemListParamsSchema.safeParse(params);
-    if (!parsed.success) return schemaError6(parsed.error.issues);
+    if (!parsed.success) return schemaError7(parsed.error.issues);
     const { status, targetRole, subjectType, subjectId, limit, cursor } = parsed.data;
-    return asResult2(
+    return asResult3(
       await client.get(`/work-items${queryString2({ status, targetRole, subjectType, subjectId, limit, cursor })}`)
     );
   };
@@ -35900,32 +36401,69 @@ function makeWorkItemListHandler(client) {
 function makeWorkItemGetHandler(client) {
   return async (params) => {
     const parsed = WorkItemGetParamsSchema.safeParse(params);
-    if (!parsed.success) return schemaError6(parsed.error.issues);
-    return asResult2(await client.get(`/work-items/${seg2(parsed.data.workItemId)}`));
+    if (!parsed.success) return schemaError7(parsed.error.issues);
+    return asResult3(await client.get(`/work-items/${seg3(parsed.data.workItemId)}`));
   };
+}
+function credentialOf(response) {
+  if (response === null || typeof response !== "object") return void 0;
+  const credential = response.credential;
+  return typeof credential === "string" ? credential : void 0;
 }
 function makeWorkItemExecutionStartHandler(client) {
   return async (params) => {
     const parsed = WorkItemExecutionStartParamsSchema.safeParse(params);
-    if (!parsed.success) return schemaError6(parsed.error.issues);
-    return asResult2(await client.post(`/work-items/${seg2(parsed.data.workItemId)}/executions`, {}));
+    if (!parsed.success) return schemaError7(parsed.error.issues);
+    const { workItemId, capabilities } = parsed.data;
+    const body = capabilities === void 0 ? {} : { capabilities };
+    const response = await client.post(`/work-items/${seg3(workItemId)}/executions`, body);
+    const credential = credentialOf(response);
+    if (credential !== void 0) setWorkExecutionCredential(credential);
+    return asResult3(response);
+  };
+}
+function makeWorkItemExecutionHeartbeatHandler(client) {
+  return async (params) => {
+    const parsed = WorkItemExecutionHeartbeatParamsSchema.safeParse(params);
+    if (!parsed.success) return schemaError7(parsed.error.issues);
+    const { workItemId, executionId } = parsed.data;
+    return asResult3(
+      await client.post(`/work-items/${seg3(workItemId)}/executions/${seg3(executionId)}/heartbeat`, {})
+    );
+  };
+}
+function makeWorkItemExecutionContinuityHandler(client) {
+  return async (params) => {
+    const parsed = WorkItemExecutionContinuityParamsSchema.safeParse(params);
+    if (!parsed.success) return schemaError7(parsed.error.issues);
+    const { workItemId, executionId, mode } = parsed.data;
+    return asResult3(
+      await client.post(`/work-items/${seg3(workItemId)}/executions/${seg3(executionId)}/continuity`, { mode })
+    );
   };
 }
 function makeWorkItemExecutionFinishHandler(client) {
   return async (params) => {
     const parsed = WorkItemExecutionFinishParamsSchema.safeParse(params);
-    if (!parsed.success) return schemaError6(parsed.error.issues);
-    const { workItemId, executionId, result } = parsed.data;
-    return asResult2(
-      await client.post(`/work-items/${seg2(workItemId)}/executions/${seg2(executionId)}/finish`, { result })
+    if (!parsed.success) return schemaError7(parsed.error.issues);
+    const { workItemId, executionId, result, reason, recoverableAt } = parsed.data;
+    const response = await client.post(
+      `/work-items/${seg3(workItemId)}/executions/${seg3(executionId)}/finish`,
+      {
+        result,
+        ...reason !== void 0 ? { reason } : {},
+        ...recoverableAt !== void 0 ? { recoverableAt } : {}
+      }
     );
+    clearWorkExecutionCredential();
+    return asResult3(response);
   };
 }
 function makeWorkItemCancelHandler(client) {
   return async (params) => {
     const parsed = WorkItemCancelParamsSchema.safeParse(params);
-    if (!parsed.success) return schemaError6(parsed.error.issues);
-    return asResult2(await client.post(`/work-items/${seg2(parsed.data.workItemId)}/cancel`, {}));
+    if (!parsed.success) return schemaError7(parsed.error.issues);
+    return asResult3(await client.post(`/work-items/${seg3(parsed.data.workItemId)}/cancel`, {}));
   };
 }
 
@@ -37945,9 +38483,73 @@ server.registerTool(
   makeCorpusCurrentGetHandler(apiClient)
 );
 server.registerTool(
+  "migracion_rapida_spec_list",
+  {
+    description: MIGRACION_RAPIDA_SPEC_LIST_DESCRIPTION,
+    inputSchema: external_exports3.object(migracionRapidaSpecListSchema).strict()
+  },
+  makeMigracionRapidaSpecListHandler(apiClient)
+);
+server.registerTool(
+  "migracion_rapida_spec_get",
+  {
+    description: MIGRACION_RAPIDA_SPEC_GET_DESCRIPTION,
+    inputSchema: external_exports3.object(migracionRapidaSpecGetSchema).strict()
+  },
+  makeMigracionRapidaSpecGetHandler(apiClient)
+);
+server.registerTool(
+  "migracion_rapida_phase_delete",
+  {
+    description: MIGRACION_RAPIDA_PHASE_DELETE_DESCRIPTION,
+    inputSchema: external_exports3.object(migracionRapidaPhaseDeleteSchema).strict()
+  },
+  makeMigracionRapidaPhaseDeleteHandler(apiClient)
+);
+server.registerTool(
+  "migracion_rapida_task_delete",
+  {
+    description: MIGRACION_RAPIDA_TASK_DELETE_DESCRIPTION,
+    inputSchema: external_exports3.object(migracionRapidaTaskDeleteSchema).strict()
+  },
+  makeMigracionRapidaTaskDeleteHandler(apiClient)
+);
+server.registerTool(
+  "migracion_rapida_phase_link_add",
+  {
+    description: MIGRACION_RAPIDA_PHASE_LINK_ADD_DESCRIPTION,
+    inputSchema: external_exports3.object(migracionRapidaPhaseLinkAddSchema).strict()
+  },
+  makeMigracionRapidaPhaseLinkAddHandler(apiClient)
+);
+server.registerTool(
+  "migracion_rapida_phase_link_remove",
+  {
+    description: MIGRACION_RAPIDA_PHASE_LINK_REMOVE_DESCRIPTION,
+    inputSchema: external_exports3.object(migracionRapidaPhaseLinkRemoveSchema).strict()
+  },
+  makeMigracionRapidaPhaseLinkRemoveHandler(apiClient)
+);
+server.registerTool(
+  "migracion_rapida_task_link_add",
+  {
+    description: MIGRACION_RAPIDA_TASK_LINK_ADD_DESCRIPTION,
+    inputSchema: external_exports3.object(migracionRapidaTaskLinkAddSchema).strict()
+  },
+  makeMigracionRapidaTaskLinkAddHandler(apiClient)
+);
+server.registerTool(
+  "migracion_rapida_task_link_remove",
+  {
+    description: MIGRACION_RAPIDA_TASK_LINK_REMOVE_DESCRIPTION,
+    inputSchema: external_exports3.object(migracionRapidaTaskLinkRemoveSchema).strict()
+  },
+  makeMigracionRapidaTaskLinkRemoveHandler(apiClient)
+);
+server.registerTool(
   "spec_operator_input_list",
   {
-    description: "Consultas al Operador de una SPEC (historial completo) mas `pendingId` \u2014 la abierta que esta gateando el avance, o null \u2014 y requestsUsed/requestsMax. El `id` de cada fila es el `source_id` que un EvidenceRef con source_type OPERATOR_INPUT tiene que citar, y su `answerText` es el corpus contra el que se verifica la cita. Desde TKT-0475 cada fila suma `questionsTyped` (el valor tipado de la consulta V2: question, contextSummary, options, recommendation, evidenceRefs; null en las legacy), `selectedOptionId` (la opcion que eligio el Operador) y `answerClarification`. Filtro opcional status (OPEN|ANSWERED); omitido devuelve todo, porque una consulta respondida sigue siendo fuente citable. Lectura sin permiso especial (la necesita cualquiera que verifique una cita), acotada al tenant del firmante.",
+    description: "Consultas al Operador de una SPEC (historial completo) mas `pendingIds` \u2014 las abiertas que estan gateando el avance, en orden de creacion; vacio si no hay ninguna (TKT-0513: puede haber varias) \u2014 y requestsUsed/requestsMax. El `id` de cada fila es el `source_id` que un EvidenceRef con source_type OPERATOR_INPUT tiene que citar, y su `answerText` es el corpus contra el que se verifica la cita. Desde TKT-0475 cada fila suma `questionsTyped` (el valor tipado de la consulta V2: question, contextSummary, options, recommendation, evidenceRefs; null en las legacy), `selectedOptionId` (la opcion que eligio el Operador) y `answerClarification`. Filtro opcional status (OPEN|ANSWERED); omitido devuelve todo, porque una consulta respondida sigue siendo fuente citable. Lectura sin permiso especial (la necesita cualquiera que verifique una cita), acotada al tenant del firmante.",
     inputSchema: external_exports3.object(specOperatorInputListSchema).strict()
   },
   makeSpecOperatorInputListHandler(apiClient)
@@ -37971,7 +38573,7 @@ server.registerTool(
 server.registerTool(
   "work_item_get",
   {
-    description: "Lee un trabajo con sus ejecuciones (sequence asc) y su historial de cambios (GET /work-items/:workItemId), tal como lo responde la API. Un trabajo inexistente o de otro tenant responde 404 Not Found, con el mismo cuerpo en los dos casos. Lectura: no requiere la clave work_item.write. Una clave que la tool no declara rebota en el MCP (Input validation error) sin llamar al backend.",
+    description: "Lee un trabajo con sus ejecuciones (sequence asc) y su historial de cambios (GET /work-items/:workItemId), tal como lo responde la API: claimable (si se puede reclamar ahora, con el reloj del Hub), cada ejecucion con su plazo (leaseExpiresAt, lastHeartbeatAt, expiredAt, leaseState, expiryRecorded, fencingToken, claimedRole, executorIdentityId, executorLabel, capabilities), lo que informo al terminar trabada (blockedReason, recoverableAt), su modo de continuidad (continuity: CONTINUED o RECONSTRUCTED, null en la primera ejecucion y en las que no lo informaron; SPEC-0246) y su condicion de espera (condition, o null: kind, nextAttemptAt, nextAttemptSource, intervalSec, waitingSince, y satisfied y satisfiedAt calculados al leer con el reloj del Hub) y el historial con actorKind, executorIdentityId y seq. Nunca trae la credencial. Un trabajo inexistente o de otro tenant responde 404 Not Found, con el mismo cuerpo en los dos casos. Lectura: no requiere la clave work_item.write y no lleva la credencial de ejecucion. Una clave que la tool no declara rebota en el MCP (Input validation error) sin llamar al backend.",
     inputSchema: WorkItemGetParamsSchema
   },
   makeWorkItemGetHandler(apiClient)
@@ -37979,15 +38581,31 @@ server.registerTool(
 server.registerTool(
   "work_item_execution_start",
   {
-    description: "Arranca una ejecucion del trabajo (POST /work-items/:workItemId/executions, cuerpo {}): lo lleva a IN_PROGRESS desde PENDING, BLOCKED o FAILED y crea la ejecucion con el siguiente sequence. Devuelve { workItem, execution } tal como lo responde la API. Requiere la clave work_item.write; sin ella 403 PERMISSION_DENIED. Errores del dominio: 404 si el trabajo no existe en el tenant, 422 WORK_ITEM_TRANSITION_NOT_ALLOWED si su estado no admite arrancar, 422 WORK_ITEM_ROLE_UNRESOLVED si la sesion no tiene rol efectivo. Registro operativo (ack-only): no lleva verification_tokens. Una clave que la tool no declara rebota en el MCP (Input validation error) sin llamar al backend.",
+    description: "Reclama el trabajo (POST /work-items/:workItemId/executions, cuerpo { capabilities? }): solo un ejecutor (runner) con el rol destinatario y capacidades que cubran los requirements. Crea la ejecucion vigente con plazo de 90 s y devuelve { workItem, execution, credential } tal como lo responde la API; la credential sale UNA sola vez, en esta respuesta, y la tool la fija en memoria del proceso: desde ahi toda tool que escribe la manda en x-work-execution (modo ejecutor, INTEGRA_EXECUTOR_ID) y ninguna lectura la lleva. Un reclamo nuevo reemplaza la anterior. Requiere la clave work_item.write; sin ella 403 PERMISSION_DENIED. Errores del dominio: 403 EXECUTOR_IDENTITY_REQUIRED si quien llama no es un ejecutor, 403 WORK_ITEM_CLAIM_ROLE_MISMATCH si su rol no es el destinatario, 404 si el trabajo no existe en el tenant, 409 WORK_ITEM_EXECUTION_ACTIVE si hay una ejecucion vigente, 422 WORK_ITEM_REQUIREMENTS_NOT_COVERED si las capacidades no cubren los requirements, 422 WORK_ITEM_TRANSITION_NOT_ALLOWED si su estado no admite el reclamo, 422 WORK_ITEM_WAIT_PENDING si el trabajo trabado espera una condicion que todavia no se cumplio (SPEC-0245; el Hub la evalua con su reloj y no crea ejecucion). Registro operativo (ack-only): no lleva verification_tokens. Una clave que la tool no declara rebota en el MCP (Input validation error) sin llamar al backend.",
     inputSchema: WorkItemExecutionStartParamsSchema
   },
   makeWorkItemExecutionStartHandler(apiClient)
 );
 server.registerTool(
+  "work_item_execution_heartbeat",
+  {
+    description: "Renueva el plazo de la ejecucion vigente (POST /work-items/:workItemId/executions/:executionId/heartbeat, cuerpo {}): el Hub fija leaseExpiresAt = su reloj + 90 s y lastHeartbeatAt = su reloj. La credencial de ejecucion viaja en x-work-execution (la pone el cliente con la que fijo work_item_execution_start). Devuelve la ejecucion tal como la responde la API. Requiere la clave work_item.write; sin ella 403 PERMISSION_DENIED. Errores del dominio: 404 si el trabajo o la ejecucion no existen en el tenant, 409 WORK_ITEM_EXECUTION_NOT_CURRENT si la ejecucion vencio, termino o fue reemplazada, 403 EXECUTION_CREDENTIAL_REQUIRED sin credencial y 403 EXECUTION_CREDENTIAL_INVALID con una que no es la de la ejecucion. Registro operativo (ack-only): no lleva verification_tokens. Una clave que la tool no declara rebota en el MCP (Input validation error) sin llamar al backend.",
+    inputSchema: WorkItemExecutionHeartbeatParamsSchema
+  },
+  makeWorkItemExecutionHeartbeatHandler(apiClient)
+);
+server.registerTool(
+  "work_item_execution_continuity",
+  {
+    description: "Informa el modo de continuidad de la ejecucion vigente (POST /work-items/:workItemId/executions/:executionId/continuity, cuerpo { mode }): CONTINUED si siguio el trabajo de la ejecucion anterior, RECONSTRUCTED si lo rearmo desde el Hub (SPEC-0246). Se fija una sola vez por ejecucion: el mismo valor otra vez responde 200 sin otra fila de historial y otro valor 409 WORK_ITEM_CONTINUITY_CONFLICT. La credencial de ejecucion viaja en x-work-execution (la pone el cliente con la que fijo work_item_execution_start). Devuelve { workItem, execution } tal como lo responde la API. Requiere la clave work_item.write; sin ella 403 PERMISSION_DENIED. Errores del dominio: 422 WORK_ITEM_CONTINUITY_FIRST_EXECUTION sobre la primera ejecucion del trabajo, 404 si el trabajo o la ejecucion no existen en el tenant, 409 WORK_ITEM_EXECUTION_NOT_CURRENT si la ejecucion vencio, termino o fue reemplazada, 403 EXECUTION_CREDENTIAL_REQUIRED sin credencial y 403 EXECUTION_CREDENTIAL_INVALID con una que no es la de la ejecucion, 403 EXECUTOR_IDENTITY_REQUIRED si quien llama no es un ejecutor. Registro operativo (ack-only): no lleva verification_tokens. Una clave que la tool no declara rebota en el MCP (Input validation error) sin llamar al backend.",
+    inputSchema: WorkItemExecutionContinuityParamsSchema
+  },
+  makeWorkItemExecutionContinuityHandler(apiClient)
+);
+server.registerTool(
   "work_item_execution_finish",
   {
-    description: "Termina la ejecucion abierta del trabajo con su resultado (POST /work-items/:workItemId/executions/:executionId/finish, cuerpo { result }): SUCCEEDED lleva el trabajo a DONE, BLOCKED a BLOCKED y FAILED a FAILED. Devuelve { workItem, execution } tal como lo responde la API. Requiere la clave work_item.write; sin ella 403 PERMISSION_DENIED. Errores del dominio: 404 si el trabajo o la ejecucion no existen en el tenant, 422 WORK_ITEM_EXECUTION_NOT_OPEN si la ejecucion no es la abierta, 422 WORK_ITEM_TRANSITION_NOT_ALLOWED si el estado no admite terminar, 422 WORK_ITEM_ROLE_UNRESOLVED si la sesion no tiene rol efectivo. Registro operativo (ack-only): no lleva verification_tokens. Una clave que la tool no declara rebota en el MCP (Input validation error) sin llamar al backend.",
+    description: "Termina la ejecucion vigente del trabajo con su resultado (POST /work-items/:workItemId/executions/:executionId/finish, cuerpo { result, reason?, recoverableAt? }): SUCCEEDED lleva el trabajo a DONE, BLOCKED a BLOCKED y FAILED a FAILED. Con BLOCKED puede informar el motivo (reason) y el momento en que puede volver a intentarse (recoverableAt, ISO-8601 con zona, solo junto con reason); reason usage_limit hace que el Hub registre la espera por limite de uso (SPEC-0245). reason o recoverableAt sin result BLOCKED, o recoverableAt sin reason, rebotan en el MCP sin llamar al backend. La credencial de ejecucion viaja en x-work-execution (la pone el cliente) y la tool la borra de memoria cuando el resultado se acepta (2xx); ante un error, 409 incluido, la deja. Devuelve { workItem, execution } tal como lo responde la API. Requiere la clave work_item.write; sin ella 403 PERMISSION_DENIED. Errores del dominio: 404 si el trabajo o la ejecucion no existen en el tenant, 409 WORK_ITEM_EXECUTION_NOT_CURRENT si la ejecucion vencio, termino o fue reemplazada, 403 EXECUTION_CREDENTIAL_REQUIRED sin credencial y 403 EXECUTION_CREDENTIAL_INVALID con una que no es la de la ejecucion, 422 WORK_ITEM_TRANSITION_NOT_ALLOWED si el estado no admite terminar, 422 WORK_ITEM_FINISH_DETAIL_REQUIRES_BLOCKED si reason o recoverableAt llegan sin result BLOCKED. Registro operativo (ack-only): no lleva verification_tokens. Una clave que la tool no declara rebota en el MCP (Input validation error) sin llamar al backend.",
     inputSchema: WorkItemExecutionFinishParamsSchema
   },
   makeWorkItemExecutionFinishHandler(apiClient)
@@ -39968,6 +40586,54 @@ function registerTypedTools(catalog) {
       inputSchema: external_exports3.object(specCreateTaskShape(catalog)).strict()
     },
     makeSpecCreateTaskHandler(apiClient, catalog)
+  );
+  server.registerTool(
+    "migracion_rapida_spec_create",
+    {
+      description: MIGRACION_RAPIDA_SPEC_CREATE_DESCRIPTION,
+      inputSchema: external_exports3.object(migracionRapidaSpecCreateShape(catalog)).strict()
+    },
+    makeMigracionRapidaSpecCreateHandler(apiClient, catalog)
+  );
+  server.registerTool(
+    "migracion_rapida_spec_update",
+    {
+      description: MIGRACION_RAPIDA_SPEC_UPDATE_DESCRIPTION,
+      inputSchema: external_exports3.object(migracionRapidaSpecUpdateShape(catalog)).strict()
+    },
+    makeMigracionRapidaSpecUpdateHandler(apiClient, catalog)
+  );
+  server.registerTool(
+    "migracion_rapida_phase_add",
+    {
+      description: MIGRACION_RAPIDA_PHASE_ADD_DESCRIPTION,
+      inputSchema: external_exports3.object(migracionRapidaPhaseAddShape(catalog)).strict()
+    },
+    makeMigracionRapidaPhaseAddHandler(apiClient, catalog)
+  );
+  server.registerTool(
+    "migracion_rapida_phase_update",
+    {
+      description: MIGRACION_RAPIDA_PHASE_UPDATE_DESCRIPTION,
+      inputSchema: external_exports3.object(migracionRapidaPhaseUpdateShape(catalog)).strict()
+    },
+    makeMigracionRapidaPhaseUpdateHandler(apiClient, catalog)
+  );
+  server.registerTool(
+    "migracion_rapida_task_add",
+    {
+      description: MIGRACION_RAPIDA_TASK_ADD_DESCRIPTION,
+      inputSchema: external_exports3.object(migracionRapidaTaskAddShape(catalog)).strict()
+    },
+    makeMigracionRapidaTaskAddHandler(apiClient, catalog)
+  );
+  server.registerTool(
+    "migracion_rapida_task_update",
+    {
+      description: MIGRACION_RAPIDA_TASK_UPDATE_DESCRIPTION,
+      inputSchema: external_exports3.object(migracionRapidaTaskUpdateShape(catalog)).strict()
+    },
+    makeMigracionRapidaTaskUpdateHandler(apiClient, catalog)
   );
   server.registerTool(
     "spec_set_documentation",

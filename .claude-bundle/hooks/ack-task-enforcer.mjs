@@ -33,9 +33,9 @@ import os from 'os';
 // dependencia. NO fail-open silencioso.
 //
 // TKT-0321 — la dependencia ya no es `integra-hub-auth.mjs` sino `hub-channel.mjs`, que resuelve
-// el canal por identidad SDD (el unico vivo en la maquina de un dev de tenant) y deja la legacy
-// de SPEC-0005 como respaldo. El import sigue siendo dinamico por la misma razon de siempre: un
-// import estatico de un modulo ausente falla en la RESOLUCION, antes de este catch y sin mensaje.
+// el canal. TKT-0498: con la identidad y el tenant que declara el room, y si no la declara no
+// llama. El import sigue siendo dinamico por la misma razon de siempre: un import estatico de un
+// modulo ausente falla en la RESOLUCION, antes de este catch y sin mensaje.
 let resolveHubChannel;
 let noChannelMessage;
 try {
@@ -329,15 +329,22 @@ async function main() {
   // activeResult.state === 'sprint-c-not-live' OR 'unknown' OR 'fetched-null' falls through.
 
   // Determine policy. Refresh if expired or missing.
-  let policyMode = cache.policy && cache.policy.ackTaskMode;
+  //
+  // TKT-0498 — la policy es del TENANT: se lee y se guarda en `policies[<cacheKey del canal>]`,
+  // la misma clave que usa ack-task-session-init. El `policy` suelto de antes era del ultimo
+  // tenant que la refresco y un room de otro tenant la heredaba 24 horas: no se lee mas.
+  const policyKey = channel.cacheKey;
+  if (!cache.policies || typeof cache.policies !== 'object') cache.policies = {};
+  const cachedPolicy = policyKey ? cache.policies[policyKey] || null : null;
+  let policyMode = cachedPolicy && cachedPolicy.ackTaskMode;
   const policyExpired =
-    !cache.policy ||
-    !cache.policy.expiresAt ||
-    new Date(cache.policy.expiresAt).getTime() <= Date.now();
+    !cachedPolicy ||
+    !cachedPolicy.expiresAt ||
+    new Date(cachedPolicy.expiresAt).getTime() <= Date.now();
   if (policyExpired) {
     const refresh = await refreshPolicy(deadline);
     if (refresh.policy) {
-      cache.policy = refresh.policy;
+      if (policyKey) cache.policies[policyKey] = refresh.policy;
       policyMode = refresh.policy.ackTaskMode;
       await saveCache(cache);
     } else if (refresh.kind === 'sprint-c-not-live') {

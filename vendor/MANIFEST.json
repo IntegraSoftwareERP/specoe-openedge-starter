@@ -1,7 +1,7 @@
 {
   "starterVersion": "0.2.34",
   "schemaVersion": 2,
-  "generatedAt": "2026-10-06",
+  "generatedAt": "2026-10-22",
   "hashPolicy": {
     "note": "TKT-0252 — dos hashes con dos propositos distintos. Ninguno reemplaza al otro: el que verifica procedencia mira contentSha256, el que verifica la copia mira packageSha256.",
     "packageSha256": "sha256 del archivo tal cual quedo en vendor/. CHECKSUM DE COPIA: detecta corrupcion en el canal de publicacion (clon, normalizacion de fin de linea, transferencia). NO prueba procedencia cuando el artefacto es un contenedor: vsce escribe timestamps dentro del .vsix, asi que empaquetar el MISMO commit dos veces da dos valores distintos.",
@@ -19,10 +19,10 @@
       "version": "0.1.2",
       "sourceRepo": "IntegraSoftwareERP/integra-hub",
       "sourcePath": "mcp-server",
-      "sourceSha": "b474940bc91f11b727bf26a196a48d3e68a30949",
-      "packageSha256": "3cd4e9c013a61e733623699814889f3e045cb962630ed1d982885656d0abf3e8",
+      "sourceSha": "749dca65a564c2552440b713371085248d6d6583",
+      "packageSha256": "368ac2f1def2dd88d256363218f4d62b80832bf95ddc101ef2cd8f4befa47a6b",
       "versionCommand": "node vendor/integra-hub-mcp.mjs --version",
-      "reproducibility": "esbuild sobre el mismo input produce el mismo output: VERIFICADO 2026-08-10 reconstruyendo el bundle desde 974c8b9, RE-VERIFICADO 2026-09-02 desde f92cec5 y RE-VERIFICADO 2026-09-03 desde 08dfddb y RE-VERIFICADO 2026-09-22 desde 42fe929f y RE-VERIFICADO 2026-10-05 desde 31fad87c y RE-VERIFICADO 2026-10-06 desde b474940b — las dos corridas de cada fecha dieron el mismo sha byte a byte. Por eso este componente NO necesita contentSha256: su packageSha256 ya identifica el contenido.",
+      "reproducibility": "esbuild sobre el mismo input produce el mismo output: VERIFICADO 2026-08-10 reconstruyendo el bundle desde 974c8b9, RE-VERIFICADO 2026-09-02 desde f92cec5 y RE-VERIFICADO 2026-09-03 desde 08dfddb y RE-VERIFICADO 2026-09-22 desde 42fe929f y RE-VERIFICADO 2026-10-05 desde 31fad87c y RE-VERIFICADO 2026-10-06 desde b474940b y RE-VERIFICADO 2026-10-22 desde 749dca65 — las dos corridas de cada fecha dieron el mismo sha byte a byte. Por eso este componente NO necesita contentSha256: su packageSha256 ya identifica el contenido.",
       "versionNote": "TKT-0362 / TKT-0368 — la version del paquete sigue en 0.1.2 y NO se bumpea al re-vendorizar: mcp-server no la movio entre 9d62731, f92cec5 y 08dfddb. `--version` devuelve 0.1.2 para el bundle viejo y el nuevo, asi que NO sirve para distinguirlos desde la VM. Lo que los distingue es el sourceSha declarado aca y su packageSha256."
     },
     {
@@ -58,9 +58,9 @@
       "role": "module",
       "sourceRepo": "IntegraSoftwareERP/integra-hub",
       "sourcePath": ".claude-bundle/hooks/hub-channel.mjs",
-      "sourceSha": "9b307079bc3672d460628797b9f60672457bda7a",
-      "packageSha256": "bd136747e460e7f6f994e864bfdca96e3e8da05441c13193e47de6fe5c36d43f",
-      "note": "TKT-0321 — canal de identidad + TLS de los hooks del Hub. No es un hook: es la dependencia de los otros dos, y si no viaja, los dos fallan en la RESOLUCION del import (sin mensaje, en cada arranque). TKT-0453 lo re-vendoriza desde 9b30707: trae integra-hub #802 (TKT-0448), que lee la URL del Hub del room con la precedencia de project.config.local.yaml, y desde integra-hub #801 es tambien la dependencia de infra-context-session-init. TKT-0453: role 'module' — no es un hook, lo importan ack-task e infra-context; hooks-audit lo audita instalado y al dia pero no cableado."
+      "sourceSha": "749dca65a564c2552440b713371085248d6d6583",
+      "packageSha256": "5f825ea33628845a79b0235eb21021cb6b1209c369d7feb0eb286027d50f4097",
+      "note": "TKT-0321 — canal de identidad + TLS de los hooks del Hub. No es un hook: es la dependencia de los otros dos, y si no viaja, los dos fallan en la RESOLUCION del import (sin mensaje, en cada arranque). TKT-0453 lo re-vendoriza desde 9b30707: trae integra-hub #802 (TKT-0448), que lee la URL del Hub del room con la precedencia de project.config.local.yaml, y desde integra-hub #801 es tambien la dependencia de infra-context-session-init. TKT-0453: role 'module' — no es un hook, lo importan ack-task e infra-context; hooks-audit lo audita instalado y al dia pero no cableado. TKT-0513 lo re-vendoriza desde 749dca65 con TKT-0498 (integra-hub #873): el canal habla con el Hub solo con la identidad que declara el room (hub.account + hub.tenant-id, o specoe.tenant) y falla cerrado si no la declara."
     },
     {
       "name": "ack-task-session-init",
@@ -69,9 +69,9 @@
       "artifactKind": "file",
       "sourceRepo": "IntegraSoftwareERP/integra-hub",
       "sourcePath": ".claude-bundle/hooks/ack-task-session-init.mjs",
-      "sourceSha": "9d627310c395e5352bff0085db61c4ff670663fe",
-      "packageSha256": "7ed24fdcd209ee088c01a0ee09229afef50fcf5cc23b06c1182d2d3da6a76e32",
-      "note": "TKT-0321 — hook SessionStart del gate de ack-task."
+      "sourceSha": "749dca65a564c2552440b713371085248d6d6583",
+      "packageSha256": "b35240ba547ea5d7c9bd106d5c933086be4eecc9160951cdcd14e47c0b82473f",
+      "note": "TKT-0321 — hook SessionStart del gate de ack-task. TKT-0513 lo re-vendoriza desde 749dca65 con TKT-0498 (integra-hub #873): el canal habla con el Hub solo con la identidad que declara el room (hub.account + hub.tenant-id, o specoe.tenant) y falla cerrado si no la declara."
     },
     {
       "name": "ack-task-enforcer",
@@ -80,9 +80,9 @@
       "artifactKind": "file",
       "sourceRepo": "IntegraSoftwareERP/integra-hub",
       "sourcePath": ".claude-bundle/hooks/ack-task-enforcer.mjs",
-      "sourceSha": "9d627310c395e5352bff0085db61c4ff670663fe",
-      "packageSha256": "3479987aeacc31accb9efd28fcf341a2235f01d68a16334e20abecb0e60daa3d",
-      "note": "TKT-0321 — hook PreToolUse del gate de ack-task. Es el que bloquea, asi que su deriva es la que mas caro sale: un enforcer viejo sigue corriendo, degradado, sin avisar (SPEC-0166 P4b, 2026-08-04)."
+      "sourceSha": "749dca65a564c2552440b713371085248d6d6583",
+      "packageSha256": "c0c7f421120ce6306a6b646f3140fec1dd4e5b56b4e6d9dd23f4adbbc85c6fff",
+      "note": "TKT-0321 — hook PreToolUse del gate de ack-task. Es el que bloquea, asi que su deriva es la que mas caro sale: un enforcer viejo sigue corriendo, degradado, sin avisar (SPEC-0166 P4b, 2026-08-04). TKT-0513 lo re-vendoriza desde 749dca65 con TKT-0498 (integra-hub #873): el canal habla con el Hub solo con la identidad que declara el room (hub.account + hub.tenant-id, o specoe.tenant) y falla cerrado si no la declara."
     },
     {
       "name": "executable-verification-hub-mutation",
@@ -124,9 +124,9 @@
       "artifactKind": "file",
       "sourceRepo": "IntegraSoftwareERP/integra-hub",
       "sourcePath": "hooks/hooks-audit.mjs",
-      "sourceSha": "e25288b0ccdb9dba90ec82685fa795bde8a8acf7",
-      "packageSha256": "52d5833b38af3d14b4715588c63c95d8dfb245f810396fb57ddf155d6d51865d",
-      "note": "TKT-0325 el auditor, TKT-0362 su llegada aca. Hook SessionStart: compara lo que DEBERIA estar corriendo contra lo que esta y reporta las tres formas de fantasma (no instalado / instalado pero viejo / instalado y sin cablear). Los tres se ven igual desde adentro de una sesion: no pasa nada. Lo que lo hace util de ESTE lado es que lee DOS manifiestos: el dev de un tenant no clona integra-hub, asi que nunca tiene integra-hooks-manifest.json -- el auditor lee tambien este archivo, filtrando por basePath. La version vendorizada es la del fix del canal (leia una clave inventada y devolvia cero hooks contra el manifiesto real). TKT-0453 lo re-vendoriza desde e25288b (integra-hub #803): trae TKT-0408 y distingue los componentes con role 'module' (ver hashPolicy.role). Audita tambien los dos hooks que entran en este release: los lee de este MANIFEST, filtrando por basePath."
+      "sourceSha": "749dca65a564c2552440b713371085248d6d6583",
+      "packageSha256": "ccb4e86490b2f3b58dd5daef4e7079313cf3ea877a8f8123f8c58a642b409fd4",
+      "note": "TKT-0325 el auditor, TKT-0362 su llegada aca. Hook SessionStart: compara lo que DEBERIA estar corriendo contra lo que esta y reporta las tres formas de fantasma (no instalado / instalado pero viejo / instalado y sin cablear). Los tres se ven igual desde adentro de una sesion: no pasa nada. Lo que lo hace util de ESTE lado es que lee DOS manifiestos: el dev de un tenant no clona integra-hub, asi que nunca tiene integra-hooks-manifest.json -- el auditor lee tambien este archivo, filtrando por basePath. La version vendorizada es la del fix del canal (leia una clave inventada y devolvia cero hooks contra el manifiesto real). TKT-0453 lo re-vendoriza desde e25288b (integra-hub #803): trae TKT-0408 y distingue los componentes con role 'module' (ver hashPolicy.role). Audita tambien los dos hooks que entran en este release: los lee de este MANIFEST, filtrando por basePath. TKT-0513 lo re-vendoriza desde 749dca65 con TKT-0498 (integra-hub #873): el canal habla con el Hub solo con la identidad que declara el room (hub.account + hub.tenant-id, o specoe.tenant) y falla cerrado si no la declara."
     },
     {
       "name": "block-merge-and-default-branch-push",
@@ -146,9 +146,9 @@
       "artifactKind": "file",
       "sourceRepo": "IntegraSoftwareERP/integra-hub",
       "sourcePath": "hooks/infra-context-session-init.mjs",
-      "sourceSha": "9b307079bc3672d460628797b9f60672457bda7a",
-      "packageSha256": "89edd3c57093234483feb9bc54289cd07eac34f243de471cb2705c4cfddde722",
-      "note": "TKT-0453 — hook SessionStart que sirve el INFRA_CONTEXT del tenant al arrancar (TKT-0389). Se vendoriza SIN adaptar: desde integra-hub #801 resuelve el canal por hub-channel.mjs y, si no esta, por integra-hub-auth.mjs, asi que el mismo archivo autentica en la maquina del dev (identidad SDD + ca-channel) y en la del Operador. Informativo: nunca bloquea; sin canal no sirve nada y la sesion arranca igual."
+      "sourceSha": "749dca65a564c2552440b713371085248d6d6583",
+      "packageSha256": "a4db247bbf00ef9291228bbcec3da49bfba6c316f282c1a9f517aece8f5ced3b",
+      "note": "TKT-0453 — hook SessionStart que sirve el INFRA_CONTEXT del tenant al arrancar (TKT-0389). Se vendoriza SIN adaptar: desde integra-hub #801 resuelve el canal por hub-channel.mjs y, si no esta, por integra-hub-auth.mjs, asi que el mismo archivo autentica en la maquina del dev (identidad SDD + ca-channel) y en la del Operador. Informativo: nunca bloquea; sin canal no sirve nada y la sesion arranca igual. TKT-0513 lo re-vendoriza desde 749dca65 con TKT-0498 (integra-hub #873): el canal habla con el Hub solo con la identidad que declara el room (hub.account + hub.tenant-id, o specoe.tenant) y falla cerrado si no la declara."
     },
     {
       "name": "ack-task-command",
