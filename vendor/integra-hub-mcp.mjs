@@ -35617,6 +35617,126 @@ function makeInfraContextGetHandler(client) {
   };
 }
 
+// src/tools/testing-declaration-tools.ts
+var TESTING_DECLARATION_KINDS = [
+  "DF",
+  "TEXTS",
+  "PARAMETERS_FILE",
+  "PARAMETER",
+  "SECRET",
+  "ENV_LINE",
+  "MANUAL_STEP",
+  "HOW_TO_TEST"
+];
+var itemSchema = external_exports3.object({
+  kind: external_exports3.enum(TESTING_DECLARATION_KINDS).describe(
+    "DF = un .df; TEXTS = archivo de textos nuevo o cambiado; PARAMETERS_FILE = archivo de par\xE1metros nuevo o cambiado; PARAMETER = par\xE1metro cuyo valor pone quien instala cada entorno, o valor existente que tiene que cambiar; SECRET = secreto que carga el operador (nunca va al repo); ENV_LINE = l\xEDnea del archivo de entorno; MANUAL_STEP = paso manual; HOW_TO_TEST = c\xF3mo se prueba."
+  ),
+  ref: external_exports3.string().min(1).max(500).describe("Qu\xE9 cosa es: el archivo, la clave del par\xE1metro, la l\xEDnea del archivo de entorno, el paso o la prueba."),
+  detail: external_exports3.string().max(2e3).optional().describe("Aclaraci\xF3n: los textos nuevos, el valor nuevo, qu\xE9 se ve al probar."),
+  valueSetBy: external_exports3.string().max(200).optional().describe("Qui\xE9n pone el valor en cada entorno (p.ej. \xABquien instala cada entorno\xBB, \xABel operador\xBB)."),
+  environments: external_exports3.array(external_exports3.string().min(1).max(60)).max(20).optional().describe('En qu\xE9 entornos va (p.ej. ["DESARROLLO","TESTING"]). Omitido o vac\xEDo = en todos.')
+}).strict();
+var nothingToCreateField = external_exports3.boolean().describe(
+  "true = el desarrollo no necesita crear ni hacer nada para pasar a testing (items vac\xEDo). false = items lleva al menos un \xEDtem."
+);
+var itemsField = external_exports3.array(itemSchema).max(60).describe("Reemplazo completo: la declaraci\xF3n queda EXACTAMENTE con estos \xEDtems. Vac\xEDo s\xF3lo con nothingToCreate=true.");
+var phaseTestingDeclarationSetSchema = {
+  specId: external_exports3.string().min(1).describe("CUID de la SPEC que contiene la fase."),
+  phaseId: external_exports3.string().min(1).describe("CUID de la fase."),
+  nothingToCreate: nothingToCreateField,
+  items: itemsField
+};
+var phaseTestingDeclarationGetSchema = {
+  specId: external_exports3.string().min(1).describe("CUID de la SPEC que contiene la fase."),
+  phaseId: external_exports3.string().min(1).describe("CUID de la fase.")
+};
+var ticketTestingDeclarationSetSchema = {
+  ticketId: external_exports3.string().min(1).describe("CUID del ticket."),
+  nothingToCreate: nothingToCreateField,
+  items: itemsField
+};
+var ticketTestingDeclarationGetSchema = {
+  ticketId: external_exports3.string().min(1).describe("CUID del ticket.")
+};
+var migracionRapidaPhaseTestingDeclarationSetSchema = {
+  specId: external_exports3.string().min(1).describe("CUID de la SPEC de Migraci\xF3n r\xE1pida."),
+  phaseId: external_exports3.string().min(1).describe("CUID de la fase."),
+  nothingToCreate: nothingToCreateField,
+  items: itemsField
+};
+var testingDeclarationsWindowSchema = {
+  from: external_exports3.string().min(1).describe("Inicio de la ventana del sprint, ISO 8601 (incluido)."),
+  to: external_exports3.string().min(1).describe("Fin de la ventana del sprint, ISO 8601 (excluido).")
+};
+var PhaseTestingDeclarationSetParamsSchema = external_exports3.object(phaseTestingDeclarationSetSchema).strict();
+var PhaseTestingDeclarationGetParamsSchema = external_exports3.object(phaseTestingDeclarationGetSchema).strict();
+var TicketTestingDeclarationSetParamsSchema = external_exports3.object(ticketTestingDeclarationSetSchema).strict();
+var TicketTestingDeclarationGetParamsSchema = external_exports3.object(ticketTestingDeclarationGetSchema).strict();
+var MigracionRapidaPhaseTestingDeclarationSetParamsSchema = external_exports3.object(migracionRapidaPhaseTestingDeclarationSetSchema).strict();
+var TestingDeclarationsWindowParamsSchema = external_exports3.object(testingDeclarationsWindowSchema).strict();
+function schemaError3(issues) {
+  return {
+    isError: true,
+    content: [{ type: "text", text: `Schema validation failed: ${issues.map((e) => e.message).join("; ")}` }]
+  };
+}
+var ok2 = (result) => ({ content: [{ type: "text", text: JSON.stringify(result, null, 2) }] });
+function makePhaseTestingDeclarationSetHandler(client) {
+  return async (params) => {
+    const parsed = PhaseTestingDeclarationSetParamsSchema.safeParse(params);
+    if (!parsed.success) return schemaError3(parsed.error.issues);
+    const { specId, phaseId, nothingToCreate, items } = parsed.data;
+    return ok2(
+      await client.put(`/specs/${specId}/phases/${phaseId}/testing-declaration`, { nothingToCreate, items })
+    );
+  };
+}
+function makePhaseTestingDeclarationGetHandler(client) {
+  return async (params) => {
+    const parsed = PhaseTestingDeclarationGetParamsSchema.safeParse(params);
+    if (!parsed.success) return schemaError3(parsed.error.issues);
+    const { specId, phaseId } = parsed.data;
+    return ok2(await client.get(`/specs/${specId}/phases/${phaseId}/testing-declaration`));
+  };
+}
+function makeTicketTestingDeclarationSetHandler(client) {
+  return async (params) => {
+    const parsed = TicketTestingDeclarationSetParamsSchema.safeParse(params);
+    if (!parsed.success) return schemaError3(parsed.error.issues);
+    const { ticketId, nothingToCreate, items } = parsed.data;
+    return ok2(await client.put(`/tickets/${ticketId}/testing-declaration`, { nothingToCreate, items }));
+  };
+}
+function makeTicketTestingDeclarationGetHandler(client) {
+  return async (params) => {
+    const parsed = TicketTestingDeclarationGetParamsSchema.safeParse(params);
+    if (!parsed.success) return schemaError3(parsed.error.issues);
+    return ok2(await client.get(`/tickets/${parsed.data.ticketId}/testing-declaration`));
+  };
+}
+function makeMigracionRapidaPhaseTestingDeclarationSetHandler(client) {
+  return async (params) => {
+    const parsed = MigracionRapidaPhaseTestingDeclarationSetParamsSchema.safeParse(params);
+    if (!parsed.success) return schemaError3(parsed.error.issues);
+    const { specId, phaseId, nothingToCreate, items } = parsed.data;
+    return ok2(
+      await client.put(`/migracion-rapida/specs/${specId}/phases/${phaseId}/testing-declaration`, {
+        nothingToCreate,
+        items
+      })
+    );
+  };
+}
+function makeTestingDeclarationsWindowHandler(client) {
+  return async (params) => {
+    const parsed = TestingDeclarationsWindowParamsSchema.safeParse(params);
+    if (!parsed.success) return schemaError3(parsed.error.issues);
+    const qs = new URLSearchParams({ from: parsed.data.from, to: parsed.data.to });
+    return ok2(await client.get(`/testing-declarations?${qs.toString()}`));
+  };
+}
+
 // src/tools/risk-acceptance-reasons.ts
 var BASE_ACTION = external_exports3.enum(["TECHNICAL_DEPENDENCY", "DEFERRAL", "DECISION_NOT_TO_DO"]).describe(
   "Accion base del motivo. Conjunto CERRADO en codigo: TECHNICAL_DEPENDENCY, DEFERRAL, DECISION_NOT_TO_DO."
@@ -35653,7 +35773,7 @@ var ListParamsSchema2 = external_exports3.object(riskAcceptanceReasonListSchema)
 var CreateParamsSchema = external_exports3.object(riskAcceptanceReasonCreateSchema).strict();
 var UpdateParamsSchema = external_exports3.object(riskAcceptanceReasonUpdateSchema).strict();
 var DeleteParamsSchema = external_exports3.object(riskAcceptanceReasonDeleteSchema).strict();
-function schemaError3(issues) {
+function schemaError4(issues) {
   return {
     isError: true,
     content: [
@@ -35664,7 +35784,7 @@ function schemaError3(issues) {
 function makeRiskAcceptanceReasonListHandler(client) {
   return async (params) => {
     const parsed = ListParamsSchema2.safeParse(params);
-    if (!parsed.success) return schemaError3(parsed.error.issues);
+    if (!parsed.success) return schemaError4(parsed.error.issues);
     const qs = new URLSearchParams();
     if (parsed.data.q) qs.set("q", parsed.data.q);
     if (parsed.data.isActive !== void 0) qs.set("isActive", String(parsed.data.isActive));
@@ -35678,7 +35798,7 @@ function makeRiskAcceptanceReasonListHandler(client) {
 function makeRiskAcceptanceReasonCreateHandler(client) {
   return async (params) => {
     const parsed = CreateParamsSchema.safeParse(params);
-    if (!parsed.success) return schemaError3(parsed.error.issues);
+    if (!parsed.success) return schemaError4(parsed.error.issues);
     const result = await client.post("/risk-acceptance-reasons", parsed.data);
     return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
   };
@@ -35686,7 +35806,7 @@ function makeRiskAcceptanceReasonCreateHandler(client) {
 function makeRiskAcceptanceReasonUpdateHandler(client) {
   return async (params) => {
     const parsed = UpdateParamsSchema.safeParse(params);
-    if (!parsed.success) return schemaError3(parsed.error.issues);
+    if (!parsed.success) return schemaError4(parsed.error.issues);
     const { id, ...body } = parsed.data;
     const result = await client.patch(`/risk-acceptance-reasons/${id}`, body);
     return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
@@ -35695,7 +35815,7 @@ function makeRiskAcceptanceReasonUpdateHandler(client) {
 function makeRiskAcceptanceReasonDeleteHandler(client) {
   return async (params) => {
     const parsed = DeleteParamsSchema.safeParse(params);
-    if (!parsed.success) return schemaError3(parsed.error.issues);
+    if (!parsed.success) return schemaError4(parsed.error.issues);
     const result = await client.del(`/risk-acceptance-reasons/${parsed.data.id}`);
     return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
   };
@@ -35798,6 +35918,12 @@ var corpusCurrentGetSchema = {
   limit: external_exports3.number().optional().describe("Tamano de pagina (default 20, maximo 100)."),
   offset: external_exports3.number().optional().describe("Offset de la pagina (default 0).")
 };
+var corpusRulesGetSchema = {
+  projectId: external_exports3.string().describe("Project del tenant del llamador cuyas reglas vigentes se recuperan."),
+  at: external_exports3.string().optional().describe("Momento (ISO 8601) contra el que se evalua la ventana de vigencia. Omitido vale el instante de la consulta."),
+  limit: external_exports3.number().optional().describe("Tamano de pagina (default 20, maximo 100)."),
+  offset: external_exports3.number().optional().describe("Offset de la pagina (default 0).")
+};
 var CorpusDocumentCreateParamsSchema = external_exports3.object(corpusDocumentCreateSchema).strict();
 var CorpusDocumentUpdateParamsSchema = external_exports3.object(corpusDocumentUpdateSchema).strict();
 var CorpusDocumentSetScopeParamsSchema = external_exports3.object(corpusDocumentSetScopeSchema).strict();
@@ -35810,7 +35936,8 @@ var CorpusExceptionRegisterParamsSchema = external_exports3.object(corpusExcepti
 var CorpusExceptionRemoveParamsSchema = external_exports3.object(corpusExceptionRemoveSchema).strict();
 var CorpusExceptionListParamsSchema = external_exports3.object(corpusExceptionListSchema).strict();
 var CorpusCurrentGetParamsSchema = external_exports3.object(corpusCurrentGetSchema).strict();
-function schemaError4(issues) {
+var CorpusRulesGetParamsSchema = external_exports3.object(corpusRulesGetSchema).strict();
+function schemaError5(issues) {
   const detail = issues.map((e) => `${e.path?.join(".") || "(root)"}: ${e.message}`).join("; ");
   return { isError: true, content: [{ type: "text", text: `Schema validation failed: ${detail}` }] };
 }
@@ -35829,7 +35956,7 @@ function queryString(params) {
 function makeCorpusDocumentCreateHandler(client) {
   return async (params) => {
     const parsed = CorpusDocumentCreateParamsSchema.safeParse(params);
-    if (!parsed.success) return schemaError4(parsed.error.issues);
+    if (!parsed.success) return schemaError5(parsed.error.issues);
     const { verification_tokens: _verification_tokens, ...body } = parsed.data;
     return asResult(await client.post("/corpus/documents", body));
   };
@@ -35837,7 +35964,7 @@ function makeCorpusDocumentCreateHandler(client) {
 function makeCorpusDocumentUpdateHandler(client) {
   return async (params) => {
     const parsed = CorpusDocumentUpdateParamsSchema.safeParse(params);
-    if (!parsed.success) return schemaError4(parsed.error.issues);
+    if (!parsed.success) return schemaError5(parsed.error.issues);
     const { id, ...body } = parsed.data;
     return asResult(await client.patch(`/corpus/documents/${seg(id)}`, body));
   };
@@ -35845,7 +35972,7 @@ function makeCorpusDocumentUpdateHandler(client) {
 function makeCorpusDocumentSetScopeHandler(client) {
   return async (params) => {
     const parsed = CorpusDocumentSetScopeParamsSchema.safeParse(params);
-    if (!parsed.success) return schemaError4(parsed.error.issues);
+    if (!parsed.success) return schemaError5(parsed.error.issues);
     const { id, verification_tokens: _verification_tokens, ...body } = parsed.data;
     return asResult(await client.patch(`/corpus/documents/${seg(id)}/scope`, body));
   };
@@ -35853,7 +35980,7 @@ function makeCorpusDocumentSetScopeHandler(client) {
 function makeCorpusDocumentTransitionHandler(client) {
   return async (params) => {
     const parsed = CorpusDocumentTransitionParamsSchema.safeParse(params);
-    if (!parsed.success) return schemaError4(parsed.error.issues);
+    if (!parsed.success) return schemaError5(parsed.error.issues);
     const { id, verification_tokens, note, ...rest } = parsed.data;
     const body = { ...rest, note: prependTokensHeader(note ?? "", verification_tokens).trimEnd() };
     return asResult(await client.post(`/corpus/documents/${seg(id)}/transitions`, body));
@@ -35862,7 +35989,7 @@ function makeCorpusDocumentTransitionHandler(client) {
 function makeCorpusRelationAddHandler(client) {
   return async (params) => {
     const parsed = CorpusRelationAddParamsSchema.safeParse(params);
-    if (!parsed.success) return schemaError4(parsed.error.issues);
+    if (!parsed.success) return schemaError5(parsed.error.issues);
     const { id, verification_tokens: _verification_tokens, ...body } = parsed.data;
     return asResult(await client.post(`/corpus/documents/${seg(id)}/relations`, body));
   };
@@ -35870,7 +35997,7 @@ function makeCorpusRelationAddHandler(client) {
 function makeCorpusRelationRemoveHandler(client) {
   return async (params) => {
     const parsed = CorpusRelationRemoveParamsSchema.safeParse(params);
-    if (!parsed.success) return schemaError4(parsed.error.issues);
+    if (!parsed.success) return schemaError5(parsed.error.issues);
     const { id, relationId } = parsed.data;
     return asResult(await client.del(`/corpus/documents/${seg(id)}/relations/${seg(relationId)}`));
   };
@@ -35878,14 +36005,14 @@ function makeCorpusRelationRemoveHandler(client) {
 function makeCorpusRelationListHandler(client) {
   return async (params) => {
     const parsed = CorpusRelationListParamsSchema.safeParse(params);
-    if (!parsed.success) return schemaError4(parsed.error.issues);
+    if (!parsed.success) return schemaError5(parsed.error.issues);
     return asResult(await client.get(`/corpus/documents/${seg(parsed.data.id)}/relations`));
   };
 }
 function makeCorpusDocumentHistoryHandler(client) {
   return async (params) => {
     const parsed = CorpusDocumentHistoryParamsSchema.safeParse(params);
-    if (!parsed.success) return schemaError4(parsed.error.issues);
+    if (!parsed.success) return schemaError5(parsed.error.issues);
     const { id, at } = parsed.data;
     return asResult(await client.get(`/corpus/documents/${seg(id)}/history${queryString({ at })}`));
   };
@@ -35893,7 +36020,7 @@ function makeCorpusDocumentHistoryHandler(client) {
 function makeCorpusExceptionRegisterHandler(client) {
   return async (params) => {
     const parsed = CorpusExceptionRegisterParamsSchema.safeParse(params);
-    if (!parsed.success) return schemaError4(parsed.error.issues);
+    if (!parsed.success) return schemaError5(parsed.error.issues);
     const { verification_tokens: _verification_tokens, ...body } = parsed.data;
     return asResult(await client.post("/corpus/exceptions", body));
   };
@@ -35901,24 +36028,34 @@ function makeCorpusExceptionRegisterHandler(client) {
 function makeCorpusExceptionRemoveHandler(client) {
   return async (params) => {
     const parsed = CorpusExceptionRemoveParamsSchema.safeParse(params);
-    if (!parsed.success) return schemaError4(parsed.error.issues);
+    if (!parsed.success) return schemaError5(parsed.error.issues);
     return asResult(await client.del(`/corpus/exceptions/${seg(parsed.data.id)}`));
   };
 }
 function makeCorpusExceptionListHandler(client) {
   return async (params) => {
     const parsed = CorpusExceptionListParamsSchema.safeParse(params);
-    if (!parsed.success) return schemaError4(parsed.error.issues);
+    if (!parsed.success) return schemaError5(parsed.error.issues);
     return asResult(await client.get(`/corpus/exceptions${queryString({ projectId: parsed.data.projectId })}`));
   };
 }
 function makeCorpusCurrentGetHandler(client) {
   return async (params) => {
     const parsed = CorpusCurrentGetParamsSchema.safeParse(params);
-    if (!parsed.success) return schemaError4(parsed.error.issues);
+    if (!parsed.success) return schemaError5(parsed.error.issues);
     const { projectId, at, limit, offset } = parsed.data;
     return asResult(
       await client.get(`/corpus/projects/${seg(projectId)}/current${queryString({ at, limit, offset })}`)
+    );
+  };
+}
+function makeCorpusRulesGetHandler(client) {
+  return async (params) => {
+    const parsed = CorpusRulesGetParamsSchema.safeParse(params);
+    if (!parsed.success) return schemaError5(parsed.error.issues);
+    const { projectId, at, limit, offset } = parsed.data;
+    return asResult(
+      await client.get(`/corpus/projects/${seg(projectId)}/rules${queryString({ at, limit, offset })}`)
     );
   };
 }
@@ -36158,7 +36295,7 @@ var MigracionRapidaPhaseLinkAddParamsSchema = external_exports3.object(migracion
 var MigracionRapidaPhaseLinkRemoveParamsSchema = external_exports3.object(migracionRapidaPhaseLinkRemoveSchema).strict();
 var MigracionRapidaTaskLinkAddParamsSchema = external_exports3.object(migracionRapidaTaskLinkAddSchema).strict();
 var MigracionRapidaTaskLinkRemoveParamsSchema = external_exports3.object(migracionRapidaTaskLinkRemoveSchema).strict();
-function schemaError5(issues) {
+function schemaError6(issues) {
   const detail = issues.map((e) => `${e.path?.join(".") || "(root)"}: ${e.message}`).join("; ");
   return { isError: true, content: [{ type: "text", text: `Schema validation failed: ${detail}` }] };
 }
@@ -36168,21 +36305,21 @@ function asResult2(result) {
 function makeMigracionRapidaSpecListHandler(client) {
   return async (params) => {
     const parsed = MigracionRapidaSpecListParamsSchema.safeParse(params ?? {});
-    if (!parsed.success) return schemaError5(parsed.error.issues);
+    if (!parsed.success) return schemaError6(parsed.error.issues);
     return asResult2(await client.get("/migracion-rapida/specs"));
   };
 }
 function makeMigracionRapidaSpecGetHandler(client) {
   return async (params) => {
     const parsed = MigracionRapidaSpecGetParamsSchema.safeParse(params);
-    if (!parsed.success) return schemaError5(parsed.error.issues);
+    if (!parsed.success) return schemaError6(parsed.error.issues);
     return asResult2(await client.get(`/migracion-rapida/specs/${seg2(parsed.data.specId)}`));
   };
 }
 function makeMigracionRapidaPhaseDeleteHandler(client) {
   return async (params) => {
     const parsed = MigracionRapidaPhaseDeleteParamsSchema.safeParse(params);
-    if (!parsed.success) return schemaError5(parsed.error.issues);
+    if (!parsed.success) return schemaError6(parsed.error.issues);
     const { specId, phaseId } = parsed.data;
     return asResult2(await client.del(`/migracion-rapida/specs/${seg2(specId)}/phases/${seg2(phaseId)}`));
   };
@@ -36190,7 +36327,7 @@ function makeMigracionRapidaPhaseDeleteHandler(client) {
 function makeMigracionRapidaTaskDeleteHandler(client) {
   return async (params) => {
     const parsed = MigracionRapidaTaskDeleteParamsSchema.safeParse(params);
-    if (!parsed.success) return schemaError5(parsed.error.issues);
+    if (!parsed.success) return schemaError6(parsed.error.issues);
     const { specId, taskId } = parsed.data;
     return asResult2(await client.del(`/migracion-rapida/specs/${seg2(specId)}/tasks/${seg2(taskId)}`));
   };
@@ -36198,7 +36335,7 @@ function makeMigracionRapidaTaskDeleteHandler(client) {
 function makeMigracionRapidaPhaseLinkAddHandler(client) {
   return async (params) => {
     const parsed = MigracionRapidaPhaseLinkAddParamsSchema.safeParse(params);
-    if (!parsed.success) return schemaError5(parsed.error.issues);
+    if (!parsed.success) return schemaError6(parsed.error.issues);
     const { specId, phaseId, ...body } = parsed.data;
     return asResult2(await client.post(`/migracion-rapida/specs/${seg2(specId)}/phases/${seg2(phaseId)}/links`, body));
   };
@@ -36206,7 +36343,7 @@ function makeMigracionRapidaPhaseLinkAddHandler(client) {
 function makeMigracionRapidaPhaseLinkRemoveHandler(client) {
   return async (params) => {
     const parsed = MigracionRapidaPhaseLinkRemoveParamsSchema.safeParse(params);
-    if (!parsed.success) return schemaError5(parsed.error.issues);
+    if (!parsed.success) return schemaError6(parsed.error.issues);
     const { specId, phaseId, linkId } = parsed.data;
     return asResult2(await client.del(`/migracion-rapida/specs/${seg2(specId)}/phases/${seg2(phaseId)}/links/${seg2(linkId)}`));
   };
@@ -36214,7 +36351,7 @@ function makeMigracionRapidaPhaseLinkRemoveHandler(client) {
 function makeMigracionRapidaTaskLinkAddHandler(client) {
   return async (params) => {
     const parsed = MigracionRapidaTaskLinkAddParamsSchema.safeParse(params);
-    if (!parsed.success) return schemaError5(parsed.error.issues);
+    if (!parsed.success) return schemaError6(parsed.error.issues);
     const { specId, taskId, ...body } = parsed.data;
     return asResult2(await client.post(`/migracion-rapida/specs/${seg2(specId)}/tasks/${seg2(taskId)}/links`, body));
   };
@@ -36222,7 +36359,7 @@ function makeMigracionRapidaTaskLinkAddHandler(client) {
 function makeMigracionRapidaTaskLinkRemoveHandler(client) {
   return async (params) => {
     const parsed = MigracionRapidaTaskLinkRemoveParamsSchema.safeParse(params);
-    if (!parsed.success) return schemaError5(parsed.error.issues);
+    if (!parsed.success) return schemaError6(parsed.error.issues);
     const { specId, taskId, linkId } = parsed.data;
     return asResult2(await client.del(`/migracion-rapida/specs/${seg2(specId)}/tasks/${seg2(taskId)}/links/${seg2(linkId)}`));
   };
@@ -36251,7 +36388,7 @@ var specOperatorInputListSchema = {
   )
 };
 var ListParamsSchema3 = external_exports3.object(specOperatorInputListSchema).strict();
-function schemaError6(issues) {
+function schemaError7(issues) {
   return {
     isError: true,
     content: [
@@ -36277,7 +36414,7 @@ function makeSpecRequestOperatorInputHandler(client, catalog) {
 function makeSpecOperatorInputListHandler(client) {
   return async (params) => {
     const parsed = ListParamsSchema3.safeParse(params);
-    if (!parsed.success) return schemaError6(parsed.error.issues);
+    if (!parsed.success) return schemaError7(parsed.error.issues);
     const { specId, status } = parsed.data;
     const base = `/specs/${encodeURIComponent(specId)}/operator-input`;
     const path3 = status === void 0 ? base : `${base}?status=${status}`;
@@ -36365,7 +36502,7 @@ var WorkItemExecutionFinishParamsSchema = external_exports3.object(workItemExecu
   }
 }).strict();
 var WorkItemCancelParamsSchema = external_exports3.object(workItemCancelSchema).strict();
-function schemaError7(issues) {
+function schemaError8(issues) {
   const detail = issues.map((e) => `${e.path?.join(".") || "(root)"}: ${e.message}`).join("; ");
   return { isError: true, content: [{ type: "text", text: `Schema validation failed: ${detail}` }] };
 }
@@ -36384,14 +36521,14 @@ function queryString2(params) {
 function makeWorkItemCreateHandler(client) {
   return async (params) => {
     const parsed = WorkItemCreateParamsSchema.safeParse(params);
-    if (!parsed.success) return schemaError7(parsed.error.issues);
+    if (!parsed.success) return schemaError8(parsed.error.issues);
     return asResult3(await client.post("/work-items", parsed.data));
   };
 }
 function makeWorkItemListHandler(client) {
   return async (params) => {
     const parsed = WorkItemListParamsSchema.safeParse(params);
-    if (!parsed.success) return schemaError7(parsed.error.issues);
+    if (!parsed.success) return schemaError8(parsed.error.issues);
     const { status, targetRole, subjectType, subjectId, limit, cursor } = parsed.data;
     return asResult3(
       await client.get(`/work-items${queryString2({ status, targetRole, subjectType, subjectId, limit, cursor })}`)
@@ -36401,7 +36538,7 @@ function makeWorkItemListHandler(client) {
 function makeWorkItemGetHandler(client) {
   return async (params) => {
     const parsed = WorkItemGetParamsSchema.safeParse(params);
-    if (!parsed.success) return schemaError7(parsed.error.issues);
+    if (!parsed.success) return schemaError8(parsed.error.issues);
     return asResult3(await client.get(`/work-items/${seg3(parsed.data.workItemId)}`));
   };
 }
@@ -36413,7 +36550,7 @@ function credentialOf(response) {
 function makeWorkItemExecutionStartHandler(client) {
   return async (params) => {
     const parsed = WorkItemExecutionStartParamsSchema.safeParse(params);
-    if (!parsed.success) return schemaError7(parsed.error.issues);
+    if (!parsed.success) return schemaError8(parsed.error.issues);
     const { workItemId, capabilities } = parsed.data;
     const body = capabilities === void 0 ? {} : { capabilities };
     const response = await client.post(`/work-items/${seg3(workItemId)}/executions`, body);
@@ -36425,7 +36562,7 @@ function makeWorkItemExecutionStartHandler(client) {
 function makeWorkItemExecutionHeartbeatHandler(client) {
   return async (params) => {
     const parsed = WorkItemExecutionHeartbeatParamsSchema.safeParse(params);
-    if (!parsed.success) return schemaError7(parsed.error.issues);
+    if (!parsed.success) return schemaError8(parsed.error.issues);
     const { workItemId, executionId } = parsed.data;
     return asResult3(
       await client.post(`/work-items/${seg3(workItemId)}/executions/${seg3(executionId)}/heartbeat`, {})
@@ -36435,7 +36572,7 @@ function makeWorkItemExecutionHeartbeatHandler(client) {
 function makeWorkItemExecutionContinuityHandler(client) {
   return async (params) => {
     const parsed = WorkItemExecutionContinuityParamsSchema.safeParse(params);
-    if (!parsed.success) return schemaError7(parsed.error.issues);
+    if (!parsed.success) return schemaError8(parsed.error.issues);
     const { workItemId, executionId, mode } = parsed.data;
     return asResult3(
       await client.post(`/work-items/${seg3(workItemId)}/executions/${seg3(executionId)}/continuity`, { mode })
@@ -36445,7 +36582,7 @@ function makeWorkItemExecutionContinuityHandler(client) {
 function makeWorkItemExecutionFinishHandler(client) {
   return async (params) => {
     const parsed = WorkItemExecutionFinishParamsSchema.safeParse(params);
-    if (!parsed.success) return schemaError7(parsed.error.issues);
+    if (!parsed.success) return schemaError8(parsed.error.issues);
     const { workItemId, executionId, result, reason, recoverableAt } = parsed.data;
     const response = await client.post(
       `/work-items/${seg3(workItemId)}/executions/${seg3(executionId)}/finish`,
@@ -36462,7 +36599,7 @@ function makeWorkItemExecutionFinishHandler(client) {
 function makeWorkItemCancelHandler(client) {
   return async (params) => {
     const parsed = WorkItemCancelParamsSchema.safeParse(params);
-    if (!parsed.success) return schemaError7(parsed.error.issues);
+    if (!parsed.success) return schemaError8(parsed.error.issues);
     return asResult3(await client.post(`/work-items/${seg3(parsed.data.workItemId)}/cancel`, {}));
   };
 }
@@ -38355,6 +38492,54 @@ server.registerTool(
   makeInfraContextGetHandler(apiClient)
 );
 server.registerTool(
+  "phase_testing_declaration_set",
+  {
+    description: "Declara lo que una fase de SPEC necesita crear o hacer para pasar a testing (TKT-0527): los .df, archivos de textos y de par\xE1metros, el valor de un par\xE1metro que pone quien instala cada entorno, el secreto que carga el operador, las l\xEDneas del archivo de entorno, los pasos manuales y c\xF3mo se prueba. REEMPLAZO COMPLETO. Dos formas v\xE1lidas: nothingToCreate=true con items vac\xEDo (no hace falta nada), o nothingToCreate=false con al menos un \xEDtem; cualquier otra rebota 422. Si el tenant exige la declaraci\xF3n (testingDeclarationMode=REQUIRED), una fase de desarrollo (sin noCodeLayer en su contrato) no pasa a COMPLETED sin ella: 422 TESTING_DECLARATION_REQUIRED. Requiere phase.transition (la misma key que cierra la fase) y respeta la asignaci\xF3n de la fase. En una SPEC de Migraci\xF3n r\xE1pida esta ruta est\xE1 cercada (403): us\xE1 migracion_rapida_phase_testing_declaration_set.",
+    inputSchema: external_exports3.object(phaseTestingDeclarationSetSchema).strict()
+  },
+  makePhaseTestingDeclarationSetHandler(apiClient)
+);
+server.registerTool(
+  "phase_testing_declaration_get",
+  {
+    description: "Lee la declaraci\xF3n de pasaje a testing de una fase (TKT-0527): { declaration } con sus \xEDtems, o { declaration: null } si la fase todav\xEDa no declar\xF3. Lectura sin permiso especial, acotada al tenant; sirve tambi\xE9n para las fases de Migraci\xF3n r\xE1pida (las lecturas no entran al cerco).",
+    inputSchema: external_exports3.object(phaseTestingDeclarationGetSchema).strict()
+  },
+  makePhaseTestingDeclarationGetHandler(apiClient)
+);
+server.registerTool(
+  "ticket_testing_declaration_set",
+  {
+    description: "Declara lo que el arreglo de un ticket necesita crear o hacer para pasar a testing (TKT-0527). En un ticket es OPCIONAL: se declara s\xF3lo si el arreglo necesita crear algo, y nada frena su cierre sin declaraci\xF3n. Mismo shape y mismas dos formas v\xE1lidas que phase_testing_declaration_set; reemplazo completo.",
+    inputSchema: external_exports3.object(ticketTestingDeclarationSetSchema).strict()
+  },
+  makeTicketTestingDeclarationSetHandler(apiClient)
+);
+server.registerTool(
+  "ticket_testing_declaration_get",
+  {
+    description: "Lee la declaraci\xF3n de pasaje a testing de un ticket (TKT-0527): { declaration } o { declaration: null } si no declar\xF3.",
+    inputSchema: external_exports3.object(ticketTestingDeclarationGetSchema).strict()
+  },
+  makeTicketTestingDeclarationGetHandler(apiClient)
+);
+server.registerTool(
+  "migracion_rapida_phase_testing_declaration_set",
+  {
+    description: "Declara lo que una fase de una SPEC de Migraci\xF3n r\xE1pida necesita crear o hacer para pasar a testing (TKT-0527). Es el camino de esas SPECs (el cerco cierra la ruta de la fase para ellas): exige la key spec.migracion_rapida y la identidad ARQUITECTO, como el resto de migracion_rapida_*. Mismo shape y mismas dos formas v\xE1lidas que phase_testing_declaration_set; con el tenant en REQUIRED, migracion_rapida_phase_update a COMPLETED rebota 422 TESTING_DECLARATION_REQUIRED sin ella.",
+    inputSchema: external_exports3.object(migracionRapidaPhaseTestingDeclarationSetSchema).strict()
+  },
+  makeMigracionRapidaPhaseTestingDeclarationSetHandler(apiClient)
+);
+server.registerTool(
+  "testing_declarations_window",
+  {
+    description: "La suma de las declaraciones de pasaje a testing de una ventana \u2014 el sprint, que vive fuera del Hub \u2014 (TKT-0527): los desarrollos cerrados en [from, to) (fases por completedAt, tickets por closedAt), cada declaraci\xF3n con su origen, los \xEDtems agrupados por kind (la lista de lo que hay que crear en TESTING y despu\xE9s en producci\xF3n) y las fases de desarrollo cerradas en la ventana SIN declaraci\xF3n. Lectura sin permiso especial, acotada al tenant.",
+    inputSchema: external_exports3.object(testingDeclarationsWindowSchema).strict()
+  },
+  makeTestingDeclarationsWindowHandler(apiClient)
+);
+server.registerTool(
   "risk_acceptance_reason_list",
   {
     description: "Lista el catalogo de motivos de aceptacion de riesgo (RiskAcceptanceReason) del tenant autenticado, con su id y su baseAction \u2014 el dato que la emision de una aceptacion (P4) necesita citar. Filtros opcionales: q (contains-insensitive en name/label), isActive. Tenant-scoped server-side via el JWT.",
@@ -38481,6 +38666,14 @@ server.registerTool(
     inputSchema: external_exports3.object(corpusCurrentGetSchema).strict()
   },
   makeCorpusCurrentGetHandler(apiClient)
+);
+server.registerTool(
+  "corpus_rules_get",
+  {
+    description: "Reglas vigentes de un Project a un momento (GET /corpus/projects/:projectId/rules): los documentos del Corpus de scope PROJECT de ese Project, en ACTIVE y dentro de su ventana, que llevan la etiqueta `regla`. Por regla trae titulo, resumen, slug (el texto completo se lee con get_kb_article) y los documentos de los que se desprende (DERIVED_FROM). Es lo que el hook de arranque de sesion le sirve al dev. Orden por titulo; `at` (ISO 8601) evalua la ventana en ese momento. Paginado (limit/offset). Lectura: no requiere key del Corpus; acotada al tenant del firmante.",
+    inputSchema: external_exports3.object(corpusRulesGetSchema).strict()
+  },
+  makeCorpusRulesGetHandler(apiClient)
 );
 server.registerTool(
   "migracion_rapida_spec_list",

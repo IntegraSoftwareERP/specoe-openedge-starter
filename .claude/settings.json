@@ -48,6 +48,16 @@
             "shell": "bash"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node $HOME/.claude/hooks/corpus-rules-session-init.mjs",
+            "timeout": 5,
+            "shell": "bash"
+          }
+        ]
       }
     ],
     "PreToolUse": [

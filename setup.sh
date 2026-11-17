@@ -401,6 +401,11 @@ else
   # canal no sirve nada y no bloquea. Viaja SIN adaptar: es el mismo archivo que en integra-hub.
   install_force "$BUNDLE_DIR/hooks/infra-context-session-init.mjs" "$CLAUDE_HOME/hooks/infra-context-session-init.mjs"
 
+  # TKT-0526 — las reglas vigentes del proyecto del room al arrancar: titulo y resumen de cada una.
+  # El proyecto lo declara el room en `hub.project-id`; sin esa clave no sirve nada y no bloquea.
+  # Autentica por `hub-channel.mjs`, instalado arriba. Viaja SIN adaptar, igual que el de arriba.
+  install_force "$BUNDLE_DIR/hooks/corpus-rules-session-init.mjs" "$CLAUDE_HOME/hooks/corpus-rules-session-init.mjs"
+
   # TKT-0362 — el auditor de los tres de arriba. Un hook puede no correr por tres motivos que
   # desde adentro de una sesion se ven identicos: no pasa nada. Este los distingue al arrancar.
   # Lee DOS manifiestos porque hay dos canales: el `integra-hooks-manifest.json` que escribe el

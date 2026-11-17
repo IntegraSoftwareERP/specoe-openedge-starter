@@ -2,6 +2,17 @@
 
 All notable changes to this project. Automatic — regenerado por `./scripts/changelog.sh`.
 
+## 0.2.43 - 2026-11-17 (las reglas vigentes del proyecto al arrancar la sesión; re-vendoriza el MCP del Hub)
+
+Suma el hook `corpus-rules-session-init` (TKT-0526), que al arrancar la sesión muestra las reglas vigentes del proyecto del room. De cada regla sirve el título, el resumen y el `slug`; el texto completo se lee con `get_kb_article`. El proyecto lo declara el room en `hub.project-id` de su `project.config.local.yaml`; sin esa clave, el hook no muestra nada y no bloquea. Qué cuenta como regla lo decide el Hub: un documento del Corpus de ese proyecto, vigente y con la etiqueta `regla`. Viaja sin adaptar desde `0854b8ba`, lo instala `setup.sh --host-only` y queda cableado en `SessionStart` del `.claude/settings.json`. Hasta ahora `check-hooks-parity.sh` daba `exit 1`, porque el instalador del Hub ya instala este hook y el starter no lo traía.
+
+Re-vendoriza el bundle del MCP del Hub (`vendor/integra-hub-mcp.mjs`) desde `0854b8ba`, el master de integra-hub con TKT-0526 y TKT-0527. Trae dos grupos de tools nuevas:
+
+- `corpus_rules_get`, que lee las reglas vigentes de un proyecto.
+- Las de la declaración de pasaje a testing: `phase_testing_declaration_get`/`_set`, `ticket_testing_declaration_get`/`_set`, `testing_declarations_window` y `migracion_rapida_phase_testing_declaration_set`.
+
+Trae además el resto de los cambios del MCP desde `749dca65`. Build reproducible: dos corridas dieron el mismo sha256 (`bc629a3f`). La versión del paquete sigue en 0.1.2.
+
 ## 0.2.42 - 2026-10-22 (re-vendoriza el MCP del Hub: varias consultas al Operador abiertas por SPEC)
 
 Re-vendoriza el bundle del MCP del Hub (`vendor/integra-hub-mcp.mjs`) desde `749dca65`, el master de integra-hub con TKT-0513. `spec_request_operator_input` y `spec_operator_input_list` ahora dicen que una SPEC puede tener varias consultas al Operador abiertas a la vez, cada una de una decisión, que el rechazo nombra todas las pendientes y que la lectura devuelve `pendingIds`. Trae además los cambios del MCP desde `b474940b`: runner y adapter de Codex, las tools `migracion_rapida_*` y `work_item_execution_continuity`. Build reproducible: dos corridas dieron el mismo sha256 (`368ac2f1`). La versión del paquete sigue en 0.1.2.

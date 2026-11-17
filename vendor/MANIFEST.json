@@ -1,7 +1,7 @@
 {
   "starterVersion": "0.2.34",
   "schemaVersion": 2,
-  "generatedAt": "2026-10-22",
+  "generatedAt": "2026-11-17",
   "hashPolicy": {
     "note": "TKT-0252 — dos hashes con dos propositos distintos. Ninguno reemplaza al otro: el que verifica procedencia mira contentSha256, el que verifica la copia mira packageSha256.",
     "packageSha256": "sha256 del archivo tal cual quedo en vendor/. CHECKSUM DE COPIA: detecta corrupcion en el canal de publicacion (clon, normalizacion de fin de linea, transferencia). NO prueba procedencia cuando el artefacto es un contenedor: vsce escribe timestamps dentro del .vsix, asi que empaquetar el MISMO commit dos veces da dos valores distintos.",
@@ -19,10 +19,10 @@
       "version": "0.1.2",
       "sourceRepo": "IntegraSoftwareERP/integra-hub",
       "sourcePath": "mcp-server",
-      "sourceSha": "749dca65a564c2552440b713371085248d6d6583",
-      "packageSha256": "368ac2f1def2dd88d256363218f4d62b80832bf95ddc101ef2cd8f4befa47a6b",
+      "sourceSha": "0854b8ba8a06d7fe26fdd99579fb71591e547fff",
+      "packageSha256": "bc629a3fb6a94eaa343a3f5a98c5bfac57333ea843c12506c432b15c6225d01d",
       "versionCommand": "node vendor/integra-hub-mcp.mjs --version",
-      "reproducibility": "esbuild sobre el mismo input produce el mismo output: VERIFICADO 2026-08-10 reconstruyendo el bundle desde 974c8b9, RE-VERIFICADO 2026-09-02 desde f92cec5 y RE-VERIFICADO 2026-09-03 desde 08dfddb y RE-VERIFICADO 2026-09-22 desde 42fe929f y RE-VERIFICADO 2026-10-05 desde 31fad87c y RE-VERIFICADO 2026-10-06 desde b474940b y RE-VERIFICADO 2026-10-22 desde 749dca65 — las dos corridas de cada fecha dieron el mismo sha byte a byte. Por eso este componente NO necesita contentSha256: su packageSha256 ya identifica el contenido.",
+      "reproducibility": "esbuild sobre el mismo input produce el mismo output: VERIFICADO 2026-08-10 reconstruyendo el bundle desde 974c8b9, RE-VERIFICADO 2026-09-02 desde f92cec5 y RE-VERIFICADO 2026-09-03 desde 08dfddb y RE-VERIFICADO 2026-09-22 desde 42fe929f y RE-VERIFICADO 2026-10-05 desde 31fad87c y RE-VERIFICADO 2026-10-06 desde b474940b y RE-VERIFICADO 2026-10-22 desde 749dca65 y RE-VERIFICADO 2026-11-17 desde 0854b8ba — las dos corridas de cada fecha dieron el mismo sha byte a byte. Por eso este componente NO necesita contentSha256: su packageSha256 ya identifica el contenido.",
       "versionNote": "TKT-0362 / TKT-0368 — la version del paquete sigue en 0.1.2 y NO se bumpea al re-vendorizar: mcp-server no la movio entre 9d62731, f92cec5 y 08dfddb. `--version` devuelve 0.1.2 para el bundle viejo y el nuevo, asi que NO sirve para distinguirlos desde la VM. Lo que los distingue es el sourceSha declarado aca y su packageSha256."
     },
     {
@@ -149,6 +149,17 @@
       "sourceSha": "749dca65a564c2552440b713371085248d6d6583",
       "packageSha256": "a4db247bbf00ef9291228bbcec3da49bfba6c316f282c1a9f517aece8f5ced3b",
       "note": "TKT-0453 — hook SessionStart que sirve el INFRA_CONTEXT del tenant al arrancar (TKT-0389). Se vendoriza SIN adaptar: desde integra-hub #801 resuelve el canal por hub-channel.mjs y, si no esta, por integra-hub-auth.mjs, asi que el mismo archivo autentica en la maquina del dev (identidad SDD + ca-channel) y en la del Operador. Informativo: nunca bloquea; sin canal no sirve nada y la sesion arranca igual. TKT-0513 lo re-vendoriza desde 749dca65 con TKT-0498 (integra-hub #873): el canal habla con el Hub solo con la identidad que declara el room (hub.account + hub.tenant-id, o specoe.tenant) y falla cerrado si no la declara."
+    },
+    {
+      "name": "corpus-rules-session-init",
+      "file": "corpus-rules-session-init.mjs",
+      "basePath": ".claude-bundle/hooks",
+      "artifactKind": "file",
+      "sourceRepo": "IntegraSoftwareERP/integra-hub",
+      "sourcePath": "hooks/corpus-rules-session-init.mjs",
+      "sourceSha": "0854b8ba8a06d7fe26fdd99579fb71591e547fff",
+      "packageSha256": "f57b9c5e5edfdf16076055153b0b7d539e74d3b3710c7a0ea16a3e81885860d0",
+      "note": "TKT-0526 — hook SessionStart que sirve las reglas vigentes del proyecto del room al arrancar: titulo y resumen de cada una, con el slug para leer el texto completo. El proyecto lo declara el room en hub.project-id (project.config.local.yaml, o el versionado si el local no declara la clave); sin esa clave no sirve nada. Que es una regla lo decide el Hub (GET /corpus/projects/:id/rules), no el hook. Se vendoriza SIN adaptar: resuelve el canal por hub-channel.mjs, que aplica ca-channel.mjs. Informativo: nunca bloquea."
     },
     {
       "name": "ack-task-command",
